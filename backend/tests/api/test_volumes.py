@@ -470,9 +470,7 @@ async def test_snapshots_and_backups(user, cinder):
     assert response.status_code == 202, response.text
     assert response.json()["volume_name"] == "data"
     # vol-1 is in use, so the snapshot is forced as Horizon does.
-    assert json.loads(created.calls.last.request.content)["snapshot"][
-        "force"
-    ]
+    assert json.loads(created.calls.last.request.content)["snapshot"]["force"]
 
     backups = await user.get("/api/volumes/backups")
     assert backups.status_code == 200, backups.text

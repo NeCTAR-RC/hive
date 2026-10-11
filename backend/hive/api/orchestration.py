@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, Response
 
 from hive.api.compute import get_context
 from hive.schemas.orchestration import StackCreate, StackUpdate, TemplateSource
-from hive.services import orchestration
 from hive.services.context import Context
+from hive.services import orchestration
 
 router = APIRouter(prefix="/orchestration", tags=["orchestration"])
 
@@ -21,7 +21,9 @@ async def create_stack(body: StackCreate, ctx: Context = Depends(get_context)):
 
 
 @router.post("/validate")
-async def validate_template(body: TemplateSource, ctx: Context = Depends(get_context)):
+async def validate_template(
+    body: TemplateSource, ctx: Context = Depends(get_context)
+):
     return await orchestration.validate_template(ctx, body)
 
 
@@ -41,7 +43,9 @@ async def template_versions(ctx: Context = Depends(get_context)):
 
 
 @router.get("/template-versions/{version}/functions")
-async def template_functions(version: str, ctx: Context = Depends(get_context)):
+async def template_functions(
+    version: str, ctx: Context = Depends(get_context)
+):
     return await orchestration.template_functions(ctx, version)
 
 
@@ -51,7 +55,9 @@ async def get_stack(identity: str, ctx: Context = Depends(get_context)):
 
 
 @router.patch("/stacks/{identity}", status_code=202)
-async def update_stack(identity: str, body: StackUpdate, ctx: Context = Depends(get_context)):
+async def update_stack(
+    identity: str, body: StackUpdate, ctx: Context = Depends(get_context)
+):
     return await orchestration.update_stack(ctx, identity, body)
 
 
@@ -62,7 +68,9 @@ async def delete_stack(identity: str, ctx: Context = Depends(get_context)):
 
 
 @router.post("/stacks/{identity}/actions/{action}", status_code=202)
-async def stack_action(identity: str, action: str, ctx: Context = Depends(get_context)):
+async def stack_action(
+    identity: str, action: str, ctx: Context = Depends(get_context)
+):
     if action not in ("suspend", "resume", "check", "cancel_update"):
         return Response(status_code=404)
     return await orchestration.stack_action(ctx, identity, action)
@@ -74,12 +82,16 @@ async def stack_resources(identity: str, ctx: Context = Depends(get_context)):
 
 
 @router.get("/stacks/{identity}/resources/{resource}")
-async def stack_resource(identity: str, resource: str, ctx: Context = Depends(get_context)):
+async def stack_resource(
+    identity: str, resource: str, ctx: Context = Depends(get_context)
+):
     return await orchestration.stack_resource(ctx, identity, resource)
 
 
 @router.get("/stacks/{identity}/events")
-async def stack_events(identity: str, limit: int = 100, ctx: Context = Depends(get_context)):
+async def stack_events(
+    identity: str, limit: int = 100, ctx: Context = Depends(get_context)
+):
     return await orchestration.stack_events(ctx, identity, limit)
 
 

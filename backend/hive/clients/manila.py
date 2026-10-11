@@ -51,10 +51,14 @@ class ManilaClient(ServiceClient):
         await self.request("DELETE", f"/shares/{share_id}", ok=(202, 204))
 
     async def extend_share(self, share_id: str, size: int) -> None:
-        await self._action(f"/shares/{share_id}", {"extend": {"new_size": size}})
+        await self._action(
+            f"/shares/{share_id}", {"extend": {"new_size": size}}
+        )
 
     async def shrink_share(self, share_id: str, size: int) -> None:
-        await self._action(f"/shares/{share_id}", {"shrink": {"new_size": size}})
+        await self._action(
+            f"/shares/{share_id}", {"shrink": {"new_size": size}}
+        )
 
     async def revert_share(self, share_id: str, snapshot_id: str) -> None:
         await self._action(
@@ -67,7 +71,9 @@ class ManilaClient(ServiceClient):
         )
 
     async def allow_access(self, share_id: str, fields: dict) -> dict:
-        body = await self._action(f"/shares/{share_id}", {"allow_access": fields})
+        body = await self._action(
+            f"/shares/{share_id}", {"allow_access": fields}
+        )
         return body.get("access", {})
 
     async def deny_access(self, share_id: str, access_id: str) -> None:
@@ -106,10 +112,14 @@ class ManilaClient(ServiceClient):
         return await self._create("/snapshots", "snapshot", fields)
 
     async def update_snapshot(self, snapshot_id: str, fields: dict) -> dict:
-        return await self._update(f"/snapshots/{snapshot_id}", "snapshot", fields)
+        return await self._update(
+            f"/snapshots/{snapshot_id}", "snapshot", fields
+        )
 
     async def delete_snapshot(self, snapshot_id: str) -> None:
-        await self.request("DELETE", f"/snapshots/{snapshot_id}", ok=(202, 204))
+        await self.request(
+            "DELETE", f"/snapshots/{snapshot_id}", ok=(202, 204)
+        )
 
     # security services
     async def security_services(self, **params) -> list[dict]:
@@ -118,10 +128,14 @@ class ManilaClient(ServiceClient):
         )
 
     async def security_service(self, service_id: str) -> dict:
-        return await self._get(f"/security-services/{service_id}", "security_service")
+        return await self._get(
+            f"/security-services/{service_id}", "security_service"
+        )
 
     async def create_security_service(self, fields: dict) -> dict:
-        return await self._create("/security-services", "security_service", fields)
+        return await self._create(
+            "/security-services", "security_service", fields
+        )
 
     async def update_security_service(self, service_id: str, fields: dict):
         return await self._update(
@@ -135,7 +149,9 @@ class ManilaClient(ServiceClient):
 
     # share groups
     async def share_groups(self, **params) -> list[dict]:
-        return await self._list("/share-groups/detail", "share_groups", **params)
+        return await self._list(
+            "/share-groups/detail", "share_groups", **params
+        )
 
     async def share_group(self, group_id: str) -> dict:
         return await self._get(f"/share-groups/{group_id}", "share_group")
@@ -144,10 +160,14 @@ class ManilaClient(ServiceClient):
         return await self._create("/share-groups", "share_group", fields)
 
     async def update_share_group(self, group_id: str, fields: dict) -> dict:
-        return await self._update(f"/share-groups/{group_id}", "share_group", fields)
+        return await self._update(
+            f"/share-groups/{group_id}", "share_group", fields
+        )
 
     async def delete_share_group(self, group_id: str) -> None:
-        await self.request("DELETE", f"/share-groups/{group_id}", ok=(202, 204))
+        await self.request(
+            "DELETE", f"/share-groups/{group_id}", ok=(202, 204)
+        )
 
     async def share_group_types(self) -> list[dict]:
         return await self._list("/share-group-types", "share_group_types")
@@ -167,9 +187,13 @@ class ManilaClient(ServiceClient):
             "/share-group-snapshots", "share_group_snapshot", fields
         )
 
-    async def update_share_group_snapshot(self, snapshot_id: str, fields: dict):
+    async def update_share_group_snapshot(
+        self, snapshot_id: str, fields: dict
+    ):
         return await self._update(
-            f"/share-group-snapshots/{snapshot_id}", "share_group_snapshot", fields
+            f"/share-group-snapshots/{snapshot_id}",
+            "share_group_snapshot",
+            fields,
         )
 
     async def delete_share_group_snapshot(self, snapshot_id: str) -> None:

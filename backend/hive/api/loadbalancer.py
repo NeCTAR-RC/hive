@@ -21,8 +21,8 @@ from hive.schemas.loadbalancer import (
     PoolCreate,
     PoolUpdate,
 )
-from hive.services import loadbalancer
 from hive.services.context import Context
+from hive.services import loadbalancer
 
 router = APIRouter(prefix="/load-balancers", tags=["load-balancers"])
 
@@ -58,11 +58,15 @@ async def load_balancer_tree(lb_id: str, ctx: Context = Depends(get_context)):
 async def update_load_balancer(
     lb_id: str, body: LoadBalancerUpdate, ctx: Context = Depends(get_context)
 ):
-    return await loadbalancer.update_load_balancer(ctx, lb_id, body.model_dump())
+    return await loadbalancer.update_load_balancer(
+        ctx, lb_id, body.model_dump()
+    )
 
 
 @router.delete("/{lb_id}", status_code=204)
-async def delete_load_balancer(lb_id: str, ctx: Context = Depends(get_context)):
+async def delete_load_balancer(
+    lb_id: str, ctx: Context = Depends(get_context)
+):
     await loadbalancer.delete_load_balancer(ctx, lb_id)
     return Response(status_code=204)
 
@@ -83,7 +87,9 @@ async def associate_floating_ip(
 
 
 @router.delete("/{lb_id}/floating-ip")
-async def disassociate_floating_ip(lb_id: str, ctx: Context = Depends(get_context)):
+async def disassociate_floating_ip(
+    lb_id: str, ctx: Context = Depends(get_context)
+):
     return await loadbalancer.disassociate_floating_ip(ctx, lb_id)
 
 
@@ -91,7 +97,9 @@ async def disassociate_floating_ip(lb_id: str, ctx: Context = Depends(get_contex
 
 
 @router.post("/listeners", status_code=202)
-async def create_listener(body: ListenerCreate, ctx: Context = Depends(get_context)):
+async def create_listener(
+    body: ListenerCreate, ctx: Context = Depends(get_context)
+):
     return await loadbalancer.create_listener(
         ctx, body.loadbalancer_id, body, body.pool, body.members, body.monitor
     )
@@ -101,11 +109,15 @@ async def create_listener(body: ListenerCreate, ctx: Context = Depends(get_conte
 async def update_listener(
     listener_id: str, body: ListenerUpdate, ctx: Context = Depends(get_context)
 ):
-    return await loadbalancer.update_listener(ctx, listener_id, body.model_dump())
+    return await loadbalancer.update_listener(
+        ctx, listener_id, body.model_dump()
+    )
 
 
 @router.delete("/listeners/{listener_id}", status_code=204)
-async def delete_listener(listener_id: str, ctx: Context = Depends(get_context)):
+async def delete_listener(
+    listener_id: str, ctx: Context = Depends(get_context)
+):
     await loadbalancer.delete_listener(ctx, listener_id)
     return Response(status_code=204)
 
@@ -116,7 +128,12 @@ async def delete_listener(listener_id: str, ctx: Context = Depends(get_context))
 @router.post("/pools", status_code=202)
 async def create_pool(body: PoolCreate, ctx: Context = Depends(get_context)):
     return await loadbalancer.create_pool(
-        ctx, body.loadbalancer_id, body.listener_id, body, body.members, body.monitor
+        ctx,
+        body.loadbalancer_id,
+        body.listener_id,
+        body,
+        body.members,
+        body.monitor,
     )
 
 
@@ -140,12 +157,17 @@ async def replace_members(
     body: MembersReplace,
     ctx: Context = Depends(get_context),
 ):
-    return await loadbalancer.replace_members(ctx, lb_id, pool_id, body.members)
+    return await loadbalancer.replace_members(
+        ctx, lb_id, pool_id, body.members
+    )
 
 
 @router.post("/{lb_id}/pools/{pool_id}/members", status_code=202)
 async def add_member(
-    lb_id: str, pool_id: str, body: MemberSpec, ctx: Context = Depends(get_context)
+    lb_id: str,
+    pool_id: str,
+    body: MemberSpec,
+    ctx: Context = Depends(get_context),
 ):
     return await loadbalancer.add_member(ctx, lb_id, pool_id, body)
 
@@ -157,7 +179,9 @@ async def update_member(
     body: MemberUpdate,
     ctx: Context = Depends(get_context),
 ):
-    return await loadbalancer.update_member(ctx, pool_id, member_id, body.model_dump())
+    return await loadbalancer.update_member(
+        ctx, pool_id, member_id, body.model_dump()
+    )
 
 
 @router.delete("/pools/{pool_id}/members/{member_id}", status_code=204)
@@ -172,7 +196,9 @@ async def delete_member(
 
 
 @router.post("/monitors", status_code=202)
-async def create_monitor(body: MonitorCreate, ctx: Context = Depends(get_context)):
+async def create_monitor(
+    body: MonitorCreate, ctx: Context = Depends(get_context)
+):
     return await loadbalancer.create_monitor(ctx, body.pool_id, body)
 
 
@@ -180,7 +206,9 @@ async def create_monitor(body: MonitorCreate, ctx: Context = Depends(get_context
 async def update_monitor(
     monitor_id: str, body: MonitorUpdate, ctx: Context = Depends(get_context)
 ):
-    return await loadbalancer.update_monitor(ctx, monitor_id, body.model_dump())
+    return await loadbalancer.update_monitor(
+        ctx, monitor_id, body.model_dump()
+    )
 
 
 @router.delete("/monitors/{monitor_id}", status_code=204)
@@ -193,7 +221,9 @@ async def delete_monitor(monitor_id: str, ctx: Context = Depends(get_context)):
 
 
 @router.post("/l7policies", status_code=202)
-async def create_l7_policy(body: L7PolicyCreate, ctx: Context = Depends(get_context)):
+async def create_l7_policy(
+    body: L7PolicyCreate, ctx: Context = Depends(get_context)
+):
     return await loadbalancer.create_l7_policy(ctx, body.listener_id, body)
 
 
@@ -206,11 +236,15 @@ async def get_l7_policy(policy_id: str, ctx: Context = Depends(get_context)):
 async def update_l7_policy(
     policy_id: str, body: L7PolicyUpdate, ctx: Context = Depends(get_context)
 ):
-    return await loadbalancer.update_l7_policy(ctx, policy_id, body.model_dump())
+    return await loadbalancer.update_l7_policy(
+        ctx, policy_id, body.model_dump()
+    )
 
 
 @router.delete("/l7policies/{policy_id}", status_code=204)
-async def delete_l7_policy(policy_id: str, ctx: Context = Depends(get_context)):
+async def delete_l7_policy(
+    policy_id: str, ctx: Context = Depends(get_context)
+):
     await loadbalancer.delete_l7_policy(ctx, policy_id)
     return Response(status_code=204)
 
@@ -229,7 +263,9 @@ async def update_l7_rule(
     body: L7RuleUpdate,
     ctx: Context = Depends(get_context),
 ):
-    return await loadbalancer.update_l7_rule(ctx, policy_id, rule_id, body.model_dump())
+    return await loadbalancer.update_l7_rule(
+        ctx, policy_id, rule_id, body.model_dump()
+    )
 
 
 @router.delete("/l7policies/{policy_id}/rules/{rule_id}", status_code=204)

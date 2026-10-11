@@ -104,9 +104,7 @@ class TestCreateBody:
         rules = VolumeRules()
         with pytest.raises(BadRequest, match="snapshot size \\(20 GB\\)"):
             rules.create_body(
-                VolumeCreate(
-                    size=10, source={"type": "snapshot", "id": "s"}
-                ),
+                VolumeCreate(size=10, source={"type": "snapshot", "id": "s"}),
                 {"size": 20},
             )
         with pytest.raises(BadRequest, match="source volume size"):

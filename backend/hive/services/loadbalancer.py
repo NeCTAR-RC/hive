@@ -20,8 +20,8 @@ from hive.schemas.loadbalancer import (
     PoolSpec,
 )
 from hive.schemas.network import FloatingIpAllocate
-from hive.services import network as network_service
 from hive.services.context import Context
+from hive.services import network as network_service
 
 log = structlog.get_logger("hive.loadbalancer")
 
@@ -40,7 +40,9 @@ def _chain_key(ctx: Context, lb_id: str) -> str:
 
 
 async def _set_chain(ctx: Context, lb_id: str, state: dict) -> None:
-    await ctx.cache._redis.set(_chain_key(ctx, lb_id), json.dumps(state), ex=CHAIN_TTL)
+    await ctx.cache._redis.set(
+        _chain_key(ctx, lb_id), json.dumps(state), ex=CHAIN_TTL
+    )
 
 
 async def chain_state(ctx: Context, lb_id: str) -> dict | None:
@@ -69,7 +71,10 @@ def lb_summary(lb: dict, floating: dict | None = None) -> dict:
         "listeners": [i.get("id") for i in lb.get("listeners") or []],
         "pools": [i.get("id") for i in lb.get("pools") or []],
         "floating_ip": (
-            {"id": floating.get("id"), "address": floating.get("floating_ip_address")}
+            {
+                "id": floating.get("id"),
+                "address": floating.get("floating_ip_address"),
+            }
             if floating
             else None
         ),
@@ -125,7 +130,9 @@ def pool_summary(pool: dict) -> dict:
         "tls_ciphers": pool.get("tls_ciphers"),
         "healthmonitor_id": pool.get("healthmonitor_id"),
         "listeners": [i.get("id") for i in pool.get("listeners") or []],
-        "loadbalancer_id": next((i.get("id") for i in pool.get("loadbalancers") or []), None),
+        "loadbalancer_id": next(
+            (i.get("id") for i in pool.get("loadbalancers") or []), None
+        ),
         "members": [i.get("id") for i in pool.get("members") or []],
         "created_at": pool.get("created_at"),
         "updated_at": pool.get("updated_at"),
@@ -220,16 +227,21 @@ async def _floating_by_port(ctx: Context) -> dict[str, dict]:
 async def list_load_balancers(ctx: Context) -> dict:
     octavia = _octavia(ctx)
     lbs, floating = await asyncio.gather(
-        octavia.load_balancers(project_id=ctx.project_id), _floating_by_port(ctx)
+        octavia.load_balancers(project_id=ctx.project_id),
+        _floating_by_port(ctx),
     )
-    items = [lb_summary(lb, floating.get(lb.get("vip_port_id") or "")) for lb in lbs]
+    items = [
+        lb_summary(lb, floating.get(lb.get("vip_port_id") or "")) for lb in lbs
+    ]
     items.sort(key=lambda lb: (lb["name"] or "").lower())
     return {"items": items}
 
 
 async def get_load_balancer(ctx: Context, lb_id: str) -> dict:
     octavia = _octavia(ctx)
-    lb, floating = await asyncio.gather(octavia.load_balancer(lb_id), _floating_by_port(ctx))
+    lb, floating = await asyncio.gather(
+        octavia.load_balancer(lb_id), _floating_by_port(ctx)
+    )
     summary = lb_summary(lb, floating.get(lb.get("vip_port_id") or ""))
     summary["chain"] = await chain_state(ctx, lb_id)
     return summary
@@ -248,13 +260,16 @@ async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
         _floating_by_port(ctx),
     )
     pool_ids = {p.get("id") for p in pools}
-    listener_ids = {l.get("id") for l in listeners}
+    listener_ids = {listener.get("id") for listener in listeners}
     semaphore = asyncio.Semaphore(FAN_OUT)
 
     async def members_of(pool: dict) -> list[dict]:
         async with semaphore:
             try:
-                return [member_summary(m) for m in await octavia.members(pool["id"])]
+                return [
+                    member_summary(m)
+                    for m in await octavia.members(pool["id"])
+                ]
             except HiveError:
                 return []
 
@@ -265,9 +280,11 @@ async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
         row["member_rows"] = members
         pool_rows.append(row)
     return {
-        "load_balancer": lb_summary(lb, floating.get(lb.get("vip_port_id") or "")),
+        "load_balancer": lb_summary(
+            lb, floating.get(lb.get("vip_port_id") or "")
+        ),
         "chain": await chain_state(ctx, lb_id),
-        "listeners": [listener_summary(l) for l in listeners],
+        "listeners": [listener_summary(listener) for listener in listeners],
         "pools": pool_rows,
         "monitors": [
             monitor_summary(m)
@@ -275,7 +292,9 @@ async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
             if any(p.get("id") in pool_ids for p in m.get("pools") or [])
         ],
         "l7policies": [
-            policy_summary(p) for p in policies if p.get("listener_id") in listener_ids
+            policy_summary(p)
+            for p in policies
+            if p.get("listener_id") in listener_ids
         ],
     }
 
@@ -292,11 +311,18 @@ async def _wait_active(octavia: OctaviaClient, lb_id: str) -> dict:
     raise Conflict("the load balancer did not become active in time")
 
 
-async def _run_chain(ctx: Context, lb_id: str, steps: list[tuple[str, dict]]) -> None:
+async def _run_chain(
+    ctx: Context, lb_id: str, steps: list[tuple[str, dict]]
+) -> None:
     """Create the wizard's sub-resources one after another once the load
     balancer is ACTIVE, recording progress for the detail page."""
     octavia = _octavia(ctx)
-    state = {"steps": [s[0] for s in steps], "done": [], "error": None, "started": time.time()}
+    state = {
+        "steps": [s[0] for s in steps],
+        "done": [],
+        "error": None,
+        "started": time.time(),
+    }
     await _set_chain(ctx, lb_id, state)
     listener_id = None
     pool_id = None
@@ -305,7 +331,9 @@ async def _run_chain(ctx: Context, lb_id: str, steps: list[tuple[str, dict]]) ->
         for name, spec in steps:
             await _wait_active(octavia, lb_id)
             if name == "listener":
-                created = await octavia.create_listener(rules.listener_fields(spec, lb_id))
+                created = await octavia.create_listener(
+                    rules.listener_fields(spec, lb_id)
+                )
                 listener_id = created.get("id")
                 listener_protocol = spec.get("protocol")
             elif name == "pool":
@@ -321,13 +349,20 @@ async def _run_chain(ctx: Context, lb_id: str, steps: list[tuple[str, dict]]) ->
             elif name == "member" and pool_id:
                 await octavia.create_member(pool_id, rules.member_fields(spec))
             elif name == "monitor" and pool_id:
-                await octavia.create_health_monitor(rules.monitor_fields(spec, pool_id))
+                await octavia.create_health_monitor(
+                    rules.monitor_fields(spec, pool_id)
+                )
             state["done"].append(name)
             await _set_chain(ctx, lb_id, state)
     except HiveError as exc:
         state["error"] = f"{exc.code}: {exc.message}"
         await _set_chain(ctx, lb_id, state)
-        log.warning("load balancer chain failed", lb_id=lb_id, step=len(state["done"]), code=exc.code)
+        log.warning(
+            "load balancer chain failed",
+            lb_id=lb_id,
+            step=len(state["done"]),
+            code=exc.code,
+        )
     except Exception:  # noqa: BLE001 - background task must not die silently
         state["error"] = "internal error"
         await _set_chain(ctx, lb_id, state)
@@ -377,7 +412,13 @@ async def create_load_balancer(ctx: Context, data: LoadBalancerCreate) -> dict:
         "admin_state_up": data.admin_state_up,
         "project_id": ctx.project_id,
     }
-    for key in ("name", "description", "vip_address", "flavor_id", "availability_zone"):
+    for key in (
+        "name",
+        "description",
+        "vip_address",
+        "flavor_id",
+        "availability_zone",
+    ):
         value = getattr(data, key)
         if value:
             fields[key] = value
@@ -437,7 +478,11 @@ async def options(ctx: Context) -> dict:
     return {
         "subnets": subnets,
         "flavors": [
-            {"id": f.get("id"), "name": f.get("name"), "description": f.get("description")}
+            {
+                "id": f.get("id"),
+                "name": f.get("name"),
+                "description": f.get("description"),
+            }
             for f in flavors
             if f.get("enabled", True)
         ],
@@ -472,7 +517,9 @@ async def associate_floating_ip(
         raise Conflict("The load balancer has no VIP port yet.")
     if not floating_ip_id:
         if not pool_id:
-            raise BadRequest("Choose a floating IP or a pool to allocate from.")
+            raise BadRequest(
+                "Choose a floating IP or a pool to allocate from."
+            )
         allocated = await network_service.allocate_floating_ip(
             ctx, FloatingIpAllocate(floating_network_id=pool_id)
         )
@@ -507,17 +554,30 @@ async def create_listener(
         raise BadRequest(problem)
     octavia = _octavia(ctx)
     await _wait_active(octavia, lb_id)
-    created = await octavia.create_listener(rules.listener_fields(spec.model_dump(), lb_id))
+    created = await octavia.create_listener(
+        rules.listener_fields(spec.model_dump(), lb_id)
+    )
     steps = _steps(None, pool, members, monitor)
     if steps and created.get("id"):
-        _spawn(_run_chain_from_listener(ctx, lb_id, created["id"], spec.protocol, steps))
+        _spawn(
+            _run_chain_from_listener(
+                ctx, lb_id, created["id"], spec.protocol, steps
+            )
+        )
     return listener_summary(created)
 
 
-async def _run_chain_from_listener(ctx: Context, lb_id: str, listener_id: str, protocol: str, steps):
+async def _run_chain_from_listener(
+    ctx: Context, lb_id: str, listener_id: str, protocol: str, steps
+):
     """The pool, members and monitor behind an existing listener."""
     octavia = _octavia(ctx)
-    state = {"steps": [s[0] for s in steps], "done": [], "error": None, "started": time.time()}
+    state = {
+        "steps": [s[0] for s in steps],
+        "done": [],
+        "error": None,
+        "started": time.time(),
+    }
     await _set_chain(ctx, lb_id, state)
     pool_id = None
     try:
@@ -525,13 +585,19 @@ async def _run_chain_from_listener(ctx: Context, lb_id: str, listener_id: str, p
             await _wait_active(octavia, lb_id)
             if name == "pool":
                 created = await octavia.create_pool(
-                    rules.pool_fields(spec, listener_id=listener_id, listener_protocol=protocol)
+                    rules.pool_fields(
+                        spec,
+                        listener_id=listener_id,
+                        listener_protocol=protocol,
+                    )
                 )
                 pool_id = created.get("id")
             elif name == "member" and pool_id:
                 await octavia.create_member(pool_id, rules.member_fields(spec))
             elif name == "monitor" and pool_id:
-                await octavia.create_health_monitor(rules.monitor_fields(spec, pool_id))
+                await octavia.create_health_monitor(
+                    rules.monitor_fields(spec, pool_id)
+                )
             state["done"].append(name)
             await _set_chain(ctx, lb_id, state)
     except HiveError as exc:
@@ -540,15 +606,21 @@ async def _run_chain_from_listener(ctx: Context, lb_id: str, listener_id: str, p
         log.warning("listener chain failed", lb_id=lb_id, code=exc.code)
 
 
-async def update_listener(ctx: Context, listener_id: str, fields: dict) -> dict:
+async def update_listener(
+    ctx: Context, listener_id: str, fields: dict
+) -> dict:
     clean = {k: v for k, v in fields.items() if v is not None}
     if "allowed_cidrs" in clean:
         problem = rules.valid_cidrs(clean["allowed_cidrs"])
         if problem:
             raise BadRequest(problem)
     if "insert_headers" in clean:
-        clean["insert_headers"] = {k: "true" for k, v in clean["insert_headers"].items() if v}
-    return listener_summary(await _octavia(ctx).update_listener(listener_id, clean))
+        clean["insert_headers"] = {
+            k: "true" for k, v in clean["insert_headers"].items() if v
+        }
+    return listener_summary(
+        await _octavia(ctx).update_listener(listener_id, clean)
+    )
 
 
 async def delete_listener(ctx: Context, listener_id: str) -> None:
@@ -572,7 +644,10 @@ async def create_pool(
     await _wait_active(octavia, lb_id)
     created = await octavia.create_pool(
         rules.pool_fields(
-            spec.model_dump(), listener_id=listener_id, lb_id=lb_id, listener_protocol=protocol
+            spec.model_dump(),
+            listener_id=listener_id,
+            lb_id=lb_id,
+            listener_protocol=protocol,
         )
     )
     steps = []
@@ -590,7 +665,12 @@ async def create_pool(
 
 async def _run_chain_from_pool(ctx: Context, lb_id: str, pool_id: str, steps):
     octavia = _octavia(ctx)
-    state = {"steps": [s[0] for s in steps], "done": [], "error": None, "started": time.time()}
+    state = {
+        "steps": [s[0] for s in steps],
+        "done": [],
+        "error": None,
+        "started": time.time(),
+    }
     await _set_chain(ctx, lb_id, state)
     try:
         for name, spec in steps:
@@ -598,7 +678,9 @@ async def _run_chain_from_pool(ctx: Context, lb_id: str, pool_id: str, steps):
             if name == "member":
                 await octavia.create_member(pool_id, rules.member_fields(spec))
             elif name == "monitor":
-                await octavia.create_health_monitor(rules.monitor_fields(spec, pool_id))
+                await octavia.create_health_monitor(
+                    rules.monitor_fields(spec, pool_id)
+                )
             state["done"].append(name)
             await _set_chain(ctx, lb_id, state)
     except HiveError as exc:
@@ -626,7 +708,9 @@ async def delete_pool(ctx: Context, pool_id: str) -> None:
     await _octavia(ctx).delete_pool(pool_id)
 
 
-async def replace_members(ctx: Context, lb_id: str, pool_id: str, members: list[MemberSpec]) -> dict:
+async def replace_members(
+    ctx: Context, lb_id: str, pool_id: str, members: list[MemberSpec]
+) -> dict:
     """Delete members that are gone and add the new ones, one at a time
     with the load balancer ACTIVE in between (``lbaasv2.py:661-696``)."""
     octavia = _octavia(ctx)
@@ -641,31 +725,49 @@ async def replace_members(ctx: Context, lb_id: str, pool_id: str, members: list[
         if (member.address, member.protocol_port) in present:
             continue
         await _wait_active(octavia, lb_id)
-        await octavia.create_member(pool_id, rules.member_fields(member.model_dump()))
+        await octavia.create_member(
+            pool_id, rules.member_fields(member.model_dump())
+        )
     await _wait_active(octavia, lb_id)
-    return {"items": [member_summary(m) for m in await octavia.members(pool_id)]}
+    return {
+        "items": [member_summary(m) for m in await octavia.members(pool_id)]
+    }
 
 
-async def add_member(ctx: Context, lb_id: str, pool_id: str, member: MemberSpec) -> dict:
+async def add_member(
+    ctx: Context, lb_id: str, pool_id: str, member: MemberSpec
+) -> dict:
     octavia = _octavia(ctx)
     await _wait_active(octavia, lb_id)
-    return member_summary(await octavia.create_member(pool_id, rules.member_fields(member.model_dump())))
+    return member_summary(
+        await octavia.create_member(
+            pool_id, rules.member_fields(member.model_dump())
+        )
+    )
 
 
-async def update_member(ctx: Context, pool_id: str, member_id: str, fields: dict) -> dict:
+async def update_member(
+    ctx: Context, pool_id: str, member_id: str, fields: dict
+) -> dict:
     clean = {k: v for k, v in fields.items() if v is not None}
-    return member_summary(await _octavia(ctx).update_member(pool_id, member_id, clean))
+    return member_summary(
+        await _octavia(ctx).update_member(pool_id, member_id, clean)
+    )
 
 
 async def delete_member(ctx: Context, pool_id: str, member_id: str) -> None:
     await _octavia(ctx).delete_member(pool_id, member_id)
 
 
-async def create_monitor(ctx: Context, pool_id: str, spec: MonitorSpec) -> dict:
+async def create_monitor(
+    ctx: Context, pool_id: str, spec: MonitorSpec
+) -> dict:
     problem = rules.validate_monitor(spec.model_dump())
     if problem:
         raise BadRequest(problem)
-    created = await _octavia(ctx).create_health_monitor(rules.monitor_fields(spec.model_dump(), pool_id))
+    created = await _octavia(ctx).create_health_monitor(
+        rules.monitor_fields(spec.model_dump(), pool_id)
+    )
     return monitor_summary(created)
 
 
@@ -680,28 +782,38 @@ async def update_monitor(ctx: Context, monitor_id: str, fields: dict) -> dict:
     problem = rules.validate_monitor(merged)
     if problem:
         raise BadRequest(problem)
-    return monitor_summary(await octavia.update_health_monitor(monitor_id, clean))
+    return monitor_summary(
+        await octavia.update_health_monitor(monitor_id, clean)
+    )
 
 
 async def delete_monitor(ctx: Context, monitor_id: str) -> None:
     await _octavia(ctx).delete_health_monitor(monitor_id)
 
 
-async def create_l7_policy(ctx: Context, listener_id: str, spec: L7PolicySpec) -> dict:
+async def create_l7_policy(
+    ctx: Context, listener_id: str, spec: L7PolicySpec
+) -> dict:
     data = spec.model_dump()
     if data["action"] == "REDIRECT_TO_URL" and not data.get("redirect_url"):
         raise BadRequest("A redirect URL is required.")
-    if data["action"] == "REDIRECT_TO_POOL" and not data.get("redirect_pool_id"):
+    if data["action"] == "REDIRECT_TO_POOL" and not data.get(
+        "redirect_pool_id"
+    ):
         raise BadRequest("A pool to redirect to is required.")
     if data["action"] == "REDIRECT_PREFIX" and not data.get("redirect_prefix"):
         raise BadRequest("A redirect prefix is required.")
-    created = await _octavia(ctx).create_l7_policy(rules.l7_policy_fields(data, listener_id))
+    created = await _octavia(ctx).create_l7_policy(
+        rules.l7_policy_fields(data, listener_id)
+    )
     return policy_summary(created)
 
 
 async def update_l7_policy(ctx: Context, policy_id: str, fields: dict) -> dict:
     clean = {k: v for k, v in fields.items() if v is not None}
-    return policy_summary(await _octavia(ctx).update_l7_policy(policy_id, clean))
+    return policy_summary(
+        await _octavia(ctx).update_l7_policy(policy_id, clean)
+    )
 
 
 async def delete_l7_policy(ctx: Context, policy_id: str) -> None:
@@ -710,24 +822,41 @@ async def delete_l7_policy(ctx: Context, policy_id: str) -> None:
 
 async def get_l7_policy(ctx: Context, policy_id: str) -> dict:
     octavia = _octavia(ctx)
-    policy, l7rules = await asyncio.gather(octavia.l7_policy(policy_id), octavia.l7_rules(policy_id))
+    policy, l7rules = await asyncio.gather(
+        octavia.l7_policy(policy_id), octavia.l7_rules(policy_id)
+    )
     summary = policy_summary(policy)
     summary["rule_rows"] = [rule_summary(r) for r in l7rules]
     return summary
 
 
-async def create_l7_rule(ctx: Context, policy_id: str, spec: L7RuleSpec) -> dict:
+async def create_l7_rule(
+    ctx: Context, policy_id: str, spec: L7RuleSpec
+) -> dict:
     data = spec.model_dump()
     if data["type"] in ("HEADER", "COOKIE") and not data.get("key"):
         raise BadRequest("Header and cookie rules need a key.")
-    if data["type"] == "FILE_TYPE" and data["compare_type"] not in ("REGEX", "EQUAL_TO"):
-        raise BadRequest("File type rules compare with REGEX or EQUAL_TO only.")
-    return rule_summary(await _octavia(ctx).create_l7_rule(policy_id, rules.l7_rule_fields(data)))
+    if data["type"] == "FILE_TYPE" and data["compare_type"] not in (
+        "REGEX",
+        "EQUAL_TO",
+    ):
+        raise BadRequest(
+            "File type rules compare with REGEX or EQUAL_TO only."
+        )
+    return rule_summary(
+        await _octavia(ctx).create_l7_rule(
+            policy_id, rules.l7_rule_fields(data)
+        )
+    )
 
 
-async def update_l7_rule(ctx: Context, policy_id: str, rule_id: str, fields: dict) -> dict:
+async def update_l7_rule(
+    ctx: Context, policy_id: str, rule_id: str, fields: dict
+) -> dict:
     clean = {k: v for k, v in fields.items() if v is not None}
-    return rule_summary(await _octavia(ctx).update_l7_rule(policy_id, rule_id, clean))
+    return rule_summary(
+        await _octavia(ctx).update_l7_rule(policy_id, rule_id, clean)
+    )
 
 
 async def delete_l7_rule(ctx: Context, policy_id: str, rule_id: str) -> None:

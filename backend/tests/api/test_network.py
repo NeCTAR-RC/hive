@@ -55,7 +55,9 @@ SUBNETS = [
         "ip_version": 4,
         "gateway_ip": "192.168.1.1",
         "enable_dhcp": True,
-        "allocation_pools": [{"start": "192.168.1.20", "end": "192.168.1.200"}],
+        "allocation_pools": [
+            {"start": "192.168.1.20", "end": "192.168.1.200"}
+        ],
         "dns_nameservers": ["1.1.1.1", "1.0.0.1"],
         "host_routes": [],
     },
@@ -90,7 +92,9 @@ ROUTER_PORTS = [
         "device_id": "r-1",
         "device_owner": "network:router_gateway",
         "status": "ACTIVE",
-        "fixed_ips": [{"subnet_id": "sub-float", "ip_address": "203.0.113.50"}],
+        "fixed_ips": [
+            {"subnet_id": "sub-float", "ip_address": "203.0.113.50"}
+        ],
     },
     {
         "id": "rp-int",
@@ -277,9 +281,21 @@ def neutron(upstream, network_catalog):
             200,
             json={
                 "availability_zones": [
-                    {"name": "nova", "resource": "network", "state": "available"},
-                    {"name": "nova", "resource": "router", "state": "available"},
-                    {"name": "old", "resource": "router", "state": "unavailable"},
+                    {
+                        "name": "nova",
+                        "resource": "network",
+                        "state": "available",
+                    },
+                    {
+                        "name": "nova",
+                        "resource": "router",
+                        "state": "available",
+                    },
+                    {
+                        "name": "old",
+                        "resource": "router",
+                        "state": "unavailable",
+                    },
                 ]
             },
         )
@@ -314,7 +330,10 @@ async def test_options_and_quota(user):
     body = response.json()
     assert body["extensions"]["port_forwarding"] is False
     assert body["extensions"]["extraroute"] is True
-    assert body["availability_zones"] == {"network": ["nova"], "router": ["nova"]}
+    assert body["availability_zones"] == {
+        "network": ["nova"],
+        "router": ["nova"],
+    }
     assert body["default_dns_nameservers"] == ["1.1.1.1", "1.0.0.1"]
     assert body["enable_ipv6"] is False
     assert body["subnetpools"] == []
@@ -336,7 +355,12 @@ async def test_panel_listing_adds_floating_networks(user):
     response = await user.get("/api/network/networks?external=true")
     assert response.status_code == 200, response.text
     items = response.json()["items"]
-    assert [n["id"] for n in items] == [CLASSIC, "net-prov", "net-priv", "net-float"]
+    assert [n["id"] for n in items] == [
+        CLASSIC,
+        "net-prov",
+        "net-priv",
+        "net-float",
+    ]
     private = items[2]
     assert private["is_project"] is True
     assert private["subnets"][0]["cidr"] == "192.168.1.0/24"
@@ -462,7 +486,9 @@ async def test_subnet_and_port_updates(user, neutron):
     }
 
     port = neutron.put(f"{NEUTRON}/v2.0/ports/vp-1").mock(
-        return_value=httpx.Response(200, json={"port": {**VM_PORT, "name": "x"}})
+        return_value=httpx.Response(
+            200, json={"port": {**VM_PORT, "name": "x"}}
+        )
     )
     # An unchanged port security flag is dropped; turning it off clears groups.
     response = await user.patch(
@@ -471,7 +497,9 @@ async def test_subnet_and_port_updates(user, neutron):
         headers=csrf_headers(user),
     )
     assert response.status_code == 200, response.text
-    assert json.loads(port.calls.last.request.content) == {"port": {"name": "x"}}
+    assert json.loads(port.calls.last.request.content) == {
+        "port": {"name": "x"}
+    }
     response = await user.patch(
         "/api/network/ports/vp-1",
         json={"port_security_enabled": False},
@@ -612,13 +640,19 @@ async def test_router_gateway_interfaces_and_routes(user, neutron):
 
     response = await user.put(
         "/api/network/routers/r-1/routes",
-        json={"routes": [{"destination": "10.5.0.0/16", "nexthop": "192.168.1.5"}]},
+        json={
+            "routes": [
+                {"destination": "10.5.0.0/16", "nexthop": "192.168.1.5"}
+            ]
+        },
         headers=csrf_headers(user),
     )
     assert response.status_code == 200, response.text
     assert json.loads(updated.calls.last.request.content) == {
         "router": {
-            "routes": [{"destination": "10.5.0.0/16", "nexthop": "192.168.1.5"}]
+            "routes": [
+                {"destination": "10.5.0.0/16", "nexthop": "192.168.1.5"}
+            ]
         }
     }
 
@@ -656,7 +690,9 @@ async def test_add_interface_with_an_address_creates_a_port(user, neutron):
         "gateway_ip": "192.168.2.1",
     }
     neutron.get(f"{NEUTRON}/v2.0/subnets").mock(
-        return_value=httpx.Response(200, json={"subnets": [*SUBNETS, free_subnet]})
+        return_value=httpx.Response(
+            200, json={"subnets": [*SUBNETS, free_subnet]}
+        )
     )
     created = neutron.post(f"{NEUTRON}/v2.0/ports").mock(
         return_value=httpx.Response(
@@ -701,7 +737,8 @@ async def test_add_interface_with_an_address_creates_a_port(user, neutron):
     # When the attach fails the port is deleted again.
     attached.mock(
         return_value=httpx.Response(
-            409, json={"NeutronError": {"message": "Router already has a port"}}
+            409,
+            json={"NeutronError": {"message": "Router already has a port"}},
         )
     )
     removed = neutron.delete(f"{NEUTRON}/v2.0/ports/p-new").mock(
@@ -729,7 +766,9 @@ async def test_floating_ips_list_targets_and_actions(user, neutron):
     assert items["fip-2"]["instance_id"] is None
     assert items["fip-2"]["port_forwarding_count"] == 1
 
-    targets = (await user.get("/api/network/floating-ips/targets")).json()["items"]
+    targets = (await user.get("/api/network/floating-ips/targets")).json()[
+        "items"
+    ]
     # vp-1 (web) and the free port sit on the subnet behind the gateway
     # router; the router's own port is never a target.
     assert [t["id"] for t in targets] == [
@@ -768,7 +807,10 @@ async def test_floating_ips_list_targets_and_actions(user, neutron):
     )
     assert response.status_code == 201, response.text
     assert json.loads(created.calls.last.request.content) == {
-        "floatingip": {"floating_network_id": "net-float", "description": "web"}
+        "floatingip": {
+            "floating_network_id": "net-float",
+            "description": "web",
+        }
     }
 
     updated = neutron.put(f"{NEUTRON}/v2.0/floatingips/fip-2").mock(
@@ -781,7 +823,10 @@ async def test_floating_ips_list_targets_and_actions(user, neutron):
     )
     assert response.status_code == 200, response.text
     assert json.loads(updated.calls.last.request.content) == {
-        "floatingip": {"port_id": "vp-free", "fixed_ip_address": "192.168.1.21"}
+        "floatingip": {
+            "port_id": "vp-free",
+            "fixed_ip_address": "192.168.1.21",
+        }
     }
     response = await user.post(
         "/api/network/floating-ips/fip-2/disassociate",
@@ -819,7 +864,11 @@ async def test_port_forwardings_and_trunks(user, neutron):
             json={
                 "extensions": [
                     {"alias": a}
-                    for a in [*EXTENSIONS, "floating-ip-port-forwarding", "trunk"]
+                    for a in [
+                        *EXTENSIONS,
+                        "floating-ip-port-forwarding",
+                        "trunk",
+                    ]
                 ]
             },
         )
@@ -858,7 +907,11 @@ async def test_port_forwardings_and_trunks(user, neutron):
     ]
     created = neutron.post(
         f"{NEUTRON}/v2.0/floatingips/fip-2/port_forwardings"
-    ).mock(return_value=httpx.Response(201, json={"port_forwarding": {"id": "pf-2"}}))
+    ).mock(
+        return_value=httpx.Response(
+            201, json={"port_forwarding": {"id": "pf-2"}}
+        )
+    )
     response = await user.post(
         "/api/network/floating-ips/fip-2/port-forwardings",
         json={
@@ -932,13 +985,19 @@ async def test_port_forwardings_and_trunks(user, neutron):
             "name": "t",
             "port_id": "vp-free",
             "sub_ports": [
-                {"port_id": "vp-1", "segmentation_type": "vlan", "segmentation_id": 7}
+                {
+                    "port_id": "vp-1",
+                    "segmentation_type": "vlan",
+                    "segmentation_id": 7,
+                }
             ],
         },
         headers=csrf_headers(user),
     )
     assert response.status_code == 201, response.text
-    assert json.loads(created.calls.last.request.content)["trunk"]["sub_ports"] == [
+    assert json.loads(created.calls.last.request.content)["trunk"][
+        "sub_ports"
+    ] == [
         {"port_id": "vp-1", "segmentation_type": "vlan", "segmentation_id": 7}
     ]
 
@@ -966,7 +1025,9 @@ async def test_topology_lists_networks_routers_ports_and_servers(user):
             "external_network_id": "net-float",
         }
     ]
-    assert body["servers"] == [{"id": "srv-1", "name": "web", "status": "ACTIVE"}]
+    assert body["servers"] == [
+        {"id": "srv-1", "name": "web", "status": "ACTIVE"}
+    ]
     ports = {p["id"]: p for p in body["ports"]}
     # The gateway port is invisible to users, so a synthetic one stands in.
     assert ports["gateway-r-1"]["network_id"] == "net-float"
@@ -978,7 +1039,9 @@ async def test_topology_lists_networks_routers_ports_and_servers(user):
 
 
 async def test_subnet_port_and_network_crud_routes(user, neutron):
-    assert (await user.get("/api/network/extensions")).json()["extraroute"] is True
+    assert (await user.get("/api/network/extensions")).json()[
+        "extraroute"
+    ] is True
 
     subnet = (await user.get("/api/network/subnets/sub-priv")).json()
     assert subnet["cidr"] == "192.168.1.0/24"
@@ -1037,7 +1100,9 @@ async def test_subnet_port_and_network_crud_routes(user, neutron):
     assert sent["security_groups"] == []
 
     updated = neutron.put(f"{NEUTRON}/v2.0/networks/net-priv").mock(
-        return_value=httpx.Response(200, json={"network": {**PRIVATE, "name": "x"}})
+        return_value=httpx.Response(
+            200, json={"network": {**PRIVATE, "name": "x"}}
+        )
     )
     response = await user.patch(
         "/api/network/networks/net-priv",
@@ -1062,7 +1127,11 @@ async def test_subnet_port_and_network_crud_routes(user, neutron):
     )
     response = await user.post(
         "/api/network/networks",
-        json={"name": "zoned", "mtu": 1400, "availability_zone_hints": ["nova"]},
+        json={
+            "name": "zoned",
+            "mtu": 1400,
+            "availability_zone_hints": ["nova"],
+        },
         headers=csrf_headers(user),
     )
     assert response.status_code == 201, response.text
@@ -1114,7 +1183,9 @@ async def test_router_create_with_zone_hints_and_interface_by_subnet(
         "availability_zone_hints": ["nova"],
     }
     updated = neutron.put(f"{NEUTRON}/v2.0/routers/r-1").mock(
-        return_value=httpx.Response(200, json={"router": {**ROUTER, "name": "y"}})
+        return_value=httpx.Response(
+            200, json={"router": {**ROUTER, "name": "y"}}
+        )
     )
     response = await user.patch(
         "/api/network/routers/r-1",
@@ -1190,7 +1261,11 @@ async def test_floating_ip_detail_and_forwarding_rule_changes(user, neutron):
             json={
                 "extensions": [
                     {"alias": a}
-                    for a in [*EXTENSIONS, "floating-ip-port-forwarding", "trunk"]
+                    for a in [
+                        *EXTENSIONS,
+                        "floating-ip-port-forwarding",
+                        "trunk",
+                    ]
                 ]
             },
         )
@@ -1212,7 +1287,11 @@ async def test_floating_ip_detail_and_forwarding_rule_changes(user, neutron):
 
     updated = neutron.put(
         f"{NEUTRON}/v2.0/floatingips/fip-2/port_forwardings/pf-1"
-    ).mock(return_value=httpx.Response(200, json={"port_forwarding": {"id": "pf-1"}}))
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"port_forwarding": {"id": "pf-1"}}
+        )
+    )
     response = await user.patch(
         "/api/network/floating-ips/fip-2/port-forwardings/pf-1",
         json={"external_port": "2300", "description": "moved"},
@@ -1250,7 +1329,9 @@ async def test_floating_ip_detail_and_forwarding_rule_changes(user, neutron):
     detail = (await user.get("/api/network/trunks/t-1")).json()
     assert detail["port_name"] == "vp-1"
     updated = neutron.put(f"{NEUTRON}/v2.0/trunks/t-1").mock(
-        return_value=httpx.Response(200, json={"trunk": {**trunk, "name": "t"}})
+        return_value=httpx.Response(
+            200, json={"trunk": {**trunk, "name": "t"}}
+        )
     )
     response = await user.patch(
         "/api/network/trunks/t-1",
@@ -1263,7 +1344,11 @@ async def test_floating_ip_detail_and_forwarding_rule_changes(user, neutron):
     )
     response = await user.post(
         "/api/network/trunks/t-1/subports",
-        json={"sub_ports": [{"port_id": "vp-free", "segmentation_type": "inherit"}]},
+        json={
+            "sub_ports": [
+                {"port_id": "vp-free", "segmentation_type": "inherit"}
+            ]
+        },
         headers=csrf_headers(user),
     )
     assert response.status_code == 200, response.text
@@ -1307,7 +1392,9 @@ async def test_topology_and_options_tolerate_upstream_failures(user, neutron):
     assert body["networks"]
 
     neutron.get(f"{NEUTRON}/v2.0/quotas/p1/details.json").mock(
-        return_value=httpx.Response(403, json={"NeutronError": {"message": "no"}})
+        return_value=httpx.Response(
+            403, json={"NeutronError": {"message": "no"}}
+        )
     )
     options = (await user.get("/api/network/options")).json()
     assert options["quota"] is None
@@ -1335,7 +1422,12 @@ async def test_topology_and_options_tolerate_upstream_failures(user, neutron):
 
 
 async def test_security_group_routes(user, neutron):
-    group = {"id": "sg-9", "name": "web", "description": "", "security_group_rules": []}
+    group = {
+        "id": "sg-9",
+        "name": "web",
+        "description": "",
+        "security_group_rules": [],
+    }
     created = neutron.post(f"{NEUTRON}/v2.0/security-groups").mock(
         return_value=httpx.Response(201, json={"security_group": group})
     )
@@ -1361,14 +1453,17 @@ async def test_security_group_routes(user, neutron):
         "security_group": {"description": "renamed"}
     }
     response = await user.patch(
-        "/api/network/security-groups/sg-9", json={}, headers=csrf_headers(user)
+        "/api/network/security-groups/sg-9",
+        json={},
+        headers=csrf_headers(user),
     )
     assert response.status_code == 400
-    rule_gone = neutron.delete(f"{NEUTRON}/v2.0/security-group-rules/r-1").mock(
-        return_value=httpx.Response(204)
-    )
+    rule_gone = neutron.delete(
+        f"{NEUTRON}/v2.0/security-group-rules/r-1"
+    ).mock(return_value=httpx.Response(204))
     response = await user.delete(
-        "/api/network/security-groups/sg-9/rules/r-1", headers=csrf_headers(user)
+        "/api/network/security-groups/sg-9/rules/r-1",
+        headers=csrf_headers(user),
     )
     assert response.status_code == 204 and rule_gone.called
     gone = neutron.delete(f"{NEUTRON}/v2.0/security-groups/sg-9").mock(

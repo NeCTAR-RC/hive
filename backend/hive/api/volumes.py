@@ -15,8 +15,8 @@ from hive.schemas.volumes import (
     VolumeCreate,
     VolumeUpdate,
 )
-from hive.services import volumes
 from hive.services.context import Context
+from hive.services import volumes
 
 router = APIRouter(prefix="/volumes", tags=["volumes"])
 
@@ -30,7 +30,9 @@ async def list_volumes(request: Request, ctx: Context = Depends(get_context)):
 
 
 @router.post("", status_code=202)
-async def create_volume(body: VolumeCreate, ctx: Context = Depends(get_context)):
+async def create_volume(
+    body: VolumeCreate, ctx: Context = Depends(get_context)
+):
     return await volumes.create_volume(ctx, body)
 
 
@@ -98,7 +100,9 @@ async def list_backups(ctx: Context = Depends(get_context)):
 
 
 @router.post("/backups", status_code=202)
-async def create_backup(body: BackupCreate, ctx: Context = Depends(get_context)):
+async def create_backup(
+    body: BackupCreate, ctx: Context = Depends(get_context)
+):
     return await volumes.create_backup(ctx, body)
 
 

@@ -102,7 +102,9 @@ class SwiftClient(ServiceClient):
             params["delimiter"] = delimiter
         if marker:
             params["marker"] = marker
-        body = await self.get_json(f"/{quote(container, safe='')}", params=params)
+        body = await self.get_json(
+            f"/{quote(container, safe='')}", params=params
+        )
         return body or []
 
     async def all_objects(self, container: str, prefix: str | None = None):
@@ -201,7 +203,10 @@ class SwiftClient(ServiceClient):
             "",
             params={"bulk-delete": "true"},
             content=body,
-            headers={"Content-Type": "text/plain", "Accept": "application/json"},
+            headers={
+                "Content-Type": "text/plain",
+                "Accept": "application/json",
+            },
             timeout=120,
             ok=(200,),
         )
@@ -214,7 +219,12 @@ class SwiftClient(ServiceClient):
         """A streaming GET; the caller closes the response."""
         url = self.endpoint + object_path(container, name)
         req = self._http.build_request(
-            "GET", url, headers=self.headers(), timeout=httpx.Timeout(600, connect=self.settings.upstream_connect_timeout)
+            "GET",
+            url,
+            headers=self.headers(),
+            timeout=httpx.Timeout(
+                600, connect=self.settings.upstream_connect_timeout
+            ),
         )
         return await self._http.send(req, stream=True)
 

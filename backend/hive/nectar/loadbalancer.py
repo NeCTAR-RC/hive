@@ -26,13 +26,43 @@ import re
 
 TRANSITIONAL = ("PENDING_CREATE", "PENDING_UPDATE", "PENDING_DELETE")
 DELETABLE = ("ACTIVE", "ERROR")
-LISTENER_PROTOCOLS = ("HTTP", "TCP", "TERMINATED_HTTPS", "HTTPS", "UDP", "SCTP")
+LISTENER_PROTOCOLS = (
+    "HTTP",
+    "TCP",
+    "TERMINATED_HTTPS",
+    "HTTPS",
+    "UDP",
+    "SCTP",
+)
 POOL_PROTOCOLS = ("HTTP", "HTTPS", "PROXY", "PROXYV2", "TCP", "UDP", "SCTP")
 ALGORITHMS = ("LEAST_CONNECTIONS", "ROUND_ROBIN", "SOURCE_IP")
 PERSISTENCE = ("SOURCE_IP", "HTTP_COOKIE", "APP_COOKIE")
-MONITOR_TYPES = ("HTTP", "HTTPS", "PING", "TCP", "TLS-HELLO", "UDP-CONNECT", "SCTP")
-HTTP_METHODS = ("GET", "HEAD", "POST", "PUT", "DELETE", "TRACE", "OPTIONS", "PATCH", "CONNECT")
-L7_ACTIONS = ("REJECT", "REDIRECT_TO_URL", "REDIRECT_TO_POOL", "REDIRECT_PREFIX")
+MONITOR_TYPES = (
+    "HTTP",
+    "HTTPS",
+    "PING",
+    "TCP",
+    "TLS-HELLO",
+    "UDP-CONNECT",
+    "SCTP",
+)
+HTTP_METHODS = (
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "DELETE",
+    "TRACE",
+    "OPTIONS",
+    "PATCH",
+    "CONNECT",
+)
+L7_ACTIONS = (
+    "REJECT",
+    "REDIRECT_TO_URL",
+    "REDIRECT_TO_POOL",
+    "REDIRECT_PREFIX",
+)
 L7_RULE_TYPES = ("HOST_NAME", "PATH", "FILE_TYPE", "HEADER", "COOKIE")
 L7_COMPARE = ("REGEX", "EQUAL_TO", "STARTS_WITH", "ENDS_WITH", "CONTAINS")
 DEFAULT_PORTS = {"HTTP": 80, "TERMINATED_HTTPS": 443, "HTTPS": 443}
@@ -79,7 +109,11 @@ def default_port(protocol: str, used: set[int]) -> int:
 def pool_protocol_for(listener_protocol: str | None) -> str | None:
     if listener_protocol is None:
         return None
-    return "HTTP" if listener_protocol == "TERMINATED_HTTPS" else listener_protocol
+    return (
+        "HTTP"
+        if listener_protocol == "TERMINATED_HTTPS"
+        else listener_protocol
+    )
 
 
 def listener_fields(data: dict, lb_id: str | None = None) -> dict:
@@ -109,13 +143,17 @@ def listener_fields(data: dict, lb_id: str | None = None) -> dict:
         body["allowed_cidrs"] = data["allowed_cidrs"]
     if protocol in ("HTTP", "TERMINATED_HTTPS"):
         headers = {
-            k: "true" for k, v in (data.get("insert_headers") or {}).items() if v
+            k: "true"
+            for k, v in (data.get("insert_headers") or {}).items()
+            if v
         }
         if headers:
             body["insert_headers"] = headers
     if protocol == "TERMINATED_HTTPS":
         if data.get("default_tls_container_ref"):
-            body["default_tls_container_ref"] = data["default_tls_container_ref"]
+            body["default_tls_container_ref"] = data[
+                "default_tls_container_ref"
+            ]
         if data.get("sni_container_refs"):
             body["sni_container_refs"] = data["sni_container_refs"]
         if data.get("tls_ciphers"):
@@ -240,7 +278,9 @@ def l7_rule_fields(data: dict) -> dict:
     return body
 
 
-def member_candidates(servers: list[dict], ports: list[dict], subnet_ids: set[str]):
+def member_candidates(
+    servers: list[dict], ports: list[dict], subnet_ids: set[str]
+):
     """Instances with the fixed IPs of their ports on offered subnets
     (``model.service.js:646-694``)."""
     by_device: dict[str, list[dict]] = {}
@@ -249,9 +289,14 @@ def member_candidates(servers: list[dict], ports: list[dict], subnet_ids: set[st
         if not device:
             continue
         for fixed in port.get("fixed_ips") or []:
-            if fixed.get("subnet_id") in subnet_ids and fixed.get("ip_address"):
+            if fixed.get("subnet_id") in subnet_ids and fixed.get(
+                "ip_address"
+            ):
                 by_device.setdefault(device, []).append(
-                    {"address": fixed["ip_address"], "subnet_id": fixed["subnet_id"]}
+                    {
+                        "address": fixed["ip_address"],
+                        "subnet_id": fixed["subnet_id"],
+                    }
                 )
     items = []
     for server in servers:

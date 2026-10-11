@@ -23,7 +23,9 @@ class ClusterUpgrade(BaseModel):
 
 
 class NodeGroupCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z][a-zA-Z0-9_\-.]*$")
+    name: str = Field(
+        min_length=1, max_length=255, pattern=r"^[a-zA-Z][a-zA-Z0-9_\-.]*$"
+    )
     flavor_id: str = Field(min_length=1)
     node_count: int = Field(default=1, ge=1)
     autoscaling: bool = False

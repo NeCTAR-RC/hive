@@ -25,7 +25,9 @@ class HeatClient(ServiceClient):
         return resp.json().get("stack", {})
 
     async def stack(self, name: str, stack_id: str, **params) -> dict:
-        body = await self.get_json(self._path(name, stack_id), params=params or None)
+        body = await self.get_json(
+            self._path(name, stack_id), params=params or None
+        )
         return (body or {}).get("stack", {})
 
     async def create_stack(self, fields: dict) -> dict:
@@ -52,7 +54,9 @@ class HeatClient(ServiceClient):
     async def delete_stack(self, name: str, stack_id: str) -> None:
         await self.request("DELETE", self._path(name, stack_id), ok=(204,))
 
-    async def stack_action(self, name: str, stack_id: str, action: str) -> None:
+    async def stack_action(
+        self, name: str, stack_id: str, action: str
+    ) -> None:
         await self.request(
             "POST",
             f"{self._path(name, stack_id)}/actions",
@@ -60,7 +64,9 @@ class HeatClient(ServiceClient):
             ok=(200, 202),
         )
 
-    async def resources(self, name: str, stack_id: str, **params) -> list[dict]:
+    async def resources(
+        self, name: str, stack_id: str, **params
+    ) -> list[dict]:
         body = await self.get_json(
             f"{self._path(name, stack_id)}/resources", params=params or None
         )
@@ -79,17 +85,24 @@ class HeatClient(ServiceClient):
         return (body or {}).get("events", [])
 
     async def template(self, name: str, stack_id: str) -> dict:
-        return await self.get_json(f"{self._path(name, stack_id)}/template") or {}
+        return (
+            await self.get_json(f"{self._path(name, stack_id)}/template") or {}
+        )
 
     async def environment(self, name: str, stack_id: str) -> dict:
-        return await self.get_json(f"{self._path(name, stack_id)}/environment") or {}
+        return (
+            await self.get_json(f"{self._path(name, stack_id)}/environment")
+            or {}
+        )
 
     async def outputs(self, name: str, stack_id: str) -> list[dict]:
         body = await self.get_json(f"{self._path(name, stack_id)}/outputs")
         return (body or {}).get("outputs", [])
 
     async def output(self, name: str, stack_id: str, key: str) -> dict:
-        body = await self.get_json(f"{self._path(name, stack_id)}/outputs/{key}")
+        body = await self.get_json(
+            f"{self._path(name, stack_id)}/outputs/{key}"
+        )
         return (body or {}).get("output", {})
 
     async def resource_types(self, with_description: bool = False) -> list:

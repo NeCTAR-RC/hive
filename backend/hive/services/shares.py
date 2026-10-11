@@ -38,7 +38,10 @@ async def limits(ctx: Context) -> dict:
 
 async def _share_types(ctx: Context) -> list[dict]:
     async def fetch():
-        return [rules.share_type_summary(t) for t in await _manila(ctx).share_types()]
+        return [
+            rules.share_type_summary(t)
+            for t in await _manila(ctx).share_types()
+        ]
 
     result = await ctx.cache.get_or_fetch(
         ctx.cache.project_key(ctx.project_id, "share-types"),
@@ -82,15 +85,26 @@ async def options(ctx: Context) -> dict:
     can_snapshot, snapshot_reason = rules.can_snapshot(quota)
     return {
         "protocols": protocols,
-        "share_types": [t for t in types if not t["driver_handles_share_servers"]],
+        "share_types": [
+            t for t in types if not t["driver_handles_share_servers"]
+        ],
         "availability_zones": zones,
         "snapshots": [
-            {"id": s.get("id"), "name": s.get("name"), "size": s.get("size"), "share_id": s.get("share_id")}
+            {
+                "id": s.get("id"),
+                "name": s.get("name"),
+                "size": s.get("size"),
+                "share_id": s.get("share_id"),
+            }
             for s in snapshots
             if (s.get("status") or "").lower() == "available"
         ],
         "share_groups": [
-            {"id": g.get("id"), "name": g.get("name"), "availability_zone": g.get("availability_zone")}
+            {
+                "id": g.get("id"),
+                "name": g.get("name"),
+                "availability_zone": g.get("availability_zone"),
+            }
             for g in groups
             if (g.get("status") or "").lower() == "available"
         ],
@@ -119,12 +133,21 @@ async def options(ctx: Context) -> dict:
 
 async def list_shares(ctx: Context) -> dict:
     manila = _manila(ctx)
-    shares, snapshots, quota = await asyncio.gather(manila.shares(), manila.snapshots(), manila.limits())
+    shares, snapshots, quota = await asyncio.gather(
+        manila.shares(), manila.snapshots(), manila.limits()
+    )
     with_snapshot = {s.get("share_id") for s in snapshots}
-    items = [rules.share_summary(s, s.get("id") in with_snapshot) for s in shares]
+    items = [
+        rules.share_summary(s, s.get("id") in with_snapshot) for s in shares
+    ]
     items.sort(key=lambda s: (s["name"] or "").lower())
     can_create, reason = rules.can_create(quota)
-    return {"items": items, "quota": quota, "can_create": can_create, "create_reason": reason}
+    return {
+        "items": items,
+        "quota": quota,
+        "can_create": can_create,
+        "create_reason": reason,
+    }
 
 
 async def get_share(ctx: Context, share_id: str) -> dict:
@@ -144,7 +167,9 @@ async def create_share(ctx: Context, data: ShareCreate) -> dict:
     allowed, reason = rules.can_create(quota)
     if not allowed:
         raise QuotaExceeded(reason or "Quota exceeded.")
-    snapshot = await manila.snapshot(data.snapshot_id) if data.snapshot_id else None
+    snapshot = (
+        await manila.snapshot(data.snapshot_id) if data.snapshot_id else None
+    )
     problem = rules.validate_create(
         protocol=data.protocol,
         protocols=ctx.settings.manila_share_protocols,
@@ -190,7 +215,9 @@ async def update_share(ctx: Context, share_id: str, data: ShareUpdate) -> dict:
     return rules.share_summary(updated or share)
 
 
-async def set_metadata(ctx: Context, share_id: str, data: ShareMetadata) -> dict:
+async def set_metadata(
+    ctx: Context, share_id: str, data: ShareMetadata
+) -> dict:
     """The edit metadata form (``forms.py:292-322``): ``key=value`` lines
     are set; keys left out are removed."""
     manila = _manila(ctx)
@@ -209,7 +236,9 @@ async def set_metadata(ctx: Context, share_id: str, data: ShareMetadata) -> dict
 
 async def resize_share(ctx: Context, share_id: str, data: ShareResize) -> dict:
     manila = _manila(ctx)
-    share, quota = await asyncio.gather(manila.share(share_id), manila.limits())
+    share, quota = await asyncio.gather(
+        manila.share(share_id), manila.limits()
+    )
     if (share.get("status") or "").lower() != "available":
         raise Conflict("The share can only be resized while it is available.")
     current = int(share.get("size") or 0)
@@ -225,8 +254,13 @@ async def resize_share(ctx: Context, share_id: str, data: ShareResize) -> dict:
 
 async def revert_share(ctx: Context, share_id: str, data: ShareRevert) -> dict:
     manila = _manila(ctx)
-    share, snapshots = await asyncio.gather(manila.share(share_id), manila.snapshots(share_id=share_id))
-    if not share.get("revert_to_snapshot_support") or (share.get("status") or "").lower() != "available":
+    share, snapshots = await asyncio.gather(
+        manila.share(share_id), manila.snapshots(share_id=share_id)
+    )
+    if (
+        not share.get("revert_to_snapshot_support")
+        or (share.get("status") or "").lower() != "available"
+    ):
         raise Conflict("The share cannot be reverted right now.")
     newest = rules.newest_snapshot(snapshots)
     if not newest or newest.get("id") != data.snapshot_id:
@@ -237,7 +271,9 @@ async def revert_share(ctx: Context, share_id: str, data: ShareRevert) -> dict:
 
 async def delete_share(ctx: Context, share_id: str) -> None:
     manila = _manila(ctx)
-    share, snapshots = await asyncio.gather(manila.share(share_id), manila.snapshots(share_id=share_id))
+    share, snapshots = await asyncio.gather(
+        manila.share(share_id), manila.snapshots(share_id=share_id)
+    )
     if "delete" not in rules.share_actions(share, bool(snapshots)):
         if snapshots:
             raise Conflict("Delete the share's snapshots first.")
@@ -247,7 +283,9 @@ async def delete_share(ctx: Context, share_id: str) -> None:
 
 async def list_access(ctx: Context, share_id: str) -> dict:
     manila = _manila(ctx)
-    share, access = await asyncio.gather(manila.share(share_id), manila.access_rules(share_id))
+    share, access = await asyncio.gather(
+        manila.share(share_id), manila.access_rules(share_id)
+    )
     return {
         "share": rules.share_summary(share),
         "items": [rules.access_summary(r) for r in access],
@@ -255,14 +293,20 @@ async def list_access(ctx: Context, share_id: str) -> dict:
     }
 
 
-async def allow_access(ctx: Context, share_id: str, data: AccessRuleCreate) -> dict:
+async def allow_access(
+    ctx: Context, share_id: str, data: AccessRuleCreate
+) -> dict:
     manila = _manila(ctx)
-    problem = rules.validate_access(data.access_type, data.access_to, data.access_level)
+    problem = rules.validate_access(
+        data.access_type, data.access_to, data.access_level
+    )
     if problem:
         raise BadRequest(problem)
     share = await manila.share(share_id)
     if (share.get("status") or "").lower() not in rules.SHARE_EDITABLE:
-        raise Conflict("Access rules can only be added while the share is available.")
+        raise Conflict(
+            "Access rules can only be added while the share is available."
+        )
     rule = await manila.allow_access(
         share_id,
         {
@@ -283,9 +327,14 @@ async def deny_access(ctx: Context, share_id: str, access_id: str) -> None:
 
 async def list_snapshots(ctx: Context) -> dict:
     manila = _manila(ctx)
-    snapshots, shares, quota = await asyncio.gather(manila.snapshots(), manila.shares(), manila.limits())
+    snapshots, shares, quota = await asyncio.gather(
+        manila.snapshots(), manila.shares(), manila.limits()
+    )
     by_id = {s.get("id"): s for s in shares}
-    items = [rules.snapshot_summary(s, by_id.get(s.get("share_id"))) for s in snapshots]
+    items = [
+        rules.snapshot_summary(s, by_id.get(s.get("share_id")))
+        for s in snapshots
+    ]
     items.sort(key=lambda s: (s["name"] or "").lower())
     return {"items": items, "quota": quota}
 
@@ -293,22 +342,32 @@ async def list_snapshots(ctx: Context) -> dict:
 async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
     manila = _manila(ctx)
     snapshot = await manila.snapshot(snapshot_id)
-    share = await manila.share(snapshot["share_id"]) if snapshot.get("share_id") else None
+    share = (
+        await manila.share(snapshot["share_id"])
+        if snapshot.get("share_id")
+        else None
+    )
     detail = rules.snapshot_summary(snapshot, share)
-    detail["mount_snapshot_support"] = bool((share or {}).get("mount_snapshot_support"))
+    detail["mount_snapshot_support"] = bool(
+        (share or {}).get("mount_snapshot_support")
+    )
     if detail["mount_snapshot_support"]:
         locations, access = await asyncio.gather(
             manila.get_json(f"/snapshots/{snapshot_id}/export-locations"),
             manila.get_json(f"/snapshots/{snapshot_id}/access-list"),
         )
-        detail["export_locations"] = (locations or {}).get("share_snapshot_export_locations", [])
+        detail["export_locations"] = (locations or {}).get(
+            "share_snapshot_export_locations", []
+        )
         detail["access_rules"] = (access or {}).get("snapshot_access_list", [])
     return detail
 
 
 async def create_snapshot(ctx: Context, data: SnapshotCreate) -> dict:
     manila = _manila(ctx)
-    share, quota = await asyncio.gather(manila.share(data.share_id), manila.limits())
+    share, quota = await asyncio.gather(
+        manila.share(data.share_id), manila.limits()
+    )
     allowed, reason = rules.can_snapshot(quota)
     if not allowed:
         raise QuotaExceeded(reason or "Quota exceeded.")
@@ -326,14 +385,20 @@ async def create_snapshot(ctx: Context, data: SnapshotCreate) -> dict:
     return rules.snapshot_summary(created, share)
 
 
-async def update_snapshot(ctx: Context, snapshot_id: str, data: SnapshotUpdate) -> dict:
+async def update_snapshot(
+    ctx: Context, snapshot_id: str, data: SnapshotUpdate
+) -> dict:
     fields: dict = {}
     if data.name is not None:
         fields["display_name"] = data.name
     if data.description is not None:
         fields["display_description"] = data.description
     manila = _manila(ctx)
-    updated = await manila.update_snapshot(snapshot_id, fields) if fields else await manila.snapshot(snapshot_id)
+    updated = (
+        await manila.update_snapshot(snapshot_id, fields)
+        if fields
+        else await manila.snapshot(snapshot_id)
+    )
     return rules.snapshot_summary(updated, None)
 
 
@@ -345,19 +410,30 @@ async def delete_snapshot(ctx: Context, snapshot_id: str) -> None:
     await manila.delete_snapshot(snapshot_id)
 
 
-async def snapshot_allow_access(ctx: Context, snapshot_id: str, data: SnapshotAccessCreate) -> dict:
+async def snapshot_allow_access(
+    ctx: Context, snapshot_id: str, data: SnapshotAccessCreate
+) -> dict:
     problem = rules.validate_access(data.access_type, data.access_to, "rw")
     if problem:
         raise BadRequest(problem)
     body = await _manila(ctx)._action(
         f"/snapshots/{snapshot_id}",
-        {"allow_access": {"access_type": data.access_type, "access_to": data.access_to.strip()}},
+        {
+            "allow_access": {
+                "access_type": data.access_type,
+                "access_to": data.access_to.strip(),
+            }
+        },
     )
     return body.get("snapshot_access", body)
 
 
-async def snapshot_deny_access(ctx: Context, snapshot_id: str, access_id: str) -> None:
-    await _manila(ctx)._action(f"/snapshots/{snapshot_id}", {"deny_access": {"access_id": access_id}})
+async def snapshot_deny_access(
+    ctx: Context, snapshot_id: str, access_id: str
+) -> None:
+    await _manila(ctx)._action(
+        f"/snapshots/{snapshot_id}", {"deny_access": {"access_id": access_id}}
+    )
 
 
 # --- security services ---------------------------------------------------------
@@ -371,19 +447,33 @@ async def list_security_services(ctx: Context) -> dict:
 
 
 async def get_security_service(ctx: Context, service_id: str) -> dict:
-    return rules.security_service_summary(await _manila(ctx).security_service(service_id))
+    return rules.security_service_summary(
+        await _manila(ctx).security_service(service_id)
+    )
 
 
-async def create_security_service(ctx: Context, data: SecurityServiceCreate) -> dict:
-    created = await _manila(ctx).create_security_service(rules.security_service_body(data.model_dump()))
+async def create_security_service(
+    ctx: Context, data: SecurityServiceCreate
+) -> dict:
+    created = await _manila(ctx).create_security_service(
+        rules.security_service_body(data.model_dump())
+    )
     return rules.security_service_summary(created)
 
 
-async def update_security_service(ctx: Context, service_id: str, data: SecurityServiceUpdate) -> dict:
+async def update_security_service(
+    ctx: Context, service_id: str, data: SecurityServiceUpdate
+) -> dict:
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
     manila = _manila(ctx)
-    updated = await manila.update_security_service(service_id, fields) if fields else None
-    return rules.security_service_summary(updated or await manila.security_service(service_id))
+    updated = (
+        await manila.update_security_service(service_id, fields)
+        if fields
+        else None
+    )
+    return rules.security_service_summary(
+        updated or await manila.security_service(service_id)
+    )
 
 
 async def delete_security_service(ctx: Context, service_id: str) -> None:
@@ -403,11 +493,15 @@ async def list_share_groups(ctx: Context) -> dict:
 async def get_share_group(ctx: Context, group_id: str) -> dict:
     manila = _manila(ctx)
     group, members, types = await asyncio.gather(
-        manila.share_group(group_id), manila.shares(share_group_id=group_id), _share_types(ctx)
+        manila.share_group(group_id),
+        manila.shares(share_group_id=group_id),
+        _share_types(ctx),
     )
     detail = rules.group_summary(group)
     by_id = {t["id"]: t for t in types}
-    detail["share_types_detail"] = [by_id.get(t, {"id": t, "name": t}) for t in detail["share_types"]]
+    detail["share_types_detail"] = [
+        by_id.get(t, {"id": t, "name": t}) for t in detail["share_types"]
+    ]
     detail["members"] = [rules.share_summary(s) for s in members]
     return detail
 
@@ -427,13 +521,19 @@ async def create_share_group(ctx: Context, data: ShareGroupCreate) -> dict:
     return rules.group_summary(await manila.create_share_group(body))
 
 
-async def update_share_group(ctx: Context, group_id: str, data: ShareGroupUpdate) -> dict:
+async def update_share_group(
+    ctx: Context, group_id: str, data: ShareGroupUpdate
+) -> dict:
     manila = _manila(ctx)
     group = await manila.share_group(group_id)
     if "edit" not in rules.group_actions(group):
-        raise Conflict("The share group can only be edited while it is available.")
+        raise Conflict(
+            "The share group can only be edited while it is available."
+        )
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
-    updated = await manila.update_share_group(group_id, fields) if fields else group
+    updated = (
+        await manila.update_share_group(group_id, fields) if fields else group
+    )
     return rules.group_summary(updated or group)
 
 
@@ -447,9 +547,14 @@ async def delete_share_group(ctx: Context, group_id: str) -> None:
 
 async def list_share_group_snapshots(ctx: Context) -> dict:
     manila = _manila(ctx)
-    snapshots, groups = await asyncio.gather(manila.share_group_snapshots(), manila.share_groups())
+    snapshots, groups = await asyncio.gather(
+        manila.share_group_snapshots(), manila.share_groups()
+    )
     by_id = {g.get("id"): g for g in groups}
-    items = [rules.group_snapshot_summary(s, by_id.get(s.get("share_group_id"))) for s in snapshots]
+    items = [
+        rules.group_snapshot_summary(s, by_id.get(s.get("share_group_id")))
+        for s in snapshots
+    ]
     items.sort(key=lambda s: (s["name"] or "").lower())
     return {"items": items}
 
@@ -457,11 +562,17 @@ async def list_share_group_snapshots(ctx: Context) -> dict:
 async def get_share_group_snapshot(ctx: Context, snapshot_id: str) -> dict:
     manila = _manila(ctx)
     snapshot = await manila.share_group_snapshot(snapshot_id)
-    group = await manila.share_group(snapshot["share_group_id"]) if snapshot.get("share_group_id") else None
+    group = (
+        await manila.share_group(snapshot["share_group_id"])
+        if snapshot.get("share_group_id")
+        else None
+    )
     return rules.group_snapshot_summary(snapshot, group)
 
 
-async def create_share_group_snapshot(ctx: Context, data: ShareGroupSnapshotCreate) -> dict:
+async def create_share_group_snapshot(
+    ctx: Context, data: ShareGroupSnapshotCreate
+) -> dict:
     manila = _manila(ctx)
     group = await manila.share_group(data.share_group_id)
     if "snapshot" not in rules.group_actions(group):
@@ -473,16 +584,26 @@ async def create_share_group_snapshot(ctx: Context, data: ShareGroupSnapshotCrea
     return rules.group_snapshot_summary(created, group)
 
 
-async def update_share_group_snapshot(ctx: Context, snapshot_id: str, data: ShareGroupUpdate) -> dict:
+async def update_share_group_snapshot(
+    ctx: Context, snapshot_id: str, data: ShareGroupUpdate
+) -> dict:
     manila = _manila(ctx)
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
-    updated = await manila.update_share_group_snapshot(snapshot_id, fields) if fields else None
-    return rules.group_snapshot_summary(updated or await manila.share_group_snapshot(snapshot_id), None)
+    updated = (
+        await manila.update_share_group_snapshot(snapshot_id, fields)
+        if fields
+        else None
+    )
+    return rules.group_snapshot_summary(
+        updated or await manila.share_group_snapshot(snapshot_id), None
+    )
 
 
 async def delete_share_group_snapshot(ctx: Context, snapshot_id: str) -> None:
     manila = _manila(ctx)
     snapshot = await manila.share_group_snapshot(snapshot_id)
     if "delete" not in rules.group_snapshot_actions(snapshot):
-        raise Conflict("The share group snapshot cannot be deleted while it is busy.")
+        raise Conflict(
+            "The share group snapshot cannot be deleted while it is busy."
+        )
     await manila.delete_share_group_snapshot(snapshot_id)

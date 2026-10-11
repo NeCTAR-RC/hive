@@ -54,11 +54,14 @@ async def test_usage_instances_joined_with_gnocchi(logged_in, upstream):
     search = upstream.post(f"{GNOCCHI}/v1/search/resource/instance").mock(
         return_value=httpx.Response(
             200,
-            json=[{"id": "i-1", "display_name": "web", "flavor_name": "m3.small"}],
+            json=[
+                {"id": "i-1", "display_name": "web", "flavor_name": "m3.small"}
+            ],
         )
     )
     response = await logged_in.get(
-        "/api/usage/instances", params={"begin": "2026-07-01", "end": "2026-10-01"}
+        "/api/usage/instances",
+        params={"begin": "2026-07-01", "end": "2026-10-01"},
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -73,7 +76,8 @@ async def test_usage_instances_joined_with_gnocchi(logged_in, upstream):
     }
     assert response.headers["x-hive-cache"] == "miss"
     again = await logged_in.get(
-        "/api/usage/instances", params={"begin": "2026-07-01", "end": "2026-10-01"}
+        "/api/usage/instances",
+        params={"begin": "2026-07-01", "end": "2026-10-01"},
     )
     assert again.headers["x-hive-cache"] == "hit"
 
@@ -91,21 +95,29 @@ async def test_usage_instances_partial_without_gnocchi(logged_in, upstream):
 
 async def test_usage_range_validation(logged_in):
     response = await logged_in.get(
-        "/api/usage/instances", params={"begin": "yesterday", "end": "2026-10-01"}
+        "/api/usage/instances",
+        params={"begin": "yesterday", "end": "2026-10-01"},
     )
     assert response.status_code == 400
     response = await logged_in.get(
-        "/api/usage/summary", params={"begin": "2026-10-02", "end": "2026-10-01"}
+        "/api/usage/summary",
+        params={"begin": "2026-10-02", "end": "2026-10-01"},
     )
     assert response.status_code == 400
 
 
 async def test_usage_summary_clamps_to_the_data_floor(logged_in, upstream):
-    route = upstream.get(f"{CLOUDKITTY}/v2/summary").mock(side_effect=cloudkitty)
+    route = upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
+        side_effect=cloudkitty
+    )
     body = (
         await logged_in.get(
             "/api/usage/summary",
-            params={"begin": "2020-01-01", "end": "2026-10-01", "groupby": "type"},
+            params={
+                "begin": "2020-01-01",
+                "end": "2026-10-01",
+                "groupby": "type",
+            },
         )
     ).json()
     assert body["begin"] == "2022-01-01"
@@ -113,7 +125,9 @@ async def test_usage_summary_clamps_to_the_data_floor(logged_in, upstream):
 
 
 async def test_allocation_usage_burn_down(logged_in, upstream):
-    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(side_effect=allocations)
+    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(
+        side_effect=allocations
+    )
     upstream.get(f"{CLOUDKITTY}/v2/summary").mock(side_effect=cloudkitty)
     response = await logged_in.get("/api/usage/allocation")
     assert response.status_code == 200, response.text
@@ -142,7 +156,9 @@ async def test_allocation_usage_without_an_allocation(logged_in, upstream):
 async def test_allocation_usage_partial_when_cloudkitty_fails(
     logged_in, upstream
 ):
-    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(side_effect=allocations)
+    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(
+        side_effect=allocations
+    )
     upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
         return_value=httpx.Response(500, text="boom")
     )

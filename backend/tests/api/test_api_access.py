@@ -58,7 +58,9 @@ async def test_openrc_download(logged_in):
     assert "export OS_PROJECT_NAME=pt-50" in body
     assert "export OS_USERNAME=sam@example.edu" in body
     assert "read -sr OS_PASSWORD_INPUT" in body
-    assert "OS_PASSWORD=" not in body.replace("OS_PASSWORD=$OS_PASSWORD_INPUT", "")
+    assert "OS_PASSWORD=" not in body.replace(
+        "OS_PASSWORD=$OS_PASSWORD_INPUT", ""
+    )
 
 
 async def test_clouds_yaml_download(logged_in):

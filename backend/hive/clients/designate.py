@@ -35,7 +35,9 @@ class DesignateClient(ServiceClient):
         return await self.get_json(f"/v2/zones/{zone_id}") or {}
 
     async def create_zone(self, fields: dict) -> dict:
-        resp = await self.request("POST", "/v2/zones", json=fields, ok=(201, 202))
+        resp = await self.request(
+            "POST", "/v2/zones", json=fields, ok=(201, 202)
+        )
         return resp.json() if resp.content else {}
 
     async def update_zone(self, zone_id: str, fields: dict) -> dict:
@@ -45,7 +47,9 @@ class DesignateClient(ServiceClient):
         return resp.json() if resp.content else {}
 
     async def delete_zone(self, zone_id: str) -> dict:
-        resp = await self.request("DELETE", f"/v2/zones/{zone_id}", ok=(202, 204))
+        resp = await self.request(
+            "DELETE", f"/v2/zones/{zone_id}", ok=(202, 204)
+        )
         return resp.json() if resp.content else {}
 
     async def recordsets(self, zone_id: str, **params) -> list[dict]:
@@ -55,13 +59,18 @@ class DesignateClient(ServiceClient):
 
     async def recordset(self, zone_id: str, recordset_id: str) -> dict:
         return (
-            await self.get_json(f"/v2/zones/{zone_id}/recordsets/{recordset_id}")
+            await self.get_json(
+                f"/v2/zones/{zone_id}/recordsets/{recordset_id}"
+            )
             or {}
         )
 
     async def create_recordset(self, zone_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "POST", f"/v2/zones/{zone_id}/recordsets", json=fields, ok=(201, 202)
+            "POST",
+            f"/v2/zones/{zone_id}/recordsets",
+            json=fields,
+            ok=(201, 202),
         )
         return resp.json() if resp.content else {}
 
@@ -78,7 +87,9 @@ class DesignateClient(ServiceClient):
 
     async def delete_recordset(self, zone_id: str, recordset_id: str) -> None:
         await self.request(
-            "DELETE", f"/v2/zones/{zone_id}/recordsets/{recordset_id}", ok=(202, 204)
+            "DELETE",
+            f"/v2/zones/{zone_id}/recordsets/{recordset_id}",
+            ok=(202, 204),
         )
 
     async def quotas(self) -> dict:

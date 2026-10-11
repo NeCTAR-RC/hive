@@ -48,12 +48,20 @@ def validate_fqdn(name: str, what: str = "name") -> str | None:
     if not name or not name.endswith("."):
         return f"The {what} must end with a dot, such as example.com."
     labels = name[:-1].split(".")
-    if len(name.encode()) > 255 or any(not LABEL.match(label) for label in labels):
+    if len(name.encode()) > 255 or any(
+        not LABEL.match(label) for label in labels
+    ):
         return f"The {what} is not a valid domain name."
     return None
 
 
-def validate_zone(name: str, email: str, ttl: int | None, ztype: str, masters: list[str] | None) -> str | None:
+def validate_zone(
+    name: str,
+    email: str,
+    ttl: int | None,
+    ztype: str,
+    masters: list[str] | None,
+) -> str | None:
     problem = validate_fqdn(name, "zone name")
     if problem:
         return problem
@@ -68,7 +76,14 @@ def validate_zone(name: str, email: str, ttl: int | None, ztype: str, masters: l
     return None
 
 
-def zone_body(name: str, email: str, ttl: int | None, description: str | None, ztype: str, masters: list[str] | None) -> dict:
+def zone_body(
+    name: str,
+    email: str,
+    ttl: int | None,
+    description: str | None,
+    ztype: str,
+    masters: list[str] | None,
+) -> dict:
     body: dict = {"name": name, "email": email, "type": ztype}
     if ttl is not None:
         body["ttl"] = ttl
@@ -124,7 +139,9 @@ def validate_record(rtype: str, record: str) -> str | None:
     return None
 
 
-def validate_recordset(zone_name: str, name: str, rtype: str, records: list[str], ttl: int | None) -> str | None:
+def validate_recordset(
+    zone_name: str, name: str, rtype: str, records: list[str], ttl: int | None
+) -> str | None:
     if rtype not in RECORD_TYPES:
         return f"Record type {rtype} is not supported."
     problem = validate_fqdn(name, "record set name")
@@ -156,8 +173,18 @@ def recordset_name(zone_name: str, name: str) -> str:
     return f"{clean}.{zone_name}"
 
 
-def recordset_body(name: str, rtype: str, records: list[str], ttl: int | None, description: str | None) -> dict:
-    body: dict = {"name": name, "type": rtype, "records": [r.strip() for r in records if r.strip()]}
+def recordset_body(
+    name: str,
+    rtype: str,
+    records: list[str],
+    ttl: int | None,
+    description: str | None,
+) -> dict:
+    body: dict = {
+        "name": name,
+        "type": rtype,
+        "records": [r.strip() for r in records if r.strip()],
+    }
     if ttl is not None:
         body["ttl"] = ttl
     if description is not None:

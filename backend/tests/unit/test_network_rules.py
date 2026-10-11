@@ -128,9 +128,17 @@ class TestRouterInterfaces:
                 "id": "net-1",
                 "name": "private",
                 "subnets": [
-                    {"id": "s-1", "cidr": "10.0.0.0/24", "gateway_ip": "10.0.0.1"},
+                    {
+                        "id": "s-1",
+                        "cidr": "10.0.0.0/24",
+                        "gateway_ip": "10.0.0.1",
+                    },
                     {"id": "s-2", "cidr": "10.0.1.0/24", "gateway_ip": None},
-                    {"id": "s-3", "cidr": "10.0.2.0/24", "gateway_ip": "10.0.2.1"},
+                    {
+                        "id": "s-3",
+                        "cidr": "10.0.2.0/24",
+                        "gateway_ip": "10.0.2.1",
+                    },
                 ],
             }
         ]
@@ -144,7 +152,11 @@ class TestTrunkCandidates:
         {"id": "p-free", "admin_state_up": True, "device_owner": ""},
         {"id": "p-vm", "admin_state_up": True, "device_owner": "compute:nova"},
         {"id": "p-down", "admin_state_up": False, "device_owner": ""},
-        {"id": "p-dhcp", "admin_state_up": True, "device_owner": "network:dhcp"},
+        {
+            "id": "p-dhcp",
+            "admin_state_up": True,
+            "device_owner": "network:dhcp",
+        },
         {"id": "p-parent", "admin_state_up": True, "device_owner": ""},
         {"id": "p-child", "admin_state_up": True, "device_owner": ""},
     ]
@@ -153,7 +165,9 @@ class TestTrunkCandidates:
     def test_parents_and_subports(self):
         parents = NetworkRules.trunk_parent_candidates(self.PORTS, self.TRUNKS)
         assert [p["id"] for p in parents] == ["p-free", "p-vm"]
-        subports = NetworkRules.trunk_subport_candidates(self.PORTS, self.TRUNKS)
+        subports = NetworkRules.trunk_subport_candidates(
+            self.PORTS, self.TRUNKS
+        )
         assert [p["id"] for p in subports] == ["p-free"]
 
 
@@ -197,7 +211,11 @@ class TestSubnetBody:
 
     def test_no_gateway_wins(self):
         body = subnet_body(
-            {"cidr": "10.0.0.0/24", "gateway_ip": "10.0.0.1", "no_gateway": True},
+            {
+                "cidr": "10.0.0.0/24",
+                "gateway_ip": "10.0.0.1",
+                "no_gateway": True,
+            },
             self.DNS,
         )
         assert body["gateway_ip"] is None
@@ -214,15 +232,22 @@ class TestSubnetBody:
             (
                 {
                     "cidr": "10.0.0.0/24",
-                    "allocation_pools": [{"start": "10.0.0.9", "end": "10.0.0.2"}],
+                    "allocation_pools": [
+                        {"start": "10.0.0.9", "end": "10.0.0.2"}
+                    ],
                 },
                 "after its end",
             ),
-            ({"cidr": "10.0.0.0/24", "dns_nameservers": ["x"]}, "DNS name server"),
+            (
+                {"cidr": "10.0.0.0/24", "dns_nameservers": ["x"]},
+                "DNS name server",
+            ),
             (
                 {
                     "cidr": "10.0.0.0/24",
-                    "host_routes": [{"destination": "bad", "nexthop": "10.0.0.1"}],
+                    "host_routes": [
+                        {"destination": "bad", "nexthop": "10.0.0.1"}
+                    ],
                 },
                 "host route destination",
             ),
@@ -240,7 +265,9 @@ class TestSubnetBody:
 
     def test_update_sends_only_given_fields_and_clears_lists(self):
         body = subnet_body(
-            {"name": "renamed", "allocation_pools": []}, self.DNS, is_create=False
+            {"name": "renamed", "allocation_pools": []},
+            self.DNS,
+            is_create=False,
         )
         assert body == {"name": "renamed", "allocation_pools": []}
         assert subnet_body({}, self.DNS, is_create=False) == {}
@@ -287,7 +314,10 @@ class TestStaticRoutes:
         [
             ({"destination": "x", "nexthop": "10.0.0.1"}, "not a CIDR"),
             ({"destination": "10.0.0.0/8", "nexthop": "y"}, "next hop"),
-            ({"destination": "10.0.0.0/8", "nexthop": "fd00::1"}, "IP version"),
+            (
+                {"destination": "10.0.0.0/8", "nexthop": "fd00::1"},
+                "IP version",
+            ),
         ],
     )
     def test_rejections(self, route, message):

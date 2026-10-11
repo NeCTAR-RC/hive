@@ -30,7 +30,13 @@ presents them. Citations are to the installed plugin under
 import ipaddress
 
 SHARE_OK = ("available",)
-SHARE_TRANSITIONAL = ("creating", "deleting", "reverting", "migrating", "migrating_to")
+SHARE_TRANSITIONAL = (
+    "creating",
+    "deleting",
+    "reverting",
+    "migrating",
+    "migrating_to",
+)
 SHARE_EDITABLE = ("available", "in-use")
 SHARE_DELETABLE = ("AVAILABLE", "ERROR", "MANAGE_ERROR")
 SNAPSHOT_OK = ("available", "in-use")
@@ -47,7 +53,9 @@ SECURITY_SERVICE_LABELS = {
 DEFAULT_PROTOCOLS = ("NFS", "CIFS", "CephFS")
 
 
-def is_transitional(status: str | None, transitional=SHARE_TRANSITIONAL) -> bool:
+def is_transitional(
+    status: str | None, transitional=SHARE_TRANSITIONAL
+) -> bool:
     return (status or "").lower() in transitional
 
 
@@ -114,7 +122,9 @@ def parse_metadata(text: str | None) -> dict[str, str]:
         key, value = line.split("=", 1)
         key, value = key.strip(), value.strip()
         if not key or not value or len(key) > 255 or len(value) > 255:
-            raise ValueError("Metadata keys and values must be 1 to 255 characters.")
+            raise ValueError(
+                "Metadata keys and values must be 1 to 255 characters."
+            )
         if " " in key:
             raise ValueError("Metadata keys cannot contain spaces.")
         if key in metadata:
@@ -216,7 +226,9 @@ def validate_resize(current: int, new_size: int, limits: dict) -> str | None:
     return None
 
 
-def validate_access(access_type: str, access_to: str, access_level: str) -> str | None:
+def validate_access(
+    access_type: str, access_to: str, access_level: str
+) -> str | None:
     if access_type not in ACCESS_TYPES:
         return "The access type must be ip, user, cert or cephx."
     if access_level not in ACCESS_LEVELS:
@@ -257,7 +269,9 @@ def share_summary(share: dict, has_snapshot: bool = False) -> dict:
         "metadata": share.get("metadata") or {},
         "created_at": share.get("created_at"),
         "snapshot_support": bool(share.get("snapshot_support", True)),
-        "revert_to_snapshot_support": bool(share.get("revert_to_snapshot_support")),
+        "revert_to_snapshot_support": bool(
+            share.get("revert_to_snapshot_support")
+        ),
         "mount_snapshot_support": bool(share.get("mount_snapshot_support")),
         "has_snapshot": has_snapshot,
         "is_transitional": is_transitional(status),
@@ -265,7 +279,9 @@ def share_summary(share: dict, has_snapshot: bool = False) -> dict:
     }
 
 
-def share_detail(share: dict, rules: list[dict], locations: list[dict], has_snapshot: bool) -> dict:
+def share_detail(
+    share: dict, rules: list[dict], locations: list[dict], has_snapshot: bool
+) -> dict:
     summary = share_summary(share, has_snapshot)
     summary.update(
         {
@@ -350,8 +366,12 @@ def group_summary(group: dict) -> dict:
         "availability_zone": group.get("availability_zone"),
         "share_group_type_id": group.get("share_group_type_id"),
         "share_types": group.get("share_types") or [],
-        "source_share_group_snapshot_id": group.get("source_share_group_snapshot_id"),
-        "consistent_snapshot_support": group.get("consistent_snapshot_support"),
+        "source_share_group_snapshot_id": group.get(
+            "source_share_group_snapshot_id"
+        ),
+        "consistent_snapshot_support": group.get(
+            "consistent_snapshot_support"
+        ),
         "created_at": group.get("created_at"),
         "is_transitional": is_transitional(status, GROUP_TRANSITIONAL),
         "actions": group_actions(group),
@@ -402,13 +422,17 @@ def group_body(
 
 def share_type_summary(share_type: dict) -> dict:
     specs = share_type.get("extra_specs") or {}
-    dhss = str(specs.get("driver_handles_share_servers", "")).lower() in ("true", "1")
+    dhss = str(specs.get("driver_handles_share_servers", "")).lower() in (
+        "true",
+        "1",
+    )
     return {
         "id": share_type.get("id"),
         "name": share_type.get("name"),
         "description": share_type.get("description"),
         "is_public": share_type.get("share_type_access:is_public", True),
         "driver_handles_share_servers": dhss,
-        "snapshot_support": str(specs.get("snapshot_support", "true")).lower() == "true",
+        "snapshot_support": str(specs.get("snapshot_support", "true")).lower()
+        == "true",
         "extra_specs": specs,
     }

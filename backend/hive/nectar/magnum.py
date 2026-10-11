@@ -126,10 +126,16 @@ def picker_options(templates: list[dict]) -> dict:
     template version."""
     usable = selectable_templates(templates)
     versions = sorted(
-        {t["kubernetes_version"] for t in usable}, key=version_key, reverse=True
+        {t["kubernetes_version"] for t in usable},
+        key=version_key,
+        reverse=True,
     )
-    zones = sorted({t["availability_zone"] for t in usable if t["availability_zone"]})
-    drivers = sorted({t["network_driver"] for t in usable if t["network_driver"]})
+    zones = sorted(
+        {t["availability_zone"] for t in usable if t["availability_zone"]}
+    )
+    drivers = sorted(
+        {t["network_driver"] for t in usable if t["network_driver"]}
+    )
     combos: dict[str, str] = {}
     for template in usable:
         key = f"{template['kubernetes_version']}|{template['availability_zone']}|{template['network_driver']}"
@@ -328,7 +334,8 @@ def nodegroup_summary(nodegroup: dict) -> dict:
         "max_node_count": nodegroup.get("max_node_count"),
         "node_addresses": nodegroup.get("node_addresses") or [],
         "labels": labels,
-        "auto_scaling": str(labels.get("auto_scaling_enabled", "")).lower() == "true",
+        "auto_scaling": str(labels.get("auto_scaling_enabled", "")).lower()
+        == "true",
         "node_labels": nodegroup.get("node_labels") or {},
         "node_taints": nodegroup.get("node_taints") or [],
         "created_at": nodegroup.get("created_at"),
@@ -357,8 +364,12 @@ def nodegroup_body(
     }
     labels: dict[str, str] = {}
     if autoscaling:
-        body["min_node_count"] = min_node_count if min_node_count is not None else 1
-        body["max_node_count"] = max_node_count if max_node_count is not None else node_count
+        body["min_node_count"] = (
+            min_node_count if min_node_count is not None else 1
+        )
+        body["max_node_count"] = (
+            max_node_count if max_node_count is not None else node_count
+        )
         labels["auto_scaling_enabled"] = "true"
     if boot_volume_size:
         labels["boot_volume_size"] = str(boot_volume_size)
@@ -404,7 +415,9 @@ def generate_key_and_csr() -> tuple[str, str]:
             x509.Name(
                 [
                     x509.NameAttribute(NameOID.COMMON_NAME, "admin"),
-                    x509.NameAttribute(NameOID.ORGANIZATION_NAME, "system:masters"),
+                    x509.NameAttribute(
+                        NameOID.ORGANIZATION_NAME, "system:masters"
+                    ),
                 ]
             )
         )
@@ -423,7 +436,11 @@ def _b64(text: str) -> str:
 
 
 def kubeconfig(
-    name: str, api_address: str, ca: str | None, cert: str | None, key: str | None
+    name: str,
+    api_address: str,
+    ca: str | None,
+    cert: str | None,
+    key: str | None,
 ) -> str:
     if ca and cert and key:
         return "\n".join(

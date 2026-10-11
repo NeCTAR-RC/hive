@@ -148,7 +148,9 @@ def clouds_yaml_text(creds: dict) -> str:
 
 
 def _filename(project_name: str, suffix: str) -> str:
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in project_name)
+    safe = "".join(
+        c if c.isalnum() or c in "-_." else "_" for c in project_name
+    )
     return f"{safe or 'openstack'}{suffix}"
 
 

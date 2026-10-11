@@ -12,8 +12,8 @@ from hive.schemas.magnum import (
     NodeGroupResize,
     SignRequest,
 )
-from hive.services import magnum
 from hive.services.context import Context
+from hive.services import magnum
 
 router = APIRouter(prefix="/kubernetes", tags=["kubernetes"])
 
@@ -35,7 +35,9 @@ async def list_clusters(ctx: Context = Depends(get_context)):
 
 
 @router.post("/clusters", status_code=202)
-async def create_cluster(body: ClusterCreate, ctx: Context = Depends(get_context)):
+async def create_cluster(
+    body: ClusterCreate, ctx: Context = Depends(get_context)
+):
     return await magnum.create_cluster(ctx, body)
 
 
@@ -56,7 +58,9 @@ async def delete_cluster(cluster_id: str, ctx: Context = Depends(get_context)):
 
 
 @router.get("/clusters/{cluster_id}/upgrade-options")
-async def upgrade_options(cluster_id: str, ctx: Context = Depends(get_context)):
+async def upgrade_options(
+    cluster_id: str, ctx: Context = Depends(get_context)
+):
     return await magnum.upgrade_options(ctx, cluster_id)
 
 
@@ -92,7 +96,9 @@ async def sign_certificate(
 
 
 @router.get("/clusters/{cluster_id}/nodegroups")
-async def list_nodegroups(cluster_id: str, ctx: Context = Depends(get_context)):
+async def list_nodegroups(
+    cluster_id: str, ctx: Context = Depends(get_context)
+):
     return await magnum.list_nodegroups(ctx, cluster_id)
 
 
@@ -110,14 +116,18 @@ async def get_nodegroup(
     return await magnum.get_nodegroup(ctx, cluster_id, nodegroup_id)
 
 
-@router.post("/clusters/{cluster_id}/nodegroups/{nodegroup_id}/resize", status_code=202)
+@router.post(
+    "/clusters/{cluster_id}/nodegroups/{nodegroup_id}/resize", status_code=202
+)
 async def resize_nodegroup(
     cluster_id: str,
     nodegroup_id: str,
     body: NodeGroupResize,
     ctx: Context = Depends(get_context),
 ):
-    return await magnum.resize_nodegroup(ctx, cluster_id, nodegroup_id, body.node_count)
+    return await magnum.resize_nodegroup(
+        ctx, cluster_id, nodegroup_id, body.node_count
+    )
 
 
 @router.put("/clusters/{cluster_id}/nodegroups/{nodegroup_id}/autoscaling")
@@ -144,7 +154,9 @@ async def set_labels(
     )
 
 
-@router.delete("/clusters/{cluster_id}/nodegroups/{nodegroup_id}", status_code=204)
+@router.delete(
+    "/clusters/{cluster_id}/nodegroups/{nodegroup_id}", status_code=204
+)
 async def delete_nodegroup(
     cluster_id: str, nodegroup_id: str, ctx: Context = Depends(get_context)
 ):

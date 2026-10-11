@@ -63,12 +63,16 @@ async def test_members_list_add_and_remove(logged_in, upstream):
     assert body["items"][1]["can_remove"] is False
     assert [r["name"] for r in body["roles"]] == ["member", "tenantmanager"]
 
-    upstream.get(f"{MANUKA}/v1/keystone-ext/user-by-name/new@example.edu/").mock(
-        return_value=httpx.Response(200, json={"id": "u9", "name": "new@example.edu"})
+    upstream.get(
+        f"{MANUKA}/v1/keystone-ext/user-by-name/new@example.edu/"
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"id": "u9", "name": "new@example.edu"}
+        )
     )
-    grant = upstream.put(f"{KEYSTONE}/projects/p2/users/u9/roles/r-member").mock(
-        return_value=httpx.Response(204)
-    )
+    grant = upstream.put(
+        f"{KEYSTONE}/projects/p2/users/u9/roles/r-member"
+    ).mock(return_value=httpx.Response(204))
     response = await client.post(
         "/api/identity/members",
         json={"email": "new@example.edu", "role_id": "r-member"},
@@ -78,9 +82,9 @@ async def test_members_list_add_and_remove(logged_in, upstream):
     assert response.json()["role_name"] == "member"
     assert grant.called
 
-    revoke = upstream.delete(f"{KEYSTONE}/projects/p2/users/u2/roles/r-tm").mock(
-        return_value=httpx.Response(204)
-    )
+    revoke = upstream.delete(
+        f"{KEYSTONE}/projects/p2/users/u2/roles/r-tm"
+    ).mock(return_value=httpx.Response(204))
     response = await client.delete(
         "/api/identity/members/u2/roles/r-tm", headers=csrf_headers(client)
     )
@@ -92,7 +96,9 @@ async def test_members_add_rejects_unknown_accounts_and_self_removal(
     logged_in, upstream
 ):
     client = await as_manager(logged_in)
-    upstream.get(f"{MANUKA}/v1/keystone-ext/user-by-name/nobody@example.edu/").mock(
+    upstream.get(
+        f"{MANUKA}/v1/keystone-ext/user-by-name/nobody@example.edu/"
+    ).mock(
         return_value=httpx.Response(404, json={"error": "User doesn't exist"})
     )
     response = await client.post(
@@ -127,7 +133,9 @@ async def test_application_credentials(logged_in, upstream):
             200, json={"application_credentials": [APP_CRED]}
         )
     )
-    body = (await logged_in.get("/api/identity/application-credentials")).json()
+    body = (
+        await logged_in.get("/api/identity/application-credentials")
+    ).json()
     assert body["items"][0]["roles"][0]["name"] == "member"
     options = (
         await logged_in.get("/api/identity/application-credentials/options")
@@ -136,9 +144,12 @@ async def test_application_credentials(logged_in, upstream):
     assert options["default_expiration_date"] > "2026"
     assert options["auth_url"] == KEYSTONE
 
-    created = upstream.post(f"{KEYSTONE}/users/u1/application_credentials").mock(
+    created = upstream.post(
+        f"{KEYSTONE}/users/u1/application_credentials"
+    ).mock(
         return_value=httpx.Response(
-            201, json={"application_credential": {**APP_CRED, "secret": "s3cret"}}
+            201,
+            json={"application_credential": {**APP_CRED, "secret": "s3cret"}},
         )
     )
     response = await logged_in.post(
@@ -153,13 +164,17 @@ async def test_application_credentials(logged_in, upstream):
     )
     assert response.status_code == 201, response.text
     assert response.json()["secret"] == "s3cret"
-    sent = json.loads(created.calls.last.request.content)["application_credential"]
+    sent = json.loads(created.calls.last.request.content)[
+        "application_credential"
+    ]
     assert sent["expires_at"] == "2027-01-10T00:00:00.000000Z"
     assert sent["roles"] == [{"name": "member"}]
     assert "access_rules" not in sent
 
     upstream.get(f"{KEYSTONE}/users/u1/application_credentials/ac-1").mock(
-        return_value=httpx.Response(200, json={"application_credential": APP_CRED})
+        return_value=httpx.Response(
+            200, json={"application_credential": APP_CRED}
+        )
     )
     detail = await logged_in.get("/api/identity/application-credentials/ac-1")
     assert detail.json()["name"] == "deploy"
@@ -212,7 +227,13 @@ async def test_ec2_credentials(logged_in, upstream):
     upstream.post(f"{KEYSTONE}/users/u1/credentials/OS-EC2").mock(
         return_value=httpx.Response(
             201,
-            json={"credential": {"tenant_id": "p1", "access": "AK", "secret": "SK"}},
+            json={
+                "credential": {
+                    "tenant_id": "p1",
+                    "access": "AK",
+                    "secret": "SK",
+                }
+            },
         )
     )
     response = await logged_in.post(
@@ -233,11 +254,12 @@ async def test_ec2_credentials(logged_in, upstream):
             },
         )
     )
-    deleted = upstream.delete(f"{KEYSTONE}/users/u1/credentials/OS-EC2/AK").mock(
-        return_value=httpx.Response(204)
-    )
+    deleted = upstream.delete(
+        f"{KEYSTONE}/users/u1/credentials/OS-EC2/AK"
+    ).mock(return_value=httpx.Response(204))
     response = await logged_in.post(
-        "/api/identity/ec2-credentials/recreate", headers=csrf_headers(logged_in)
+        "/api/identity/ec2-credentials/recreate",
+        headers=csrf_headers(logged_in),
     )
     assert response.json()["created"] is True
     assert deleted.called
@@ -253,7 +275,12 @@ async def test_generic_credentials(logged_in, upstream):
             200,
             json={
                 "credentials": [
-                    {"id": "c1", "type": "ec2", "project_id": "p1", "blob": "{}"}
+                    {
+                        "id": "c1",
+                        "type": "ec2",
+                        "project_id": "p1",
+                        "blob": "{}",
+                    }
                 ]
             },
         )

@@ -53,7 +53,9 @@ class MagnumClient(ServiceClient):
 
     async def nodegroup(self, cluster_id: str, nodegroup_id: str) -> dict:
         return (
-            await self.get_json(f"/clusters/{cluster_id}/nodegroups/{nodegroup_id}")
+            await self.get_json(
+                f"/clusters/{cluster_id}/nodegroups/{nodegroup_id}"
+            )
             or {}
         )
 
@@ -97,4 +99,7 @@ class MagnumClient(ServiceClient):
         return await self.get_json(f"/quotas/{project_id}/Cluster") or {}
 
     async def stats(self, project_id: str) -> dict:
-        return await self.get_json("/stats", params={"project_id": project_id}) or {}
+        return (
+            await self.get_json("/stats", params={"project_id": project_id})
+            or {}
+        )

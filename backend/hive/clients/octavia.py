@@ -50,7 +50,9 @@ class OctaviaClient(ServiceClient):
         return await self._create("loadbalancers", "loadbalancer", fields)
 
     async def update_load_balancer(self, lb_id: str, fields: dict) -> dict:
-        return await self._update("loadbalancers", "loadbalancer", lb_id, fields)
+        return await self._update(
+            "loadbalancers", "loadbalancer", lb_id, fields
+        )
 
     async def delete_load_balancer(self, lb_id: str, cascade: bool = True):
         await self._delete(
@@ -62,7 +64,9 @@ class OctaviaClient(ServiceClient):
         return (body or {}).get("statuses", {})
 
     async def failover_load_balancer(self, lb_id: str) -> None:
-        await self.request("PUT", f"{LB}/loadbalancers/{lb_id}/failover", ok=(202,))
+        await self.request(
+            "PUT", f"{LB}/loadbalancers/{lb_id}/failover", ok=(202,)
+        )
 
     # listeners
     async def listeners(self, **params) -> list[dict]:
@@ -154,7 +158,9 @@ class OctaviaClient(ServiceClient):
         return await self._list(f"l7policies/{policy_id}/rules", "rules")
 
     async def create_l7_rule(self, policy_id: str, fields: dict) -> dict:
-        return await self._create(f"l7policies/{policy_id}/rules", "rule", fields)
+        return await self._create(
+            f"l7policies/{policy_id}/rules", "rule", fields
+        )
 
     async def update_l7_rule(
         self, policy_id: str, rule_id: str, fields: dict

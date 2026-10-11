@@ -18,7 +18,9 @@ USER = {
     "phone_number": None,
     "mobile_number": "0400 000 000",
     "orcid": None,
-    "external_ids": [{"idp": "https://idp.example.edu", "last_login": "2026-10-09"}],
+    "external_ids": [
+        {"idp": "https://idp.example.edu", "last_login": "2026-10-09"}
+    ],
 }
 
 
@@ -43,7 +45,9 @@ async def test_update_profile(logged_in, upstream):
         return_value=httpx.Response(200, json={})
     )
     upstream.get(f"{MANUKA}/v1/users/u1/").mock(
-        return_value=httpx.Response(200, json={**USER, "affiliation": "student"})
+        return_value=httpx.Response(
+            200, json={**USER, "affiliation": "student"}
+        )
     )
     response = await logged_in.patch(
         "/api/me/profile",
@@ -85,9 +89,7 @@ async def test_reset_password_relogs_the_session(logged_in, upstream):
     assert me.json()["project"]["id"] == "p1"
 
 
-async def test_reset_password_unavailable_without_token(
-    client, upstream, app
-):
+async def test_reset_password_unavailable_without_token(client, upstream, app):
     app.state.settings.password_reset_token = None
     assert (await login(client)).status_code == 303
     response = await client.post(
@@ -98,7 +100,9 @@ async def test_reset_password_unavailable_without_token(
 
 
 async def test_user_lookup_needs_a_helpdesk_role(logged_in):
-    response = await logged_in.get("/api/identity/users/search", params={"q": "sam"})
+    response = await logged_in.get(
+        "/api/identity/users/search", params={"q": "sam"}
+    )
     assert response.status_code == 403
 
 
@@ -110,15 +114,23 @@ async def test_user_lookup(client, upstream, monkeypatch):
             200,
             json={
                 "results": [
-                    {"id": "u2", "displayname": "Ann", "email": "ann@example.edu"}
+                    {
+                        "id": "u2",
+                        "displayname": "Ann",
+                        "email": "ann@example.edu",
+                    }
                 ]
             },
         )
     )
-    short = (await client.get("/api/identity/users/search", params={"q": "an"})).json()
+    short = (
+        await client.get("/api/identity/users/search", params={"q": "an"})
+    ).json()
     assert short == {"items": []}
     assert not search.called
-    body = (await client.get("/api/identity/users/search", params={"q": "ann"})).json()
+    body = (
+        await client.get("/api/identity/users/search", params={"q": "ann"})
+    ).json()
     assert body["items"] == [
         {"id": "u2", "displayname": "Ann", "email": "ann@example.edu"}
     ]

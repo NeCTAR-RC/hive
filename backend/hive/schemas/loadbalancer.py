@@ -4,15 +4,35 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ListenerProtocol = Literal["HTTP", "TCP", "TERMINATED_HTTPS", "HTTPS", "UDP", "SCTP"]
-PoolProtocol = Literal["HTTP", "HTTPS", "PROXY", "PROXYV2", "TCP", "UDP", "SCTP"]
+ListenerProtocol = Literal[
+    "HTTP", "TCP", "TERMINATED_HTTPS", "HTTPS", "UDP", "SCTP"
+]
+PoolProtocol = Literal[
+    "HTTP", "HTTPS", "PROXY", "PROXYV2", "TCP", "UDP", "SCTP"
+]
 Algorithm = Literal["LEAST_CONNECTIONS", "ROUND_ROBIN", "SOURCE_IP"]
 Persistence = Literal["SOURCE_IP", "HTTP_COOKIE", "APP_COOKIE"]
-MonitorType = Literal["HTTP", "HTTPS", "PING", "TCP", "TLS-HELLO", "UDP-CONNECT", "SCTP"]
-HttpMethod = Literal["GET", "HEAD", "POST", "PUT", "DELETE", "TRACE", "OPTIONS", "PATCH", "CONNECT"]
-L7Action = Literal["REJECT", "REDIRECT_TO_URL", "REDIRECT_TO_POOL", "REDIRECT_PREFIX"]
+MonitorType = Literal[
+    "HTTP", "HTTPS", "PING", "TCP", "TLS-HELLO", "UDP-CONNECT", "SCTP"
+]
+HttpMethod = Literal[
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "DELETE",
+    "TRACE",
+    "OPTIONS",
+    "PATCH",
+    "CONNECT",
+]
+L7Action = Literal[
+    "REJECT", "REDIRECT_TO_URL", "REDIRECT_TO_POOL", "REDIRECT_PREFIX"
+]
 L7RuleType = Literal["HOST_NAME", "PATH", "FILE_TYPE", "HEADER", "COOKIE"]
-L7Compare = Literal["REGEX", "EQUAL_TO", "STARTS_WITH", "ENDS_WITH", "CONTAINS"]
+L7Compare = Literal[
+    "REGEX", "EQUAL_TO", "STARTS_WITH", "ENDS_WITH", "CONTAINS"
+]
 
 
 class SessionPersistence(BaseModel):
@@ -26,15 +46,23 @@ class ListenerSpec(BaseModel):
     protocol: ListenerProtocol
     protocol_port: int = Field(ge=1, le=65535)
     connection_limit: int = Field(default=-1, ge=-1)
-    timeout_client_data: int | None = Field(default=50000, ge=0, le=31536000000)
-    timeout_member_connect: int | None = Field(default=5000, ge=0, le=31536000000)
-    timeout_member_data: int | None = Field(default=50000, ge=0, le=31536000000)
+    timeout_client_data: int | None = Field(
+        default=50000, ge=0, le=31536000000
+    )
+    timeout_member_connect: int | None = Field(
+        default=5000, ge=0, le=31536000000
+    )
+    timeout_member_data: int | None = Field(
+        default=50000, ge=0, le=31536000000
+    )
     timeout_tcp_inspect: int | None = Field(default=0, ge=0, le=31536000000)
     allowed_cidrs: list[str] | None = None
     insert_headers: dict[str, bool] | None = None
     default_tls_container_ref: str | None = None
     sni_container_refs: list[str] | None = None
-    tls_ciphers: str | None = Field(default=None, pattern=r"^([A-Z0-9_-]+:)*[A-Z0-9_-]+$")
+    tls_ciphers: str | None = Field(
+        default=None, pattern=r"^([A-Z0-9_-]+:)*[A-Z0-9_-]+$"
+    )
     default_pool_id: str | None = None
     admin_state_up: bool = True
 

@@ -15,8 +15,8 @@ from hive.schemas.objectstore import (
     FolderCreate,
     UploadPlanRequest,
 )
-from hive.services import objectstore
 from hive.services.context import Context
+from hive.services import objectstore
 
 router = APIRouter(prefix="/object-store", tags=["object-store"])
 
@@ -55,7 +55,9 @@ async def update_container(
 
 
 @router.delete("/containers/{container}", status_code=204)
-async def delete_container(container: str, ctx: Context = Depends(get_context)):
+async def delete_container(
+    container: str, ctx: Context = Depends(get_context)
+):
     await objectstore.delete_container(ctx, container)
     return Response(status_code=204)
 
@@ -79,7 +81,9 @@ async def create_folder(
 
 @router.post("/containers/{container}/upload-plan")
 async def upload_plan(
-    container: str, body: UploadPlanRequest, ctx: Context = Depends(get_context)
+    container: str,
+    body: UploadPlanRequest,
+    ctx: Context = Depends(get_context),
 ):
     return await objectstore.upload_plan(ctx, container, body.objects)
 
@@ -98,7 +102,9 @@ async def object_details(
     return await objectstore.object_details(ctx, container, name)
 
 
-@router.post("/containers/{container}/objects/{name:path}/copy", status_code=201)
+@router.post(
+    "/containers/{container}/objects/{name:path}/copy", status_code=201
+)
 async def copy_object(
     container: str,
     name: str,
@@ -119,21 +125,29 @@ async def complete_upload(
     body: CompleteUpload,
     ctx: Context = Depends(get_context),
 ):
-    return await objectstore.complete_upload(ctx, container, name, body.segments)
+    return await objectstore.complete_upload(
+        ctx, container, name, body.segments
+    )
 
 
 @router.get("/containers/{container}/objects/{name:path}/download")
-async def download(container: str, name: str, ctx: Context = Depends(get_context)):
+async def download(
+    container: str, name: str, ctx: Context = Depends(get_context)
+):
     """Send the browser to a signed Swift URL, or stream the object when
     the store has no TempURL support."""
     url = await objectstore.download_url(ctx, container, name)
     if url:
-        return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
+        return RedirectResponse(
+            url, status_code=302, headers={"Cache-Control": "no-store"}
+        )
     swift = SwiftClient(ctx.http, ctx.settings, ctx.scoped)
     upstream = await swift.get_object(container, name)
     if upstream.status_code >= 400:
         await upstream.aclose()
-        raise BadRequest(f"the object could not be read ({upstream.status_code})")
+        raise BadRequest(
+            f"the object could not be read ({upstream.status_code})"
+        )
     filename = (name.rsplit("/", 1)[-1] or name).replace('"', "")
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
@@ -143,7 +157,8 @@ async def download(container: str, name: str, ctx: Context = Depends(get_context
         headers["Content-Length"] = upstream.headers["content-length"]
     return StreamingResponse(
         upstream.aiter_bytes(),
-        media_type=upstream.headers.get("content-type") or "application/octet-stream",
+        media_type=upstream.headers.get("content-type")
+        or "application/octet-stream",
         headers=headers,
         background=None,
     )

@@ -48,11 +48,24 @@ CLUSTER = {
     "node_count": 2,
     "coe_version": "v1.33.4",
     "api_address": "https://10.0.0.5:6443",
-    "labels": {"availability_zone": "ardctest-artm", "upgrade_targets": "t-134"},
+    "labels": {
+        "availability_zone": "ardctest-artm",
+        "upgrade_targets": "t-134",
+    },
 }
 NODEGROUPS = [
-    {"uuid": "ng-m", "name": "default-master", "role": "master", "is_default": True},
-    {"uuid": "ng-w", "name": "default-worker", "role": "worker", "is_default": True},
+    {
+        "uuid": "ng-m",
+        "name": "default-master",
+        "role": "master",
+        "is_default": True,
+    },
+    {
+        "uuid": "ng-w",
+        "name": "default-worker",
+        "role": "worker",
+        "is_default": True,
+    },
     {"uuid": "ng-gpu", "name": "gpu", "role": "worker", "is_default": False},
 ]
 
@@ -60,7 +73,9 @@ NODEGROUPS = [
 def mock_magnum(upstream, cluster=None):
     cluster = cluster or CLUSTER
     upstream.get(f"{MAGNUM}/clustertemplates/detail").mock(
-        return_value=httpx.Response(200, json={"clustertemplates": [TEMPLATE, TARGET, SINGLE]})
+        return_value=httpx.Response(
+            200, json={"clustertemplates": [TEMPLATE, TARGET, SINGLE]}
+        )
     )
     for template in (TEMPLATE, TARGET, SINGLE):
         upstream.get(f"{MAGNUM}/clustertemplates/{template['uuid']}").mock(
@@ -69,7 +84,9 @@ def mock_magnum(upstream, cluster=None):
     upstream.get(f"{MAGNUM}/clusters/detail").mock(
         return_value=httpx.Response(200, json={"clusters": [cluster]})
     )
-    upstream.get(f"{MAGNUM}/clusters/c-1").mock(return_value=httpx.Response(200, json=cluster))
+    upstream.get(f"{MAGNUM}/clusters/c-1").mock(
+        return_value=httpx.Response(200, json=cluster)
+    )
     upstream.get(f"{MAGNUM}/quotas/p1/Cluster").mock(
         return_value=httpx.Response(200, json={"hard_limit": 10})
     )
@@ -81,8 +98,20 @@ def mock_magnum(upstream, cluster=None):
             200,
             json={
                 "flavors": [
-                    {"id": "f1", "name": "m3.small", "vcpus": 2, "ram": 4096, "disk": 30},
-                    {"id": "f2", "name": "m3.medium", "vcpus": 4, "ram": 8192, "disk": 30},
+                    {
+                        "id": "f1",
+                        "name": "m3.small",
+                        "vcpus": 2,
+                        "ram": 4096,
+                        "disk": 30,
+                    },
+                    {
+                        "id": "f2",
+                        "name": "m3.medium",
+                        "vcpus": 4,
+                        "ram": 8192,
+                        "disk": 30,
+                    },
                 ]
             },
         )
@@ -94,7 +123,15 @@ def mock_magnum(upstream, cluster=None):
         upstream.get(f"{MAGNUM}/clusters/c-1/nodegroups/{group['uuid']}").mock(
             return_value=httpx.Response(
                 200,
-                json={**group, "node_count": 1, "flavor_id": "m3.small", "labels": {}, "node_labels": {"tier": "gpu"} if group["uuid"] == "ng-gpu" else {}},
+                json={
+                    **group,
+                    "node_count": 1,
+                    "flavor_id": "m3.small",
+                    "labels": {},
+                    "node_labels": {"tier": "gpu"}
+                    if group["uuid"] == "ng-gpu"
+                    else {},
+                },
             )
         )
 
@@ -117,9 +154,13 @@ async def test_list_clusters_and_options(logged_in, upstream):
     assert [f["name"] for f in options["flavors"]] == ["m3.small", "m3.medium"]
     assert len(options["combinations"]) == 3
 
-    templates = (await logged_in.get("/api/kubernetes/cluster-templates")).json()
+    templates = (
+        await logged_in.get("/api/kubernetes/cluster-templates")
+    ).json()
     assert len(templates["items"]) == 3
-    detail = (await logged_in.get("/api/kubernetes/cluster-templates/t-133")).json()
+    detail = (
+        await logged_in.get("/api/kubernetes/cluster-templates/t-133")
+    ).json()
     assert detail["upgrade_targets"] == ["t-134"]
 
 
@@ -145,24 +186,43 @@ async def test_create_cluster(logged_in, upstream):
     assert response.json() == {"id": "c-new", "name": "demo"}
     sent = json.loads(created.calls.last.request.content)
     assert sent["cluster_template_id"] == "t-133"
-    assert sent["master_count"] == 3 and sent["labels"] == {"etcd_volume_size": "20"}
+    assert sent["master_count"] == 3 and sent["labels"] == {
+        "etcd_volume_size": "20"
+    }
     assert sent["merge_labels"] is True
 
     bad = await logged_in.post(
         "/api/kubernetes/clusters",
-        json={"name": "demo", "cluster_template_id": "t-133", "master_count": 2, "master_flavor_id": "a", "flavor_id": "b"},
+        json={
+            "name": "demo",
+            "cluster_template_id": "t-133",
+            "master_count": 2,
+            "master_flavor_id": "a",
+            "flavor_id": "b",
+        },
         headers=csrf_headers(logged_in),
     )
     assert bad.status_code == 400 and "1, 3, 5 or 7" in bad.json()["message"]
     single = await logged_in.post(
         "/api/kubernetes/clusters",
-        json={"name": "demo", "cluster_template_id": "t-single", "master_count": 3, "master_flavor_id": "a", "flavor_id": "b"},
+        json={
+            "name": "demo",
+            "cluster_template_id": "t-single",
+            "master_count": 3,
+            "master_flavor_id": "a",
+            "flavor_id": "b",
+        },
         headers=csrf_headers(logged_in),
     )
     assert single.status_code == 400 and "single" in single.json()["message"]
     named = await logged_in.post(
         "/api/kubernetes/clusters",
-        json={"name": "1bad", "cluster_template_id": "t-133", "master_flavor_id": "a", "flavor_id": "b"},
+        json={
+            "name": "1bad",
+            "cluster_template_id": "t-133",
+            "master_flavor_id": "a",
+            "flavor_id": "b",
+        },
         headers=csrf_headers(logged_in),
     )
     assert named.status_code == 400
@@ -174,10 +234,16 @@ async def test_cluster_detail_upgrade_and_delete(logged_in, upstream):
     assert detail["kubernetes_version"] == "v1.33.4"
     assert detail["availability_zone"] == "ardctest-artm"
 
-    options = (await logged_in.get("/api/kubernetes/clusters/c-1/upgrade-options")).json()
+    options = (
+        await logged_in.get("/api/kubernetes/clusters/c-1/upgrade-options")
+    ).json()
     assert options["can_upgrade"] is True
     assert options["targets"] == [
-        {"template_id": "t-134", "name": TARGET["name"], "kubernetes_version": "1.34.0"}
+        {
+            "template_id": "t-134",
+            "name": TARGET["name"],
+            "kubernetes_version": "1.34.0",
+        }
     ]
     upgraded = upstream.post(f"{MAGNUM}/clusters/c-1/actions/upgrade").mock(
         return_value=httpx.Response(202, json={})
@@ -192,7 +258,9 @@ async def test_cluster_detail_upgrade_and_delete(logged_in, upstream):
         "cluster_template": "t-134",
         "max_batch_size": 1,
     }
-    deleted = upstream.delete(f"{MAGNUM}/clusters/c-1").mock(return_value=httpx.Response(204))
+    deleted = upstream.delete(f"{MAGNUM}/clusters/c-1").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.delete(
         "/api/kubernetes/clusters/c-1", headers=csrf_headers(logged_in)
     )
@@ -207,7 +275,9 @@ async def test_upgrade_refused_while_in_progress(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 409
-    groups = (await logged_in.get("/api/kubernetes/clusters/c-1/nodegroups")).json()
+    groups = (
+        await logged_in.get("/api/kubernetes/clusters/c-1/nodegroups")
+    ).json()
     assert groups["can_change"] is False
     response = await logged_in.post(
         "/api/kubernetes/clusters/c-1/nodegroups",
@@ -219,12 +289,20 @@ async def test_upgrade_refused_while_in_progress(logged_in, upstream):
 
 async def test_nodegroups(logged_in, upstream):
     mock_magnum(upstream)
-    groups = (await logged_in.get("/api/kubernetes/clusters/c-1/nodegroups")).json()
-    assert [g["name"] for g in groups["items"]] == ["default-master", "default-worker", "gpu"]
+    groups = (
+        await logged_in.get("/api/kubernetes/clusters/c-1/nodegroups")
+    ).json()
+    assert [g["name"] for g in groups["items"]] == [
+        "default-master",
+        "default-worker",
+        "gpu",
+    ]
     assert groups["items"][2]["node_labels"] == {"tier": "gpu"}
 
     created = upstream.post(f"{MAGNUM}/clusters/c-1/nodegroups").mock(
-        return_value=httpx.Response(202, json={"uuid": "ng-new", "name": "gpu2", "role": "worker"})
+        return_value=httpx.Response(
+            202, json={"uuid": "ng-new", "name": "gpu2", "role": "worker"}
+        )
     )
     response = await logged_in.post(
         "/api/kubernetes/clusters/c-1/nodegroups",
@@ -242,11 +320,17 @@ async def test_nodegroups(logged_in, upstream):
     )
     assert response.status_code == 202, response.text
     sent = json.loads(created.calls.last.request.content)
-    assert sent["node_taints"] == [{"key": "gpu", "value": "", "effect": "NoSchedule"}]
+    assert sent["node_taints"] == [
+        {"key": "gpu", "value": "", "effect": "NoSchedule"}
+    ]
     assert sent["labels"]["auto_scaling_enabled"] == "true"
     bad = await logged_in.post(
         "/api/kubernetes/clusters/c-1/nodegroups",
-        json={"name": "gpu3", "flavor_id": "m3.small", "node_taints": "gpu:Never"},
+        json={
+            "name": "gpu3",
+            "flavor_id": "m3.small",
+            "node_taints": "gpu:Never",
+        },
         headers=csrf_headers(logged_in),
     )
     assert bad.status_code == 400
@@ -260,7 +344,10 @@ async def test_nodegroups(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 202
-    assert json.loads(resized.calls.last.request.content) == {"node_count": 3, "nodegroup": "gpu"}
+    assert json.loads(resized.calls.last.request.content) == {
+        "node_count": 3,
+        "nodegroup": "gpu",
+    }
     response = await logged_in.post(
         "/api/kubernetes/clusters/c-1/nodegroups/ng-m/resize",
         json={"node_count": 2},
@@ -269,7 +356,10 @@ async def test_nodegroups(logged_in, upstream):
     assert response.status_code == 400
 
     patched = upstream.patch(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu").mock(
-        return_value=httpx.Response(200, json={**NODEGROUPS[2], "min_node_count": 1, "max_node_count": 5})
+        return_value=httpx.Response(
+            200,
+            json={**NODEGROUPS[2], "min_node_count": 1, "max_node_count": 5},
+        )
     )
     response = await logged_in.put(
         "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu/autoscaling",
@@ -277,7 +367,10 @@ async def test_nodegroups(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200
-    assert json.loads(patched.calls.last.request.content)[0]["path"] == "/min_node_count"
+    assert (
+        json.loads(patched.calls.last.request.content)[0]["path"]
+        == "/min_node_count"
+    )
     response = await logged_in.put(
         "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu/labels",
         json={"node_labels": "tier=gpu,pool=a", "node_taints": ""},
@@ -285,7 +378,13 @@ async def test_nodegroups(logged_in, upstream):
     )
     assert response.status_code == 200
     patch = json.loads(patched.calls.last.request.content)
-    assert patch == [{"op": "replace", "path": "/node_labels", "value": {"tier": "gpu", "pool": "a"}}]
+    assert patch == [
+        {
+            "op": "replace",
+            "path": "/node_labels",
+            "value": {"tier": "gpu", "pool": "a"},
+        }
+    ]
     response = await logged_in.put(
         "/api/kubernetes/clusters/c-1/nodegroups/ng-m/labels",
         json={"node_labels": "a=b"},
@@ -294,12 +393,16 @@ async def test_nodegroups(logged_in, upstream):
     assert response.status_code == 400
 
     response = await logged_in.delete(
-        "/api/kubernetes/clusters/c-1/nodegroups/ng-w", headers=csrf_headers(logged_in)
+        "/api/kubernetes/clusters/c-1/nodegroups/ng-w",
+        headers=csrf_headers(logged_in),
     )
     assert response.status_code == 409
-    upstream.delete(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu").mock(return_value=httpx.Response(204))
+    upstream.delete(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.delete(
-        "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu", headers=csrf_headers(logged_in)
+        "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu",
+        headers=csrf_headers(logged_in),
     )
     assert response.status_code == 204
 
@@ -318,11 +421,16 @@ async def test_cluster_config_and_certificates(logged_in, upstream):
     assert "client-certificate-data" in body["kubeconfig"]
     assert "server: https://10.0.0.5:6443" in body["kubeconfig"]
     sent = json.loads(signed.calls.last.request.content)
-    assert sent["cluster_uuid"] == "c-1" and "CERTIFICATE REQUEST" in sent["csr"]
+    assert (
+        sent["cluster_uuid"] == "c-1" and "CERTIFICATE REQUEST" in sent["csr"]
+    )
 
     ca = await logged_in.get("/api/kubernetes/clusters/c-1/ca.pem")
     assert ca.status_code == 200
-    assert ca.headers["content-disposition"] == 'attachment; filename="samtest1_ca.pem"'
+    assert (
+        ca.headers["content-disposition"]
+        == 'attachment; filename="samtest1_ca.pem"'
+    )
     response = await logged_in.post(
         "/api/kubernetes/clusters/c-1/sign",
         json={"csr": "-----BEGIN CERTIFICATE REQUEST-----x"},

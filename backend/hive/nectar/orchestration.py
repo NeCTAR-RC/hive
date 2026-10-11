@@ -23,7 +23,13 @@ import re
 STACK_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]*$")
 DEFAULT_TIMEOUT = 60
 TRANSITIONAL = "_IN_PROGRESS"
-PARAMETER_TYPES = ("string", "number", "comma_delimited_list", "json", "boolean")
+PARAMETER_TYPES = (
+    "string",
+    "number",
+    "comma_delimited_list",
+    "json",
+    "boolean",
+)
 
 
 def is_transitional(status: str | None) -> bool:
@@ -42,7 +48,9 @@ def stack_actions(status: str | None) -> list[str]:
         else:
             actions.append("suspend")
             actions.append("check")
-    if (_completed(status) or (status or "").endswith("_FAILED")) and status != "DELETE_COMPLETE":
+    if (
+        _completed(status) or (status or "").endswith("_FAILED")
+    ) and status != "DELETE_COMPLETE":
         actions.append("update")
     if status != "DELETE_IN_PROGRESS":
         actions.append("delete")
@@ -81,7 +89,9 @@ def parameter_specs(validated: dict) -> list[dict]:
             order.append(name)
             group_of[name] = group.get("label") or ""
     params = validated.get("Parameters") or {}
-    names = [n for n in order if n in params] + [n for n in params if n not in order]
+    names = [n for n in order if n in params] + [
+        n for n in params if n not in order
+    ]
     for name in names:
         param = params[name]
         api_type = param.get("Type") or "String"
@@ -121,14 +131,23 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
             continue
         if ptype == "number":
             try:
-                out[name] = int(value) if str(value).lstrip("-").isdigit() else float(value)
+                out[name] = (
+                    int(value)
+                    if str(value).lstrip("-").isdigit()
+                    else float(value)
+                )
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{name} must be a number.") from exc
         elif ptype == "boolean":
             if isinstance(value, bool):
                 out[name] = value
             else:
-                out[name] = str(value).strip().lower() in ("true", "1", "yes", "on")
+                out[name] = str(value).strip().lower() in (
+                    "true",
+                    "1",
+                    "yes",
+                    "on",
+                )
         elif ptype == "comma_delimited_list":
             out[name] = (
                 ",".join(value) if isinstance(value, list) else str(value)

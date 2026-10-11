@@ -65,7 +65,9 @@ def mock_warre(upstream, items=None):
         return_value=httpx.Response(200, json=LIMITS)
     )
     upstream.get(f"{WARRE}/v1/flavors/").mock(
-        return_value=httpx.Response(200, json={"results": [FLAVOR], "total": 1})
+        return_value=httpx.Response(
+            200, json={"results": [FLAVOR], "total": 1}
+        )
     )
     upstream.get(f"{WARRE}/v1/flavors/f1/").mock(
         return_value=httpx.Response(200, json=FLAVOR)
@@ -140,7 +142,11 @@ async def test_create_reservation(logged_in, upstream):
     end = start + timedelta(days=2)
     response = await logged_in.post(
         "/api/reservations",
-        json={"flavor_id": "f1", "start": start.isoformat(), "end": end.isoformat()},
+        json={
+            "flavor_id": "f1",
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+        },
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 201, response.text
@@ -209,7 +215,11 @@ async def test_create_reservation_checks_the_su_budget(logged_in, upstream):
                         "start_date": "2026-01-01",
                         "end_date": "2026-12-31",
                         "quotas": [
-                            {"resource": "rating.budget", "quota": 100, "zone": "nectar"}
+                            {
+                                "resource": "rating.budget",
+                                "quota": 100,
+                                "zone": "nectar",
+                            }
                         ],
                     }
                 ],
@@ -240,7 +250,9 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
         return_value=httpx.Response(200, json=reservation())
     )
     body = (await logged_in.get("/api/reservations/res-1")).json()
-    assert body["calendar"]["google"].startswith("https://calendar.google.com/")
+    assert body["calendar"]["google"].startswith(
+        "https://calendar.google.com/"
+    )
     assert body["detail_url"] == "http://testserver/reservations/res-1"
 
     upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
@@ -248,12 +260,16 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
             200, json=[{"start": future(2), "end": future(40)}]
         )
     )
-    window = (await logged_in.get("/api/reservations/res-1/extend-options")).json()
+    window = (
+        await logged_in.get("/api/reservations/res-1/extend-options")
+    ).json()
     assert window["available"] is True
     assert window["eligible_days"] == 5
 
     updated = upstream.patch(f"{WARRE}/v1/reservations/res-1/").mock(
-        return_value=httpx.Response(200, json={"id": "res-1", "end": future(5, 23, 59)})
+        return_value=httpx.Response(
+            200, json={"id": "res-1", "end": future(5, 23, 59)}
+        )
     )
     new_end = (datetime.now(UTC) + timedelta(days=5)).date().isoformat()
     response = await logged_in.post(
@@ -269,7 +285,9 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
     # Not later than the current end.
     response = await logged_in.post(
         "/api/reservations/res-1/extend",
-        json={"end": (datetime.now(UTC) + timedelta(days=1)).date().isoformat()},
+        json={
+            "end": (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
+        },
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 400
@@ -301,11 +319,15 @@ async def test_pending_reservation_cannot_be_deleted_or_extended(
         "/api/reservations/res-1", headers=csrf_headers(logged_in)
     )
     assert response.status_code == 409
-    window = (await logged_in.get("/api/reservations/res-1/extend-options")).json()
+    window = (
+        await logged_in.get("/api/reservations/res-1/extend-options")
+    ).json()
     assert window == {"available": False, "eligible_days": 0, "max_end": None}
     response = await logged_in.post(
         "/api/reservations/res-1/extend",
-        json={"end": (datetime.now(UTC) + timedelta(days=5)).date().isoformat()},
+        json={
+            "end": (datetime.now(UTC) + timedelta(days=5)).date().isoformat()
+        },
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 409
@@ -322,7 +344,9 @@ async def test_reservations_absent_without_warre(client, upstream):
         token = body.get("token", {})
         if "catalog" in token:
             token["catalog"] = [
-                s for s in token["catalog"] if s["type"] != "nectar-reservation"
+                s
+                for s in token["catalog"]
+                if s["type"] != "nectar-reservation"
             ]
         return httpx.Response(
             response.status_code, json=body, headers=response.headers

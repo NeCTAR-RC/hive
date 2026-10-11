@@ -6,7 +6,7 @@
   until a zone is chosen (commit 216995ea1).
 * Volume types may carry ``RESKEY:availability_zones`` extra specs. When
   any type does, the picker offers only the types naming the chosen zone
-  plus the types that name no zone (commits b28a7b682, e64679caf).
+  plus the types that name no zone (commits b28a7b682, e64679calf).
 * A volume created from a snapshot or another volume inherits the
   source's type and zone, so neither is sent (commit 877a274a0 and the
   upstream ``volumes/forms.py`` CreateForm.handle, which clears them).

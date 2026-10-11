@@ -33,7 +33,9 @@ def parse_document(text: str | dict | None, what: str) -> str | dict | None:
     try:
         parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise BadRequest(f"The {what} is not valid YAML or JSON: {exc}") from exc
+        raise BadRequest(
+            f"The {what} is not valid YAML or JSON: {exc}"
+        ) from exc
     if not isinstance(parsed, dict):
         raise BadRequest(f"The {what} must be a mapping.")
     return text
@@ -63,12 +65,16 @@ async def stack_resources(ctx: Context, identity: str) -> dict:
 
 async def stack_resource(ctx: Context, identity: str, resource: str) -> dict:
     name, stack_id = await _resolve(ctx, identity)
-    return rules.resource_summary(await _heat(ctx).resource(name, stack_id, resource))
+    return rules.resource_summary(
+        await _heat(ctx).resource(name, stack_id, resource)
+    )
 
 
 async def stack_events(ctx: Context, identity: str, limit: int = 100) -> dict:
     name, stack_id = await _resolve(ctx, identity)
-    events = await _heat(ctx).events(name, stack_id, sort_dir="desc", limit=limit)
+    events = await _heat(ctx).events(
+        name, stack_id, sort_dir="desc", limit=limit
+    )
     return {"items": [rules.event_summary(e) for e in events]}
 
 
@@ -80,9 +86,13 @@ async def stack_template(ctx: Context, identity: str) -> dict:
     )
     return {
         "template": template,
-        "template_yaml": yaml.safe_dump(template, sort_keys=False, default_flow_style=False),
+        "template_yaml": yaml.safe_dump(
+            template, sort_keys=False, default_flow_style=False
+        ),
         "environment": environment,
-        "environment_yaml": yaml.safe_dump(environment, sort_keys=False, default_flow_style=False),
+        "environment_yaml": yaml.safe_dump(
+            environment, sort_keys=False, default_flow_style=False
+        ),
     }
 
 
@@ -114,7 +124,9 @@ async def create_stack(ctx: Context, data: StackCreate) -> dict:
         raise BadRequest(problem)
     validation = await validate_template(ctx, data)
     try:
-        parameters = rules.coerce_parameters(data.parameters, validation["parameters"])
+        parameters = rules.coerce_parameters(
+            data.parameters, validation["parameters"]
+        )
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
     body = rules.stack_body(
@@ -152,7 +164,11 @@ async def update_stack(ctx: Context, identity: str, data: StackUpdate) -> dict:
     if "template" in body or "template_url" in body:
         specs = (await validate_template(ctx, data))["parameters"]
     try:
-        body["parameters"] = rules.coerce_parameters(data.parameters, specs) if specs else data.parameters
+        body["parameters"] = (
+            rules.coerce_parameters(data.parameters, specs)
+            if specs
+            else data.parameters
+        )
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
     if data.timeout_mins is not None:
@@ -166,8 +182,12 @@ async def update_stack(ctx: Context, identity: str, data: StackUpdate) -> dict:
 async def stack_action(ctx: Context, identity: str, action: str) -> dict:
     stack = await _heat(ctx).find_stack(identity)
     if action not in rules.stack_actions(stack.get("stack_status")):
-        raise Conflict(f"The stack cannot be {action}ed while it is {stack.get('stack_status')}.")
-    await _heat(ctx).stack_action(stack.get("stack_name"), stack.get("id"), action)
+        raise Conflict(
+            f"The stack cannot be {action}ed while it is {stack.get('stack_status')}."
+        )
+    await _heat(ctx).stack_action(
+        stack.get("stack_name"), stack.get("id"), action
+    )
     return {"id": stack.get("id"), "action": action}
 
 
@@ -182,7 +202,12 @@ async def resource_types(ctx: Context) -> dict:
         items = []
         for entry in types:
             if isinstance(entry, dict):
-                items.append({"name": entry.get("resource_type"), "description": entry.get("description")})
+                items.append(
+                    {
+                        "name": entry.get("resource_type"),
+                        "description": entry.get("description"),
+                    }
+                )
             else:
                 items.append({"name": entry, "description": None})
         items.sort(key=lambda t: t["name"] or "")
@@ -209,7 +234,9 @@ async def resource_type(ctx: Context, name: str) -> dict:
         "properties": schema.get("properties") or {},
         "support_status": schema.get("support_status"),
         "template": template,
-        "template_yaml": yaml.safe_dump(template, sort_keys=False, default_flow_style=False),
+        "template_yaml": yaml.safe_dump(
+            template, sort_keys=False, default_flow_style=False
+        ),
     }
 
 

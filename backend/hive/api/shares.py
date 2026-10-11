@@ -19,8 +19,8 @@ from hive.schemas.shares import (
     SnapshotCreate,
     SnapshotUpdate,
 )
-from hive.services import shares
 from hive.services.context import Context
+from hive.services import shares
 
 router = APIRouter(prefix="/shares", tags=["shares"])
 Ctx = Depends(get_context)
@@ -78,7 +78,9 @@ async def list_access(share_id: str, ctx: Context = Ctx):
 
 
 @router.post("/shares/{share_id}/access", status_code=202)
-async def allow_access(share_id: str, body: AccessRuleCreate, ctx: Context = Ctx):
+async def allow_access(
+    share_id: str, body: AccessRuleCreate, ctx: Context = Ctx
+):
     return await shares.allow_access(ctx, share_id, body)
 
 
@@ -104,7 +106,9 @@ async def get_snapshot(snapshot_id: str, ctx: Context = Ctx):
 
 
 @router.patch("/snapshots/{snapshot_id}")
-async def update_snapshot(snapshot_id: str, body: SnapshotUpdate, ctx: Context = Ctx):
+async def update_snapshot(
+    snapshot_id: str, body: SnapshotUpdate, ctx: Context = Ctx
+):
     return await shares.update_snapshot(ctx, snapshot_id, body)
 
 
@@ -115,12 +119,16 @@ async def delete_snapshot(snapshot_id: str, ctx: Context = Ctx):
 
 
 @router.post("/snapshots/{snapshot_id}/access", status_code=202)
-async def snapshot_allow_access(snapshot_id: str, body: SnapshotAccessCreate, ctx: Context = Ctx):
+async def snapshot_allow_access(
+    snapshot_id: str, body: SnapshotAccessCreate, ctx: Context = Ctx
+):
     return await shares.snapshot_allow_access(ctx, snapshot_id, body)
 
 
 @router.delete("/snapshots/{snapshot_id}/access/{access_id}", status_code=204)
-async def snapshot_deny_access(snapshot_id: str, access_id: str, ctx: Context = Ctx):
+async def snapshot_deny_access(
+    snapshot_id: str, access_id: str, ctx: Context = Ctx
+):
     await shares.snapshot_deny_access(ctx, snapshot_id, access_id)
     return Response(status_code=204)
 
@@ -131,7 +139,9 @@ async def list_security_services(ctx: Context = Ctx):
 
 
 @router.post("/security-services", status_code=201)
-async def create_security_service(body: SecurityServiceCreate, ctx: Context = Ctx):
+async def create_security_service(
+    body: SecurityServiceCreate, ctx: Context = Ctx
+):
     return await shares.create_security_service(ctx, body)
 
 
@@ -141,7 +151,9 @@ async def get_security_service(service_id: str, ctx: Context = Ctx):
 
 
 @router.patch("/security-services/{service_id}")
-async def update_security_service(service_id: str, body: SecurityServiceUpdate, ctx: Context = Ctx):
+async def update_security_service(
+    service_id: str, body: SecurityServiceUpdate, ctx: Context = Ctx
+):
     return await shares.update_security_service(ctx, service_id, body)
 
 
@@ -167,7 +179,9 @@ async def get_share_group(group_id: str, ctx: Context = Ctx):
 
 
 @router.patch("/groups/{group_id}")
-async def update_share_group(group_id: str, body: ShareGroupUpdate, ctx: Context = Ctx):
+async def update_share_group(
+    group_id: str, body: ShareGroupUpdate, ctx: Context = Ctx
+):
     return await shares.update_share_group(ctx, group_id, body)
 
 
@@ -183,7 +197,9 @@ async def list_share_group_snapshots(ctx: Context = Ctx):
 
 
 @router.post("/group-snapshots", status_code=202)
-async def create_share_group_snapshot(body: ShareGroupSnapshotCreate, ctx: Context = Ctx):
+async def create_share_group_snapshot(
+    body: ShareGroupSnapshotCreate, ctx: Context = Ctx
+):
     return await shares.create_share_group_snapshot(ctx, body)
 
 
@@ -193,7 +209,9 @@ async def get_share_group_snapshot(snapshot_id: str, ctx: Context = Ctx):
 
 
 @router.patch("/group-snapshots/{snapshot_id}")
-async def update_share_group_snapshot(snapshot_id: str, body: ShareGroupUpdate, ctx: Context = Ctx):
+async def update_share_group_snapshot(
+    snapshot_id: str, body: ShareGroupUpdate, ctx: Context = Ctx
+):
     return await shares.update_share_group_snapshot(ctx, snapshot_id, body)
 
 
