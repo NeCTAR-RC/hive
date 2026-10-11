@@ -20,6 +20,7 @@ import { notify } from "../../lib/notify";
 import {
   dbInstanceQuery,
   dbOptionsQuery,
+  dbResizeFlavorsQuery,
   dbUpgradeTargetsQuery,
   useAttachConfiguration,
   useEnableRoot,
@@ -183,15 +184,15 @@ export function ResizeInstanceDialog({
   instance: DbInstance;
   onClose: () => void;
 }) {
-  const options = useQuery(dbOptionsQuery(projectId));
+  // Only the flavours Trove associates with the instance's datastore
+  // version, without the current one (the backend applies the same rule).
+  const candidates = useQuery(dbResizeFlavorsQuery(projectId, instance.id));
   const resize = useResizeInstance(projectId);
   const form = useForm<z.infer<typeof flavorSchema>>({
     resolver: zodResolver(flavorSchema),
     defaultValues: { flavor: "" },
   });
-  const flavors = (options.data?.flavors ?? []).filter(
-    (f) => f.id && f.id !== instance.flavor_id,
-  );
+  const flavors = candidates.data?.items ?? [];
   const submit = form.handleSubmit((values) => {
     resize.mutate(
       { id: instance.id, flavor: values.flavor },
@@ -213,12 +214,15 @@ export function ResizeInstanceDialog({
       isPending={resize.isPending}
       error={resize.error}
     >
-      {options.isPending ? (
+      {candidates.isPending ? (
         <SkeletonLines lines={2} />
       ) : (
         <>
           <p>
             The current flavour is {instance.flavor_name ?? instance.flavor_id}.
+            {flavors.length === 0
+              ? ` No other flavour is available for ${instance.datastore ?? "this datastore"} ${instance.datastore_version ?? ""}.`
+              : ""}
           </p>
           <SelectInput
             control={form.control}

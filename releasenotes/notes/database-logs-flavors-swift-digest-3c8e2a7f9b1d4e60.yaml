@@ -1,0 +1,22 @@
+---
+features:
+  - |
+    Database instances gain a Logs tab (trove-dashboard parity): the guest
+    logs Trove offers for the datastore with enable, disable, publish and
+    discard, a viewer for the last lines of a published log and a download
+    of the whole log, read from the Swift container Trove publishes to.
+  - |
+    Database instances gain a Defaults tab showing the effective
+    configuration values of the running instance.
+fixes:
+  - |
+    The database launch form and the resize dialog now offer only the
+    flavours Trove associates with the instance's datastore version, asked
+    for by id. Asking by name made Trove answer with every Nova flavour, so
+    flavours that cannot run the datastore were listed. The resize endpoint
+    also rejects a flavour outside that list.
+  - |
+    Object store TempURL signatures for sha256 and sha512 are now encoded
+    the way Swift parses them (``<algorithm>:<base64>``); the prefixed hex
+    form Hive sent was refused with 401. ``HIVE_SWIFT_TEMPURL_DIGEST`` now
+    defaults to ``sha256`` because Swift marks sha1 as deprecated.

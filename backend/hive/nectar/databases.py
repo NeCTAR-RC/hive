@@ -24,6 +24,23 @@ overrides in ``nectar-dashboard`` (``enabled/_9000_disable_trove_clusters.py``,
 - Resize volume (``forms.py:54-92``): the new size must be greater than
   the current size. Resize instance (``forms.py:95-130``): any other
   flavour. Update (``forms.py:286-322``): name and allowed CIDRs.
+- Flavours: trove-dashboard offers every Nova flavour on the launch form
+  (``api/trove.py:315-317`` ``datastore_flavors`` returns ``flavor_list``)
+  and on resize (``views.py:434-437``). Hive asks Trove instead for the
+  flavours associated with the datastore version
+  (``GET /datastores/{id}/versions/{id}/flavors``) and offers only those
+  for launch and resize, with the current flavour left out of a resize
+  (``forms.py:108-117``). The call must use ids: by names rctest's Trove
+  answers with every Nova flavour (checked 12 Oct 2026).
+- Defaults tab (``tabs.py:126-146``): the instance's effective
+  configuration from ``GET /instances/{id}/configuration``, sorted by
+  name.
+- Logs tab (``logs/tables.py``, ``logs/views.py``): guest logs from
+  ``GET /instances/{id}/log``; publish, enable, discard are always
+  offered, disable only for non-SYS logs, view only once bytes are
+  published. Contents come from the Swift container Trove publishes to,
+  reading the newest parts first until their ``x-object-meta-lines``
+  counts cover the requested tail (troveclient ``instances.log_generator``).
 - Backups (``database_backups/tables.py:28-52``): COMPLETED, RESTORED are
   OK; DELETE_FAILED, FAILED errors; BUILDING, NEW, SAVING transitional;
   restore only from COMPLETED or RESTORED; no Swift container
@@ -38,13 +55,25 @@ import ipaddress
 ACTIVE_STATES = ("ACTIVE", "HEALTHY")
 INSTANCE_OK = ("ACTIVE", "HEALTHY", "BLOCKED")
 INSTANCE_ERROR = ("FAILED", "SHUTDOWN", "ERROR")
-INSTANCE_TRANSITIONAL = ("BUILD", "REBOOT", "RESIZE", "BACKUP", "RESTART_REQUIRED", "UPGRADE")
+INSTANCE_TRANSITIONAL = (
+    "BUILD",
+    "REBOOT",
+    "RESIZE",
+    "BACKUP",
+    "RESTART_REQUIRED",
+    "UPGRADE",
+)
 BACKUP_OK = ("COMPLETED", "RESTORED")
 BACKUP_ERROR = ("DELETE_FAILED", "FAILED")
 BACKUP_TRANSITIONAL = ("BUILDING", "NEW", "SAVING")
 RESTORABLE = BACKUP_OK
 DEFAULT_CIDR = "0.0.0.0/0"
 PORTS = {"mysql": 3306, "mariadb": 3306, "percona": 3306, "postgresql": 5432}
+LOG_ACTIONS = ("enable", "disable", "publish", "discard")
+# trove/guestagent/guest_log.py LogStatus names
+LOG_OK = ("Enabled", "Ready", "Published", "Partial", "Restart_Completed")
+LOG_ERROR = ("Unavailable", "Failed")
+LOG_WARNING = ("Restart_Required",)
 
 
 def instance_status_kind(status: str | None) -> str:
@@ -109,7 +138,13 @@ def cidr_warning(cidrs: list[str]) -> str | None:
 
 
 def validate_launch(
-    *, name: str, volume: int, datastore: str | None, version: str | None, flavor: str | None, network: str | None
+    *,
+    name: str,
+    volume: int,
+    datastore: str | None,
+    version: str | None,
+    flavor: str | None,
+    network: str | None,
 ) -> str | None:
     if not name or len(name) > 80:
         return "Enter a name of up to 80 characters."
@@ -174,7 +209,9 @@ def split_databases(text: str | None) -> list[str]:
     return [d.strip() for d in (text or "").split(",") if d.strip()]
 
 
-def validate_initial_user(user: str | None, password: str | None, databases: list[str]) -> str | None:
+def validate_initial_user(
+    user: str | None, password: str | None, databases: list[str]
+) -> str | None:
     if user:
         if not password:
             return "A password is required for the initial user."
@@ -187,6 +224,119 @@ def validate_resize_volume(current: int, new_size: int) -> str | None:
     if new_size <= current:
         return f"The new volume size must be greater than the current size ({current} GB)."
     return None
+
+
+def resize_candidates(
+    flavors: list[dict], current_id: str | None
+) -> list[dict]:
+    """Every flavour of the datastore version except the current one
+    (``forms.py:108-117``)."""
+    return [f for f in flavors if f.get("id") and f.get("id") != current_id]
+
+
+def version_ids(
+    datastores: list[dict], datastore: str | None, version: str | None
+) -> tuple[str, str] | None:
+    """``(datastore id, version id)`` for a datastore and version named as
+    an instance reports them, or None when Trove no longer lists them."""
+    for item in datastores:
+        if item.get("name") != datastore:
+            continue
+        for candidate in item.get("versions") or []:
+            if (
+                candidate.get("name") == version
+                and candidate.get("id")
+                and item.get("id")
+            ):
+                return str(item["id"]), str(candidate["id"])
+    return None
+
+
+def configuration_defaults(values: dict) -> list[dict]:
+    """The Defaults tab rows (``tabs.py:134-146``), sorted by name."""
+    return [
+        {"name": str(k), "value": v}
+        for k, v in sorted(values.items(), key=lambda kv: str(kv[0]))
+    ]
+
+
+# --- guest logs ---------------------------------------------------------------
+
+
+def log_status_kind(status: str | None) -> str:
+    if status in LOG_OK:
+        return "ok"
+    if status in LOG_ERROR:
+        return "error"
+    if status in LOG_WARNING:
+        return "warning"
+    return "unknown"
+
+
+def log_actions(log: dict) -> list[str]:
+    """``logs/tables.py``: ViewLog needs published bytes, DisableLog is
+    hidden for SYS logs, the rest are always offered."""
+    actions = []
+    if int(log.get("published") or 0) > 0:
+        actions.append("view")
+    actions.extend(["publish", "enable"])
+    if log.get("type") != "SYS":
+        actions.append("disable")
+    actions.append("discard")
+    return actions
+
+
+def _none(value) -> str | None:
+    """Trove sends the string ``"None"`` for an unpublished log's container
+    and prefix."""
+    if value in (None, "", "None"):
+        return None
+    return str(value)
+
+
+def log_summary(log: dict) -> dict:
+    status = log.get("status")
+    return {
+        "name": log.get("name"),
+        "type": log.get("type"),
+        "status": status,
+        "status_kind": log_status_kind(status),
+        "published": int(log.get("published") or 0),
+        "pending": int(log.get("pending") or 0),
+        "container": _none(log.get("container")),
+        "prefix": _none(log.get("prefix")),
+        "metafile": _none(log.get("metafile")),
+        "actions": log_actions(log),
+    }
+
+
+def log_action_body(name: str, action: str) -> dict:
+    """``POST /instances/{id}/log`` as troveclient ``instances.log_action``
+    builds it: the log name plus the action flag set to 1."""
+    if action not in LOG_ACTIONS:
+        raise ValueError(f"Unknown log action {action!r}.")
+    return {"name": name, action: 1}
+
+
+def select_log_parts(parts: list[dict], lines: int) -> tuple[list[str], int]:
+    """Which published parts to read for the last ``lines`` lines and how
+    many lines to keep from the oldest of them, as troveclient
+    ``instances.log_generator`` walks them: newest first until their line
+    counts cover the request. ``lines`` 0 reads everything whole."""
+    ordered = sorted(parts, key=lambda p: str(p.get("last_modified") or ""))
+    if lines <= 0:
+        return [str(p["name"]) for p in ordered], 0
+    chosen: list[str] = []
+    remaining = lines
+    covered = False
+    for part in reversed(ordered):
+        chosen.insert(0, str(part["name"]))
+        count = int(part.get("lines") or 0)
+        if count >= remaining:
+            covered = True
+            break
+        remaining -= count
+    return chosen, (remaining if covered else lines)
 
 
 def datastore_options(datastores: list[dict]) -> list[dict]:
@@ -221,7 +371,9 @@ def flavor_summary(flavor: dict) -> dict:
     }
 
 
-def instance_summary(instance: dict, flavors: dict[str, dict] | None = None) -> dict:
+def instance_summary(
+    instance: dict, flavors: dict[str, dict] | None = None
+) -> dict:
     status = instance.get("status")
     flavor = instance.get("flavor") or {}
     flavor_id = str(flavor.get("id")) if flavor.get("id") is not None else None
@@ -254,7 +406,9 @@ def instance_summary(instance: dict, flavors: dict[str, dict] | None = None) -> 
     }
 
 
-def instance_detail(instance: dict, flavors: dict[str, dict] | None = None) -> dict:
+def instance_detail(
+    instance: dict, flavors: dict[str, dict] | None = None
+) -> dict:
     summary = instance_summary(instance, flavors)
     access = instance.get("access") or {}
     cidrs = access.get("allowed_cidrs") or []
@@ -274,7 +428,9 @@ def instance_detail(instance: dict, flavors: dict[str, dict] | None = None) -> d
     return summary
 
 
-def backup_summary(backup: dict, instance_names: dict[str, str] | None = None) -> dict:
+def backup_summary(
+    backup: dict, instance_names: dict[str, str] | None = None
+) -> dict:
     status = backup.get("status")
     instance_id = backup.get("instance_id")
     return {
@@ -298,8 +454,14 @@ def backup_summary(backup: dict, instance_names: dict[str, str] | None = None) -
     }
 
 
-def backup_body(name: str, instance_id: str, description: str | None, parent_id: str | None) -> dict:
-    body: dict = {"name": name, "instance": instance_id, "incremental": 1 if parent_id else 0}
+def backup_body(
+    name: str, instance_id: str, description: str | None, parent_id: str | None
+) -> dict:
+    body: dict = {
+        "name": name,
+        "instance": instance_id,
+        "incremental": 1 if parent_id else 0,
+    }
     if description:
         body["description"] = description
     if parent_id:
@@ -321,7 +483,9 @@ def configuration_summary(configuration: dict) -> dict:
     }
 
 
-def configuration_body(name: str, description: str | None, datastore: str, version: str) -> dict:
+def configuration_body(
+    name: str, description: str | None, datastore: str, version: str
+) -> dict:
     body: dict = {
         "name": name,
         "values": {},

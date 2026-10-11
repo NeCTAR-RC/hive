@@ -34,7 +34,9 @@ def mock_store(upstream, *, temp_key=None, cors=None):
     headers = dict(ACCOUNT_HEADERS)
     if temp_key:
         headers["X-Account-Meta-Temp-URL-Key"] = temp_key
-    upstream.head(SWIFT).mock(return_value=httpx.Response(204, headers=headers))
+    upstream.head(SWIFT).mock(
+        return_value=httpx.Response(204, headers=headers)
+    )
     upstream.post(SWIFT).mock(return_value=httpx.Response(204))
     container_headers = {
         "X-Container-Object-Count": "3",
@@ -43,7 +45,9 @@ def mock_store(upstream, *, temp_key=None, cors=None):
         "X-Storage-Policy": "default-placement",
     }
     if cors:
-        container_headers["X-Container-Meta-Access-Control-Allow-Origin"] = cors
+        container_headers["X-Container-Meta-Access-Control-Allow-Origin"] = (
+            cors
+        )
     upstream.head(f"{SWIFT}/docs").mock(
         return_value=httpx.Response(204, headers=container_headers)
     )
@@ -77,17 +81,24 @@ async def test_create_update_and_delete_container(logged_in, upstream):
     upstream.head(f"{SWIFT}/fresh").mock(
         side_effect=[
             httpx.Response(404),
-            httpx.Response(204, headers={"X-Container-Read": ".r:*,.rlistings"}),
+            httpx.Response(
+                204, headers={"X-Container-Read": ".r:*,.rlistings"}
+            ),
         ]
     )
-    created = upstream.put(f"{SWIFT}/fresh").mock(return_value=httpx.Response(201))
+    created = upstream.put(f"{SWIFT}/fresh").mock(
+        return_value=httpx.Response(201)
+    )
     response = await logged_in.post(
         "/api/object-store/containers",
         json={"name": "fresh", "is_public": True},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 201, response.text
-    assert created.calls.last.request.headers["x-container-read"] == ".r:*,.rlistings"
+    assert (
+        created.calls.last.request.headers["x-container-read"]
+        == ".r:*,.rlistings"
+    )
     # Once it exists the HEAD answers and the create is refused.
     upstream.head(f"{SWIFT}/fresh").mock(
         return_value=httpx.Response(204, headers={"X-Container-Read": ""})
@@ -105,7 +116,9 @@ async def test_create_update_and_delete_container(logged_in, upstream):
     )
     assert response.status_code == 400
 
-    updated = upstream.post(f"{SWIFT}/fresh").mock(return_value=httpx.Response(204))
+    updated = upstream.post(f"{SWIFT}/fresh").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.patch(
         "/api/object-store/containers/fresh",
         json={"is_public": False, "metadata": {"owner": "me", "old": ""}},
@@ -117,8 +130,12 @@ async def test_create_update_and_delete_container(logged_in, upstream):
     assert sent["x-container-meta-owner"] == "me"
     assert sent["x-remove-container-meta-old"] == "1"
 
-    upstream.get(f"{SWIFT}/fresh").mock(return_value=httpx.Response(200, json=[]))
-    deleted = upstream.delete(f"{SWIFT}/fresh").mock(return_value=httpx.Response(204))
+    upstream.get(f"{SWIFT}/fresh").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    deleted = upstream.delete(f"{SWIFT}/fresh").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.delete(
         "/api/object-store/containers/fresh", headers=csrf_headers(logged_in)
     )
@@ -138,16 +155,31 @@ async def test_list_objects_and_folders(logged_in, upstream):
         return_value=httpx.Response(
             200,
             json=[
-                {"name": "notes/", "bytes": 0, "content_type": "application/directory"},
-                {"name": "notes/b.txt", "bytes": 10, "content_type": "text/plain", "hash": "h1"},
+                {
+                    "name": "notes/",
+                    "bytes": 0,
+                    "content_type": "application/directory",
+                },
+                {
+                    "name": "notes/b.txt",
+                    "bytes": 10,
+                    "content_type": "text/plain",
+                    "hash": "h1",
+                },
                 {"subdir": "notes/sub/"},
-                {"name": "notes/a.txt", "bytes": 20, "content_type": "text/plain", "hash": "h2"},
+                {
+                    "name": "notes/a.txt",
+                    "bytes": 20,
+                    "content_type": "text/plain",
+                    "hash": "h2",
+                },
             ],
         )
     )
     body = (
         await logged_in.get(
-            "/api/object-store/containers/docs/objects", params={"path": "notes"}
+            "/api/object-store/containers/docs/objects",
+            params={"path": "notes"},
         )
     ).json()
     assert body["prefix"] == "notes/"
@@ -157,16 +189,25 @@ async def test_list_objects_and_folders(logged_in, upstream):
     params = listing.calls.last.request.url.params
     assert params["prefix"] == "notes/" and params["delimiter"] == "/"
 
-    upstream.head(f"{SWIFT}/docs/notes/new/").mock(return_value=httpx.Response(404))
-    created = upstream.put(f"{SWIFT}/docs/notes/new/").mock(return_value=httpx.Response(201))
+    upstream.head(f"{SWIFT}/docs/notes/new/").mock(
+        return_value=httpx.Response(404)
+    )
+    created = upstream.put(f"{SWIFT}/docs/notes/new/").mock(
+        return_value=httpx.Response(201)
+    )
     response = await logged_in.post(
         "/api/object-store/containers/docs/folders",
         json={"path": "notes/new"},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 201, response.text
-    assert created.calls.last.request.headers["content-type"] == "application/directory"
-    upstream.head(f"{SWIFT}/docs/notes/new/").mock(return_value=httpx.Response(204))
+    assert (
+        created.calls.last.request.headers["content-type"]
+        == "application/directory"
+    )
+    upstream.head(f"{SWIFT}/docs/notes/new/").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.post(
         "/api/object-store/containers/docs/folders",
         json={"path": "notes/new"},
@@ -186,12 +227,18 @@ async def test_upload_plan_sets_key_and_cors(logged_in, upstream, app):
     segments_put = upstream.put(f"{SWIFT}/docs_segments").mock(
         return_value=httpx.Response(201)
     )
-    upstream.post(f"{SWIFT}/docs_segments").mock(return_value=httpx.Response(204))
+    upstream.post(f"{SWIFT}/docs_segments").mock(
+        return_value=httpx.Response(204)
+    )
     response = await logged_in.post(
         "/api/object-store/containers/docs/upload-plan",
         json={
             "objects": [
-                {"name": "notes/small.txt", "size": 10, "content_type": "text/plain"},
+                {
+                    "name": "notes/small.txt",
+                    "size": 10,
+                    "content_type": "text/plain",
+                },
                 {"name": "big.bin", "size": 250},
             ]
         },
@@ -200,16 +247,23 @@ async def test_upload_plan_sets_key_and_cors(logged_in, upstream, app):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["mode"] == "tempurl"
-    key_set = account_post.calls.last.request.headers["x-account-meta-temp-url-key"]
+    key_set = account_post.calls.last.request.headers[
+        "x-account-meta-temp-url-key"
+    ]
     assert len(key_set) == 64
     cors = container_post.calls.last.request.headers
-    assert cors["x-container-meta-access-control-allow-origin"] == "http://testserver"
+    assert (
+        cors["x-container-meta-access-control-allow-origin"]
+        == "http://testserver"
+    )
     assert segments_put.called
     small, big = body["objects"]
     parts = urlsplit(small["url"])
     assert parts.path == "/swift/v1/docs/notes/small.txt"
     query = parse_qs(parts.query)
-    assert len(query["temp_url_sig"][0]) == 40  # HMAC-SHA1, as the gateway needs
+    # sha256 by default, in the prefixed base64 form Swift parses
+    assert query["temp_url_sig"][0].startswith("sha256:")
+    assert len(query["temp_url_sig"][0]) == 7 + 44
     assert small["segments"] is None
     assert len(big["segments"]) == 3
     assert big["segments"][2]["length"] == 50
@@ -221,12 +275,18 @@ async def test_upload_plan_sets_key_and_cors(logged_in, upstream, app):
     )
     upstream.head(f"{SWIFT}/docs/big.bin").mock(
         return_value=httpx.Response(
-            200, headers={"Content-Length": "250", "X-Static-Large-Object": "True"}
+            200,
+            headers={"Content-Length": "250", "X-Static-Large-Object": "True"},
         )
     )
     response = await logged_in.post(
         "/api/object-store/containers/docs/objects/big.bin/manifest",
-        json={"segments": [{"path": s["path"], "size_bytes": s["length"]} for s in big["segments"]]},
+        json={
+            "segments": [
+                {"path": s["path"], "size_bytes": s["length"]}
+                for s in big["segments"]
+            ]
+        },
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 201, response.text
@@ -237,7 +297,9 @@ async def test_upload_plan_sets_key_and_cors(logged_in, upstream, app):
 
 
 async def test_upload_plan_keeps_existing_key_and_cors(logged_in, upstream):
-    mock_store(upstream, temp_key="k" * 64, cors="http://testserver https://other")
+    mock_store(
+        upstream, temp_key="k" * 64, cors="http://testserver https://other"
+    )
     account_post = upstream.post(SWIFT)
     container_post = upstream.post(f"{SWIFT}/docs")
     response = await logged_in.post(
@@ -275,33 +337,50 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
         )
     )
     body = (
-        await logged_in.get("/api/object-store/containers/docs/objects/notes/a.txt/metadata")
+        await logged_in.get(
+            "/api/object-store/containers/docs/objects/notes/a.txt/metadata"
+        )
     ).json()
-    assert body["bytes"] == 20 and body["hash"] == "h2" and body["is_slo"] is False
+    assert (
+        body["bytes"] == 20
+        and body["hash"] == "h2"
+        and body["is_slo"] is False
+    )
 
-    upstream.head(f"{SWIFT}/backups/a.txt").mock(return_value=httpx.Response(404))
-    copied = upstream.put(f"{SWIFT}/backups/a.txt").mock(return_value=httpx.Response(201))
+    upstream.head(f"{SWIFT}/backups/a.txt").mock(
+        return_value=httpx.Response(404)
+    )
+    copied = upstream.put(f"{SWIFT}/backups/a.txt").mock(
+        return_value=httpx.Response(201)
+    )
     response = await logged_in.post(
         "/api/object-store/containers/docs/objects/notes/a.txt/copy",
         json={"dest_container": "backups", "dest_name": "a.txt"},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 201, response.text
-    assert copied.calls.last.request.headers["x-copy-from"] == "/docs/notes/a.txt"
+    assert (
+        copied.calls.last.request.headers["x-copy-from"] == "/docs/notes/a.txt"
+    )
 
     upstream.get(f"{SWIFT}/docs").mock(
         return_value=httpx.Response(200, json=[{"name": "notes/old/big.bin"}])
     )
     upstream.head(f"{SWIFT}/docs/notes/old/big.bin").mock(
-        return_value=httpx.Response(200, headers={"X-Static-Large-Object": "True"})
+        return_value=httpx.Response(
+            200, headers={"X-Static-Large-Object": "True"}
+        )
     )
-    upstream.head(f"{SWIFT}/docs/notes/old/").mock(return_value=httpx.Response(200))
+    upstream.head(f"{SWIFT}/docs/notes/old/").mock(
+        return_value=httpx.Response(200)
+    )
     slo_delete = upstream.delete(f"{SWIFT}/docs/notes/old/big.bin").mock(
         return_value=httpx.Response(200)
     )
     bulk = upstream.post(SWIFT).mock(
         return_value=httpx.Response(
-            200, json={"Number Deleted": 2, "Number Not Found": 0, "Errors": []}
+            200,
+            json={"Number Deleted": 2, "Number Not Found": 0, "Errors": []},
         )
     )
     response = await logged_in.post(
@@ -311,10 +390,16 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
     )
     assert response.status_code == 200, response.text
     assert response.json() == {"deleted": 3, "failed": []}
-    assert slo_delete.calls.last.request.url.params["multipart-manifest"] == "delete"
+    assert (
+        slo_delete.calls.last.request.url.params["multipart-manifest"]
+        == "delete"
+    )
     sent = bulk.calls.last.request
     assert sent.url.params["bulk-delete"] == "true"
-    assert sent.content.decode().split("\n") == ["/docs/notes/a.txt", "/docs/notes/old/"]
+    assert sent.content.decode().split("\n") == [
+        "/docs/notes/a.txt",
+        "/docs/notes/old/",
+    ]
 
 
 async def test_proxy_upload_streams_to_swift(logged_in, upstream, app):
@@ -336,7 +421,10 @@ async def test_proxy_upload_streams_to_swift(logged_in, upstream, app):
     assert response.json()["etag"] == "abc"
     assert put.calls.last.request.content == b"hello"
     assert put.calls.last.request.headers["content-type"] == "text/plain"
-    assert meta.calls.last.request.headers["x-object-meta-orig-filename"] == "up.txt"
+    assert (
+        meta.calls.last.request.headers["x-object-meta-orig-filename"]
+        == "up.txt"
+    )
     plan = await logged_in.post(
         "/api/object-store/containers/docs/upload-plan",
         json={"objects": [{"name": "x", "size": 1}]},

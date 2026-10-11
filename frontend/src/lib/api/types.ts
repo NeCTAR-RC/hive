@@ -2445,3 +2445,37 @@ export interface DbConfigurationDetail extends DbConfiguration {
 export interface DbConfigurationsResponse extends Items<DbConfiguration> {
   datastores: DatastoreOption[];
 }
+
+export interface DbResizeFlavors extends Items<DbFlavor> {
+  current: string | null;
+  datastore: string | null;
+  datastore_version: string | null;
+}
+
+export interface DbConfigDefault {
+  name: string;
+  value: string | number | boolean | null;
+}
+
+export interface DbLog {
+  name: string | null;
+  type: string | null;
+  status: string | null;
+  status_kind: "ok" | "error" | "warning" | "unknown";
+  published: number;
+  pending: number;
+  container: string | null;
+  prefix: string | null;
+  metafile: string | null;
+  actions: string[];
+}
+
+export interface DbLogContents {
+  name: string;
+  lines: number;
+  text: string;
+  partial: boolean;
+  truncated: boolean;
+  parts: number;
+  published: number;
+}

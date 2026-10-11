@@ -15,11 +15,23 @@ Swift mechanics Hive uses for direct browser uploads.
   ``METHOD\\nexpires\\npath``). Files above the segment size become a
   static large object: numbered segments under ``<container>_segments``
   and a manifest PUT with ``multipart-manifest=put``.
+- Swift facts that shape the above (Nectar's Melbourne object store is
+  Swift 2.37, the 2026.1 release, on rctest and prod; checked 12 Oct 2026
+  on rctest and against the 2.37.2 source): a signature given as
+  ``<algorithm>:<digest>`` must be base64, a bare hex digest is read by
+  its length (``swift/common/digest.py`` ``extract_digest_and_algorithm``);
+  the tempurl middleware rebuilds ``QUERY_STRING`` with only its own
+  parameters before passing the request on
+  (``swift/common/middleware/tempurl.py``), so ``multipart-manifest=put``
+  on a TempURL PUT never reaches the SLO middleware and the body is stored
+  as a plain object. The manifest therefore goes through the backend with
+  the user's token.
 - Container CORS metadata (``X-Container-Meta-Access-Control-Allow-
   Origin``) must name the dashboard origin for the browser's PUT to be
   allowed.
 """
 
+import base64
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -33,7 +45,11 @@ DEFAULT_SEGMENT_BYTES = 1024**3
 MAX_CONTAINER_NAME = 256
 MAX_OBJECT_NAME = 1024
 TEMP_URL_KEY_HEADER = "x-account-meta-temp-url-key"
-DIGESTS = {"sha1": hashlib.sha1, "sha256": hashlib.sha256, "sha512": hashlib.sha512}
+DIGESTS = {
+    "sha1": hashlib.sha1,
+    "sha256": hashlib.sha256,
+    "sha512": hashlib.sha512,
+}
 
 
 def validate_container_name(name: str) -> str | None:
@@ -123,7 +139,9 @@ def object_summary(entry: dict, prefix: str) -> dict:
     folder = is_folder(entry)
     return {
         "name": name,
-        "basename": name[len(prefix) :].rstrip("/") if folder else name[len(prefix) :],
+        "basename": name[len(prefix) :].rstrip("/")
+        if folder
+        else name[len(prefix) :],
         "is_folder": folder,
         "bytes": entry.get("bytes") or 0,
         "content_type": entry.get("content_type"),
@@ -156,10 +174,14 @@ def object_metadata(headers: dict[str, str]) -> dict:
 def temp_url_signature(
     key: str, method: str, expires: int, path: str, digest: str = "sha256"
 ) -> str:
+    """``temp_url_sig`` in the form Swift parses: a bare hex digest for
+    sha1, ``<algorithm>:<base64 digest>`` for sha256 and sha512 (a prefixed
+    hex digest is rejected with 401)."""
     body = f"{method.upper()}\n{expires}\n{path}".encode()
-    hasher = DIGESTS[digest]
-    sig = hmac.new(key.encode(), body, hasher).hexdigest()
-    return sig if digest == "sha1" else f"{digest}:{sig}"
+    mac = hmac.new(key.encode(), body, DIGESTS[digest])
+    if digest == "sha1":
+        return mac.hexdigest()
+    return f"{digest}:{base64.urlsafe_b64encode(mac.digest()).decode('ascii')}"
 
 
 def temp_url(
@@ -175,9 +197,10 @@ def temp_url(
     query: dict[str, str] | None = None,
 ) -> str:
     """A signed URL for one object. The signature covers the request path
-    (``/v1/AUTH_x/container/object`` on Swift, ``/swift/v1/container/
-    object`` on a Ceph gateway that keeps the account out of the URL), so
-    extra query parameters such as ``multipart-manifest=put`` are allowed."""
+    (``/v1/AUTH_x/container/object``) and not the query string, so extra
+    parameters can be added; Swift keeps only ``filename``,
+    ``temp_url_prefix`` and its own parameters (see the module docstring),
+    which is enough for the download file name."""
     expires = int((now if now is not None else time.time()) + ttl)
     parts = urlsplit(account_url)
     path = (

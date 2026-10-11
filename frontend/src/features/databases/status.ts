@@ -5,7 +5,7 @@ import type { DbFlavor } from "../../lib/api/types";
 import { formatMb } from "../../lib/format";
 
 export function statusTone(
-  kind: "ok" | "error" | "transitional" | "unknown",
+  kind: "ok" | "error" | "transitional" | "warning" | "unknown",
 ): StatusTone {
   switch (kind) {
     case "ok":
@@ -14,6 +14,8 @@ export function statusTone(
       return "danger";
     case "transitional":
       return "progress";
+    case "warning":
+      return "warning";
     default:
       return "neutral";
   }
@@ -39,6 +41,9 @@ const LABELS: Record<string, string> = {
   BUILDING: "Building",
   NEW: "New",
   SAVING: "Saving",
+  // guest log statuses (trove/guestagent/guest_log.py LogStatus)
+  Restart_Required: "Restart required",
+  Restart_Completed: "Restart completed",
 };
 
 export function statusLabel(status: string | null | undefined): string {

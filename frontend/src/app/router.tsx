@@ -779,7 +779,11 @@ export const launchDbRoute = createRoute({
 export const dbInstanceRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/databases/instances/$instanceId",
-  validateSearch: tabSearch,
+  // `log` opens a guest log's viewer (the Horizon log_contents redirect)
+  validateSearch: z.object({
+    tab: z.string().optional(),
+    log: z.string().optional(),
+  }),
   component: DbInstanceDetailPage,
 });
 

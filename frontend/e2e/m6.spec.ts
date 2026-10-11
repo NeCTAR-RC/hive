@@ -233,6 +233,50 @@ test.describe("databases", () => {
     await expectNoHorizontalScroll(page);
   });
 
+  test("manages guest logs, shows defaults and resizes within the datastore", async ({
+    page,
+  }) => {
+    await page.goto("/databases/instances/db-1?tab=logs");
+    const logs = page.getByRole("grid", { name: "Logs" });
+    await expect(
+      logs.getByRole("rowheader", { name: "general" }),
+    ).toBeVisible();
+    await expectNoSeriousA11yIssues(page);
+    const row = logs.getByRole("row", { name: /general/ });
+    await row.getByRole("button", { name: "Actions" }).click();
+    await page.getByRole("menuitem", { name: "Publish log" }).click();
+    await expect(page.getByText("Published log general.")).toBeVisible();
+    await expect(row.getByText("Published", { exact: true })).toBeVisible();
+    await row.getByRole("button", { name: "Actions" }).click();
+    await page.getByRole("menuitem", { name: "View log" }).click();
+    const dialog = page.getByRole("dialog", { name: "Log general" });
+    await expect(dialog).toContainText("general line 120");
+    await expect(dialog).not.toContainText("general line 001");
+    await dialog.getByRole("button", { name: /Lines/ }).click();
+    await page.getByRole("option", { name: "Whole log" }).click();
+    await expect(dialog).toContainText("general line 001");
+    await dialog.getByRole("button", { name: "Close" }).last().click();
+    await expect(dialog).toHaveCount(0);
+
+    await page.goto("/databases/instances/db-1?tab=defaults");
+    await expect(
+      page
+        .getByRole("grid", { name: "Configuration defaults" })
+        .getByRole("rowheader", { name: "max_connections" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Resize", exact: true }).click();
+    const resize = page.getByRole("dialog", { name: "Resize appdb" });
+    await resize.getByRole("button", { name: /New flavour/ }).click();
+    await expect(
+      page.getByRole("option", { name: /db3\.medium/ }),
+    ).toBeVisible();
+    await expect(page.getByRole("option", { name: /db3\.small/ })).toHaveCount(
+      0,
+    );
+    await page.keyboard.press("Escape");
+  });
+
   test("launches an instance with the Nectar form", async ({ page }) => {
     await page.goto("/databases/instances/new");
     await page.getByRole("textbox", { name: "Instance name" }).fill("newdb");

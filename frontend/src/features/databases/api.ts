@@ -11,6 +11,7 @@ import type {
   DbBackup,
   DbBackupDetail,
   DbBackupsResponse,
+  DbConfigDefault,
   DbConfiguration,
   DbConfigurationDetail,
   DbConfigurationsResponse,
@@ -18,7 +19,10 @@ import type {
   DbInstanceDetail,
   DbInstancesResponse,
   DbLaunchRequest,
+  DbLog,
+  DbLogContents,
   DbOptions,
+  DbResizeFlavors,
   DbUser,
   Items,
 } from "../../lib/api/types";
@@ -69,6 +73,57 @@ export function dbUpgradeTargetsQuery(projectId: string, instanceId: string) {
       ),
     staleTime: staleTimes.static,
   });
+}
+
+export function dbResizeFlavorsQuery(projectId: string, instanceId: string) {
+  return queryOptions({
+    queryKey: troveKey(projectId, "instance", instanceId, "resize-flavors"),
+    queryFn: () =>
+      apiFetch<DbResizeFlavors>(
+        `${BASE}/instances/${instanceId}/resize-flavors`,
+      ),
+    staleTime: staleTimes.static,
+  });
+}
+
+export function dbConfigDefaultsQuery(projectId: string, instanceId: string) {
+  return queryOptions({
+    queryKey: troveKey(projectId, "instance", instanceId, "defaults"),
+    queryFn: () =>
+      apiFetch<Items<DbConfigDefault>>(
+        `${BASE}/instances/${instanceId}/configuration-defaults`,
+      ),
+    staleTime: staleTimes.detail,
+  });
+}
+
+export function dbLogsQuery(projectId: string, instanceId: string) {
+  return queryOptions({
+    queryKey: troveKey(projectId, "instance", instanceId, "logs"),
+    queryFn: () =>
+      apiFetch<Items<DbLog>>(`${BASE}/instances/${instanceId}/logs`),
+    staleTime: staleTimes.list,
+  });
+}
+
+export function dbLogContentsQuery(
+  projectId: string,
+  instanceId: string,
+  name: string,
+  lines: number,
+) {
+  return queryOptions({
+    queryKey: troveKey(projectId, "instance", instanceId, "log", name, lines),
+    queryFn: () =>
+      apiFetch<DbLogContents>(
+        `${BASE}/instances/${instanceId}/logs/${encodeURIComponent(name)}/contents?lines=${lines}`,
+      ),
+    staleTime: staleTimes.detail,
+  });
+}
+
+export function logDownloadUrl(instanceId: string, name: string): string {
+  return `${BASE}/instances/${instanceId}/logs/${encodeURIComponent(name)}/download`;
 }
 
 export function dbRootQuery(projectId: string, instanceId: string) {
@@ -245,6 +300,27 @@ export function useUpgradeInstance(projectId: string) {
         method: "POST",
         json: { version_id: versionId },
       }),
+  );
+}
+
+export type LogAction = "enable" | "disable" | "publish" | "discard";
+
+export function useLogAction(projectId: string) {
+  return useSimpleMutation(
+    projectId,
+    ({
+      instanceId,
+      name,
+      action,
+    }: {
+      instanceId: string;
+      name: string;
+      action: LogAction;
+    }) =>
+      apiFetch<DbLog>(
+        `${BASE}/instances/${instanceId}/logs/${encodeURIComponent(name)}/actions/${action}`,
+        { method: "POST" },
+      ),
   );
 }
 

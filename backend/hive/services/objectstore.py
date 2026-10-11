@@ -61,7 +61,9 @@ async def info(ctx: Context) -> dict:
         ),
         "policies": policies,
         "account": {
-            "container_count": int(account.get("x-account-container-count") or 0),
+            "container_count": int(
+                account.get("x-account-container-count") or 0
+            ),
             "object_count": int(account.get("x-account-object-count") or 0),
             "bytes": int(account.get("x-account-bytes-used") or 0),
             "quota_containers": account.get("x-account-meta-quota-containers"),
@@ -77,7 +79,8 @@ async def info(ctx: Context) -> dict:
 async def list_containers(ctx: Context) -> dict:
     swift = _swift(ctx)
     items = [
-        rules.container_summary(c, swift.endpoint) for c in await swift.containers()
+        rules.container_summary(c, swift.endpoint)
+        for c in await swift.containers()
     ]
     items.sort(key=lambda c: c["name"].lower())
     return {"items": items}
@@ -173,7 +176,9 @@ async def list_objects(
         "prefix": prefix,
         "items": items,
         "has_more": has_more,
-        "next_marker": (last.get("name") or last.get("subdir")) if has_more and last else None,
+        "next_marker": (last.get("name") or last.get("subdir"))
+        if has_more and last
+        else None,
     }
 
 
@@ -210,7 +215,11 @@ async def object_details(ctx: Context, container: str, name: str) -> dict:
 
 
 async def copy_object(
-    ctx: Context, container: str, name: str, dest_container: str, dest_name: str
+    ctx: Context,
+    container: str,
+    name: str,
+    dest_container: str,
+    dest_name: str,
 ) -> dict:
     problem = rules.validate_object_name(dest_name)
     if problem:
@@ -226,7 +235,9 @@ async def copy_object(
     return {"container": dest_container, "name": dest_name}
 
 
-async def delete_objects(ctx: Context, container: str, names: list[str]) -> dict:
+async def delete_objects(
+    ctx: Context, container: str, names: list[str]
+) -> dict:
     """Delete objects and folders (recursively); large objects drop their
     segments; everything else goes through one bulk delete."""
     swift = _swift(ctx)
@@ -284,7 +295,9 @@ async def _temp_url_key(ctx: Context, swift: SwiftClient) -> str:
     return key
 
 
-async def _ensure_cors(ctx: Context, swift: SwiftClient, container: str) -> None:
+async def _ensure_cors(
+    ctx: Context, swift: SwiftClient, container: str
+) -> None:
     origin = dashboard_origin(ctx)
     headers = await swift.container(container)
     allowed = headers.get("x-container-meta-access-control-allow-origin") or ""
@@ -377,7 +390,9 @@ async def upload_plan(ctx: Context, container: str, objects: list) -> dict:
                             digest=digest,
                         ),
                     }
-                    for (offset, length), seg in zip(pieces, names, strict=True)
+                    for (offset, length), seg in zip(
+                        pieces, names, strict=True
+                    )
                 ],
             }
         )
@@ -388,8 +403,10 @@ async def complete_upload(
     ctx: Context, container: str, name: str, segments: list
 ) -> dict:
     """Write the static large object manifest once the browser has put
-    every segment. The gateway ignores ``multipart-manifest=put`` on a
-    TempURL request, so this goes through the backend with the token."""
+    every segment. Swift's tempurl middleware drops every query parameter
+    but its own, so ``multipart-manifest=put`` on a TempURL PUT would store
+    the manifest as a plain object (``hive.nectar.objectstore``); the
+    manifest goes through the backend with the token instead."""
     problem = rules.validate_object_name(name)
     if problem:
         raise BadRequest(problem)

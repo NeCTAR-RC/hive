@@ -30,20 +30,31 @@ class TroveClient(ServiceClient):
 
     async def update_instance(self, instance_id: str, fields: dict) -> None:
         await self.request(
-            "PUT", f"/instances/{instance_id}", json={"instance": fields}, ok=(200, 202)
+            "PUT",
+            f"/instances/{instance_id}",
+            json={"instance": fields},
+            ok=(200, 202),
         )
 
     async def patch_instance(self, instance_id: str, fields: dict) -> None:
         await self.request(
-            "PATCH", f"/instances/{instance_id}", json={"instance": fields}, ok=(200, 202)
+            "PATCH",
+            f"/instances/{instance_id}",
+            json={"instance": fields},
+            ok=(200, 202),
         )
 
     async def delete_instance(self, instance_id: str) -> None:
-        await self.request("DELETE", f"/instances/{instance_id}", ok=(202, 204))
+        await self.request(
+            "DELETE", f"/instances/{instance_id}", ok=(202, 204)
+        )
 
     async def instance_action(self, instance_id: str, body: dict) -> None:
         await self.request(
-            "POST", f"/instances/{instance_id}/action", json=body, ok=(200, 202)
+            "POST",
+            f"/instances/{instance_id}/action",
+            json=body,
+            ok=(200, 202),
         )
 
     async def enable_root(self, instance_id: str, password: str | None = None):
@@ -60,13 +71,39 @@ class TroveClient(ServiceClient):
     async def backups_of(self, instance_id: str) -> list[dict]:
         return await self._list(f"/instances/{instance_id}/backups", "backups")
 
+    async def instance_configuration(self, instance_id: str) -> dict:
+        """The effective configuration values of a running instance."""
+        body = await self._get(
+            f"/instances/{instance_id}/configuration", "instance"
+        )
+        return body.get("configuration") or {}
+
+    # guest logs
+    async def logs(self, instance_id: str) -> list[dict]:
+        return await self._list(f"/instances/{instance_id}/log", "logs")
+
+    async def log_action(self, instance_id: str, body: dict) -> dict:
+        """``{"name": log}`` alone shows a log; add ``enable``, ``disable``,
+        ``publish`` or ``discard`` set to 1 to act on it."""
+        resp = await self.request(
+            "POST",
+            f"/instances/{instance_id}/log",
+            json=body,
+            timeout=60,
+            ok=(200, 202),
+        )
+        return resp.json().get("log", {})
+
     # users and databases
     async def users(self, instance_id: str) -> list[dict]:
         return await self._list(f"/instances/{instance_id}/users", "users")
 
     async def create_users(self, instance_id: str, users: list[dict]) -> None:
         await self.request(
-            "POST", f"/instances/{instance_id}/users", json={"users": users}, ok=(202,)
+            "POST",
+            f"/instances/{instance_id}/users",
+            json={"users": users},
+            ok=(202,),
         )
 
     async def delete_user(self, instance_id: str, name: str) -> None:
@@ -95,7 +132,9 @@ class TroveClient(ServiceClient):
         )
 
     async def databases(self, instance_id: str) -> list[dict]:
-        return await self._list(f"/instances/{instance_id}/databases", "databases")
+        return await self._list(
+            f"/instances/{instance_id}/databases", "databases"
+        )
 
     async def create_databases(self, instance_id: str, databases: list[dict]):
         await self.request(
@@ -107,7 +146,9 @@ class TroveClient(ServiceClient):
 
     async def delete_database(self, instance_id: str, name: str) -> None:
         await self.request(
-            "DELETE", f"/instances/{instance_id}/databases/{name}", ok=(202, 204)
+            "DELETE",
+            f"/instances/{instance_id}/databases/{name}",
+            ok=(202, 204),
         )
 
     # backups
@@ -119,7 +160,11 @@ class TroveClient(ServiceClient):
 
     async def create_backup(self, fields: dict) -> dict:
         resp = await self.request(
-            "POST", "/backups", json={"backup": fields}, timeout=60, ok=(200, 202)
+            "POST",
+            "/backups",
+            json={"backup": fields},
+            timeout=60,
+            ok=(200, 202),
         )
         return resp.json().get("backup", {})
 
@@ -131,11 +176,16 @@ class TroveClient(ServiceClient):
         return await self._list("/configurations", "configurations")
 
     async def configuration(self, configuration_id: str) -> dict:
-        return await self._get(f"/configurations/{configuration_id}", "configuration")
+        return await self._get(
+            f"/configurations/{configuration_id}", "configuration"
+        )
 
     async def create_configuration(self, fields: dict) -> dict:
         resp = await self.request(
-            "POST", "/configurations", json={"configuration": fields}, ok=(200, 201)
+            "POST",
+            "/configurations",
+            json={"configuration": fields},
+            ok=(200, 201),
         )
         return resp.json().get("configuration", {})
 
@@ -160,7 +210,9 @@ class TroveClient(ServiceClient):
             "DELETE", f"/configurations/{configuration_id}", ok=(202, 204)
         )
 
-    async def configuration_instances(self, configuration_id: str) -> list[dict]:
+    async def configuration_instances(
+        self, configuration_id: str
+    ) -> list[dict]:
         return await self._list(
             f"/configurations/{configuration_id}/instances", "instances"
         )
@@ -170,7 +222,9 @@ class TroveClient(ServiceClient):
         return await self._list("/datastores", "datastores")
 
     async def datastore_versions(self, datastore: str) -> list[dict]:
-        return await self._list(f"/datastores/{datastore}/versions", "versions")
+        return await self._list(
+            f"/datastores/{datastore}/versions", "versions"
+        )
 
     async def configuration_parameters(self, datastore: str, version: str):
         return await self._list(
@@ -178,10 +232,13 @@ class TroveClient(ServiceClient):
             "configuration-parameters",
         )
 
-    async def flavors(self, datastore: str | None = None, version: str | None = None):
+    async def flavors(
+        self, datastore: str | None = None, version: str | None = None
+    ):
         if datastore and version:
             return await self._list(
-                f"/datastores/{datastore}/versions/{version}/flavors", "flavors"
+                f"/datastores/{datastore}/versions/{version}/flavors",
+                "flavors",
             )
         return await self._list("/flavors", "flavors")
 

@@ -160,9 +160,12 @@ class Settings(BaseSettings):
     # the store cannot be reached from browsers or has no TempURL support.
     swift_upload_mode: Literal["tempurl", "proxy"] = "tempurl"
     swift_tempurl_ttl: int = 3600
-    # Nectar's Ceph gateways accept HMAC-SHA1 TempURL signatures only
-    # (checked on rctest, 10 Oct 2026); Swift proper also takes sha256.
-    swift_tempurl_digest: Literal["sha1", "sha256", "sha512"] = "sha1"
+    # Nectar's Melbourne object store is Swift 2.37 (the 2026.1 release) on
+    # rctest and prod; its /info lists sha1, sha256 and sha512 with sha1
+    # deprecated, so sha256 is the default (checked 12 Oct 2026). The
+    # Auckland endpoint is a Ceph gateway, which Hive does not use
+    # (HIVE_REGION selects Melbourne).
+    swift_tempurl_digest: Literal["sha1", "sha256", "sha512"] = "sha256"
     swift_segment_bytes: int = 1024**3
     swift_proxy_max_bytes: int = 5 * 1024**3
 

@@ -1,6 +1,7 @@
 """Database (Trove) endpoints."""
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import StreamingResponse
 
 from hive.api.compute import get_context
 from hive.schemas.databases import (
@@ -17,8 +18,8 @@ from hive.schemas.databases import (
     UserAccess,
     UserCreate,
 )
-from hive.services import databases
 from hive.services.context import Context
+from hive.services import databases
 
 router = APIRouter(prefix="/databases", tags=["databases"])
 Ctx = Depends(get_context)
@@ -45,7 +46,9 @@ async def get_instance(instance_id: str, ctx: Context = Ctx):
 
 
 @router.patch("/instances/{instance_id}")
-async def update_instance(instance_id: str, body: InstanceUpdate, ctx: Context = Ctx):
+async def update_instance(
+    instance_id: str, body: InstanceUpdate, ctx: Context = Ctx
+):
     return await databases.update_instance(ctx, instance_id, body)
 
 
@@ -56,13 +59,63 @@ async def delete_instance(instance_id: str, ctx: Context = Ctx):
 
 
 @router.post("/instances/{instance_id}/resize-volume", status_code=202)
-async def resize_volume(instance_id: str, body: ResizeVolume, ctx: Context = Ctx):
+async def resize_volume(
+    instance_id: str, body: ResizeVolume, ctx: Context = Ctx
+):
     return await databases.resize_volume(ctx, instance_id, body)
 
 
+@router.get("/instances/{instance_id}/resize-flavors")
+async def resize_flavors(instance_id: str, ctx: Context = Ctx):
+    return await databases.resize_flavors(ctx, instance_id)
+
+
 @router.post("/instances/{instance_id}/resize", status_code=202)
-async def resize_instance(instance_id: str, body: ResizeInstance, ctx: Context = Ctx):
+async def resize_instance(
+    instance_id: str, body: ResizeInstance, ctx: Context = Ctx
+):
     return await databases.resize_instance(ctx, instance_id, body)
+
+
+@router.get("/instances/{instance_id}/configuration-defaults")
+async def configuration_defaults(instance_id: str, ctx: Context = Ctx):
+    return await databases.configuration_defaults(ctx, instance_id)
+
+
+@router.get("/instances/{instance_id}/logs")
+async def list_logs(instance_id: str, ctx: Context = Ctx):
+    return await databases.list_logs(ctx, instance_id)
+
+
+@router.post("/instances/{instance_id}/logs/{name}/actions/{action}")
+async def log_action(
+    instance_id: str, name: str, action: str, ctx: Context = Ctx
+):
+    return await databases.log_action(ctx, instance_id, name, action)
+
+
+@router.get("/instances/{instance_id}/logs/{name}/contents")
+async def log_contents(
+    instance_id: str,
+    name: str,
+    lines: int = Query(50, ge=0, le=100000),
+    ctx: Context = Ctx,
+):
+    return await databases.log_contents(ctx, instance_id, name, lines)
+
+
+@router.get("/instances/{instance_id}/logs/{name}/download")
+async def log_download(instance_id: str, name: str, ctx: Context = Ctx):
+    stream = await databases.log_download(ctx, instance_id, name)
+    filename = f"{instance_id}-{name}.log".replace('"', "")
+    return StreamingResponse(
+        stream,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/instances/{instance_id}/upgrade-targets")
@@ -71,7 +124,9 @@ async def upgrade_targets(instance_id: str, ctx: Context = Ctx):
 
 
 @router.post("/instances/{instance_id}/upgrade", status_code=202)
-async def upgrade_instance(instance_id: str, body: UpgradeInstance, ctx: Context = Ctx):
+async def upgrade_instance(
+    instance_id: str, body: UpgradeInstance, ctx: Context = Ctx
+):
     return await databases.upgrade_instance(ctx, instance_id, body)
 
 
@@ -81,7 +136,9 @@ async def restart_instance(instance_id: str, ctx: Context = Ctx):
 
 
 @router.post("/instances/{instance_id}/configuration", status_code=202)
-async def attach_configuration(instance_id: str, body: AttachConfiguration, ctx: Context = Ctx):
+async def attach_configuration(
+    instance_id: str, body: AttachConfiguration, ctx: Context = Ctx
+):
     return await databases.attach_configuration(ctx, instance_id, body)
 
 
@@ -116,26 +173,40 @@ async def create_user(instance_id: str, body: UserCreate, ctx: Context = Ctx):
 
 
 @router.delete("/instances/{instance_id}/users/{name}", status_code=204)
-async def delete_user(instance_id: str, name: str, host: str | None = None, ctx: Context = Ctx):
+async def delete_user(
+    instance_id: str, name: str, host: str | None = None, ctx: Context = Ctx
+):
     await databases.delete_user(ctx, instance_id, name, host)
     return Response(status_code=204)
 
 
 @router.get("/instances/{instance_id}/users/{name}/access")
-async def user_access(instance_id: str, name: str, host: str | None = None, ctx: Context = Ctx):
+async def user_access(
+    instance_id: str, name: str, host: str | None = None, ctx: Context = Ctx
+):
     return await databases.user_access(ctx, instance_id, name, host)
 
 
 @router.put("/instances/{instance_id}/users/{name}/access", status_code=202)
 async def grant_access(
-    instance_id: str, name: str, body: UserAccess, host: str | None = None, ctx: Context = Ctx
+    instance_id: str,
+    name: str,
+    body: UserAccess,
+    host: str | None = None,
+    ctx: Context = Ctx,
 ):
     return await databases.grant_access(ctx, instance_id, name, host, body)
 
 
-@router.delete("/instances/{instance_id}/users/{name}/access/{database}", status_code=204)
+@router.delete(
+    "/instances/{instance_id}/users/{name}/access/{database}", status_code=204
+)
 async def revoke_access(
-    instance_id: str, name: str, database: str, host: str | None = None, ctx: Context = Ctx
+    instance_id: str,
+    name: str,
+    database: str,
+    host: str | None = None,
+    ctx: Context = Ctx,
 ):
     await databases.revoke_access(ctx, instance_id, name, host, database)
     return Response(status_code=204)
@@ -147,7 +218,9 @@ async def list_databases(instance_id: str, ctx: Context = Ctx):
 
 
 @router.post("/instances/{instance_id}/databases", status_code=202)
-async def create_database(instance_id: str, body: DatabaseCreate, ctx: Context = Ctx):
+async def create_database(
+    instance_id: str, body: DatabaseCreate, ctx: Context = Ctx
+):
     return await databases.create_database(ctx, instance_id, body)
 
 
@@ -194,8 +267,12 @@ async def get_configuration(configuration_id: str, ctx: Context = Ctx):
 
 
 @router.put("/configurations/{configuration_id}/values")
-async def set_configuration_values(configuration_id: str, body: ConfigurationValues, ctx: Context = Ctx):
-    return await databases.set_configuration_values(ctx, configuration_id, body)
+async def set_configuration_values(
+    configuration_id: str, body: ConfigurationValues, ctx: Context = Ctx
+):
+    return await databases.set_configuration_values(
+        ctx, configuration_id, body
+    )
 
 
 @router.delete("/configurations/{configuration_id}", status_code=204)

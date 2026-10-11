@@ -1,5 +1,6 @@
-// One database instance: overview, users, databases, backups and root
-// access (trove-dashboard instance detail tabs, Nectar layout).
+// One database instance: overview, users, databases, backups, guest logs,
+// configuration defaults and root access (trove-dashboard instance detail
+// tabs, Nectar layout).
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
@@ -43,6 +44,7 @@ import {
   UpdateInstanceDialog,
   UpgradeInstanceDialog,
 } from "./InstanceDialogs";
+import { DefaultsTab, LogsTab } from "./InstanceLogs";
 import { CONNECTION_EXAMPLES, statusLabel, statusTone } from "./status";
 import {
   CreateDatabaseDialog,
@@ -69,6 +71,12 @@ export function DbInstanceDetailPage() {
   const selectTab = (key: React.Key) =>
     void navigate({
       search: key === "overview" ? {} : { tab: String(key) },
+      replace: true,
+    });
+  // The open log lives in the URL so Horizon's log_contents links land on it.
+  const openLog = (name: string | null) =>
+    void navigate({
+      search: name ? { tab: "logs", log: name } : { tab: "logs" },
       replace: true,
     });
   const data = instance.data;
@@ -181,6 +189,17 @@ export function DbInstanceDetailPage() {
           </TabItem>
           <TabItem id="backups" title="Backups">
             <Backups projectId={projectId} instanceId={instanceId} />
+          </TabItem>
+          <TabItem id="logs" title="Logs">
+            <LogsTab
+              projectId={projectId}
+              instanceId={instanceId}
+              openLog={search.log}
+              onOpenLog={openLog}
+            />
+          </TabItem>
+          <TabItem id="defaults" title="Defaults">
+            <DefaultsTab projectId={projectId} instanceId={instanceId} />
           </TabItem>
           <TabItem id="root" title="Root access">
             {data ? (

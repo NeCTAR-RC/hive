@@ -5,6 +5,7 @@ import type {
   DbConfiguration,
   DbInstance,
   DbInstanceDetail,
+  DbLog,
   ParameterSpec,
   RecordSet,
   SecurityService,
@@ -1082,6 +1083,49 @@ let dbConfigurations: DbConfiguration[] = [
 ];
 let dbUsers = [{ name: "app", host: "%", databases: ["app"] }];
 let dbDatabases = [{ name: "app" }, { name: "reports" }];
+const logActions = (log: DbLog): string[] => [
+  ...(log.published > 0 ? ["view"] : []),
+  "publish",
+  "enable",
+  ...(log.type !== "SYS" ? ["disable"] : []),
+  "discard",
+];
+const dbLog = (
+  overrides: Partial<DbLog> & { name: string; type: string },
+): DbLog => {
+  const log: DbLog = {
+    status: "Disabled",
+    status_kind: "unknown",
+    published: 0,
+    pending: 0,
+    container: null,
+    prefix: null,
+    metafile: `db-1/mysql-${overrides.name}_metafile`,
+    actions: [],
+    ...overrides,
+  };
+  log.actions = logActions(log);
+  return log;
+};
+const dbLogs: DbLog[] = [
+  dbLog({ name: "general", type: "USER" }),
+  dbLog({ name: "slow_query", type: "USER", pending: 512 }),
+  dbLog({
+    name: "error",
+    type: "SYS",
+    status: "Published",
+    status_kind: "ok",
+    published: 2048,
+    container: "database_logs",
+    prefix: "db-1/mysql-error",
+  }),
+];
+const configDefaults = [
+  { name: "basedir", value: "/usr" },
+  { name: "max_connections", value: 200 },
+  { name: "port", value: 3306 },
+  { name: "skip-external-locking", value: 1 },
+];
 const datastores = [
   {
     datastore: "mysql",
@@ -1219,6 +1263,95 @@ const databaseHandlers = [
   ),
   http.post("/api/databases/instances/:id/resize", ({ params }) =>
     HttpResponse.json({ id: params["id"] }, { status: 202 }),
+  ),
+  http.get("/api/databases/instances/:id/resize-flavors", ({ params }) => {
+    const instance = dbInstances.find((i) => i.id === params["id"]);
+    return HttpResponse.json({
+      current: instance?.flavor_id ?? null,
+      datastore: instance?.datastore ?? null,
+      datastore_version: instance?.datastore_version ?? null,
+      items: flavors.filter((f) => f.id !== instance?.flavor_id),
+    });
+  }),
+  http.get("/api/databases/instances/:id/configuration-defaults", () =>
+    HttpResponse.json({ items: configDefaults }),
+  ),
+  http.get("/api/databases/instances/:id/logs", () =>
+    HttpResponse.json({ items: dbLogs }),
+  ),
+  http.post(
+    "/api/databases/instances/:id/logs/:name/actions/:action",
+    ({ params }) => {
+      const log = dbLogs.find((l) => l.name === params["name"]);
+      if (!log) {
+        return HttpResponse.json(
+          { error: "not_found", message: "no such log" },
+          { status: 404 },
+        );
+      }
+      switch (params["action"]) {
+        case "publish":
+          log.status = "Published";
+          log.status_kind = "ok";
+          log.published += log.pending || 4096;
+          log.pending = 0;
+          log.container = "database_logs";
+          log.prefix = `db-1/mysql-${log.name}`;
+          break;
+        case "enable":
+          log.status = "Enabled";
+          log.status_kind = "ok";
+          break;
+        case "disable":
+          log.status = "Disabled";
+          log.status_kind = "unknown";
+          break;
+        case "discard":
+          log.published = 0;
+          log.container = null;
+          log.prefix = null;
+          log.status = "Disabled";
+          log.status_kind = "unknown";
+          break;
+        default:
+          return HttpResponse.json(
+            { error: "bad_request", message: "unknown action" },
+            { status: 400 },
+          );
+      }
+      log.actions = logActions(log);
+      return HttpResponse.json(log);
+    },
+  ),
+  http.get(
+    "/api/databases/instances/:id/logs/:name/contents",
+    ({ params, request }) => {
+      const lines = Number(
+        new URL(request.url).searchParams.get("lines") ?? "50",
+      );
+      const all = Array.from(
+        { length: 120 },
+        (_, i) =>
+          `2026-10-12T00:${String(i % 60).padStart(2, "0")}:00 ${String(params["name"])} line ${String(i + 1).padStart(3, "0")}`,
+      );
+      const shown = lines > 0 ? all.slice(-lines) : all;
+      return HttpResponse.json({
+        name: params["name"],
+        lines,
+        text: shown.join("\n") + "\n",
+        partial: lines > 0 && lines < all.length,
+        truncated: false,
+        parts: 2,
+        published: 4096,
+      });
+    },
+  ),
+  http.get(
+    "/api/databases/instances/:id/logs/:name/download",
+    ({ params }) =>
+      new HttpResponse(`${String(params["name"])} whole log\n`, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      }),
   ),
   http.get("/api/databases/instances/:id/upgrade-targets", () =>
     HttpResponse.json({
