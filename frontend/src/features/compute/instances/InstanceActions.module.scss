@@ -1,0 +1,23 @@
+.names {
+  margin: 0;
+  padding-left: var(--hive-space-5);
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.metadata {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.metadataRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--hive-space-2);
+  align-items: end;
+}
+
+.removeRow {
+  margin-bottom: var(--hive-space-2);
+}

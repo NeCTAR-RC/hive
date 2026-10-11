@@ -1,0 +1,25 @@
+---
+features:
+  - |
+    Object Store: containers and objects are managed natively, with folders,
+    public access, copy, recursive delete and object details. Files upload
+    straight from the browser to the object store through backend-signed
+    TempURLs, large files as static large objects in segments; where the
+    store cannot be reached from browsers the upload streams through the
+    backend (``HIVE_SWIFT_UPLOAD_MODE``, ``HIVE_SWIFT_TEMPURL_TTL``,
+    ``HIVE_SWIFT_TEMPURL_DIGEST``, ``HIVE_SWIFT_SEGMENT_BYTES``,
+    ``HIVE_SWIFT_PROXY_MAX_BYTES``). Downloads go through signed URLs.
+  - |
+    Kubernetes clusters follow the Nectar workflow: templates picked by
+    Kubernetes version, availability zone and network driver, control planes
+    of 1, 3, 5 or 7 nodes, an optional etcd volume, rolling upgrades to the
+    template's upgrade targets, node groups with autoscaling limits, node
+    labels and taints, and a kubeconfig download that embeds a freshly
+    signed admin certificate. Cluster templates are listed read-only.
+  - |
+    Load balancers: list and detail with listeners, pools, members, health
+    monitors and L7 policies and rules; a create wizard that builds the
+    listener, pool, members and monitor one after another once the load
+    balancer is active; floating IP association on the VIP; and the
+    subnet pickers limited to the project's bootable networks as Horizon
+    does on Nectar.

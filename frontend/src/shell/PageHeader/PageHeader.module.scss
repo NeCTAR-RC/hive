@@ -1,0 +1,29 @@
+@use "mixins" as *;
+
+.header {
+  display: grid;
+  gap: var(--hive-space-3);
+  margin-bottom: var(--hive-space-6);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-3);
+}
+
+.title {
+  color: var(--hive-color-text-heading);
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2);
+}

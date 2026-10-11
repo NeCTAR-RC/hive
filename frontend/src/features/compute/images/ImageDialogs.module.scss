@@ -1,0 +1,26 @@
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.muted {
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}
+
+.cancel {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hive-color-danger-strong);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+
+  &:focus-visible {
+    outline: var(--hive-focus-ring);
+    outline-offset: var(--hive-focus-ring-offset);
+  }
+}

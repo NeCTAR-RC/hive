@@ -1,0 +1,295 @@
+import pytest
+
+from hive.errors import BadRequest
+from hive.nectar.networks import (
+    NetworkRules,
+    port_forwarding_body,
+    static_routes,
+    subnet_body,
+)
+
+ROUTER_PORT = {
+    "id": "rp-1",
+    "device_owner": "network:router_interface",
+    "device_id": "r-1",
+    "fixed_ips": [{"subnet_id": "sub-priv", "ip_address": "192.168.1.1"}],
+}
+VM_PORT = {
+    "id": "vp-1",
+    "name": "",
+    "device_owner": "compute:nova",
+    "device_id": "srv-1",
+    "admin_state_up": True,
+    "fixed_ips": [
+        {"subnet_id": "sub-priv", "ip_address": "192.168.1.20"},
+        {"subnet_id": "sub-priv6", "ip_address": "fd00::20"},
+    ],
+}
+ISLAND_PORT = {
+    "id": "vp-2",
+    "name": "lonely",
+    "device_owner": "compute:nova",
+    "device_id": "srv-2",
+    "admin_state_up": True,
+    "fixed_ips": [{"subnet_id": "sub-island", "ip_address": "10.9.0.5"}],
+}
+SHARED_PORT = {
+    "id": "vp-3",
+    "name": "",
+    "device_owner": "compute:nova",
+    "device_id": "srv-3",
+    "admin_state_up": True,
+    "fixed_ips": [{"subnet_id": "sub-shared", "ip_address": "10.0.0.7"}],
+}
+DHCP_PORT = {
+    "id": "dp-1",
+    "device_owner": "network:dhcp",
+    "device_id": "dhcp",
+    "fixed_ips": [{"subnet_id": "sub-priv", "ip_address": "192.168.1.2"}],
+}
+PORTS = [ROUTER_PORT, VM_PORT, ISLAND_PORT, SHARED_PORT, DHCP_PORT]
+ROUTERS = [
+    {"id": "r-1", "external_gateway_info": {"network_id": "net-float"}},
+    {"id": "r-2", "external_gateway_info": {"network_id": "net-other"}},
+]
+
+
+def rules(**overrides) -> NetworkRules:
+    args = {
+        "classic_network_id": "classic",
+        "bootable_tag": "nectar:bootable",
+        "floating_tag": "nectar:floating",
+    }
+    args.update(overrides)
+    return NetworkRules(**args)
+
+
+class TestFloatingTargets:
+    def test_reachable_subnets_follow_floating_gateways(self):
+        reachable = rules().reachable_subnets(
+            PORTS, ROUTERS, {"net-float"}, {"sub-shared"}
+        )
+        assert reachable == {"sub-priv", "sub-shared"}
+
+    def test_shared_subnets_only_count_when_bootable(self):
+        no_bootable = rules(bootable_tag=None)
+        assert not no_bootable.shared_subnets_reachable()
+        assert no_bootable.reachable_subnets(
+            PORTS, ROUTERS, {"net-float"}, {"sub-shared"}
+        ) == {"sub-priv"}
+        # Upstream (no tags) counts shared subnets as reachable.
+        upstream = rules(bootable_tag=None, floating_tag=None)
+        assert upstream.shared_subnets_reachable()
+
+    def test_topology_check_off_takes_every_subnet(self):
+        reachable = rules().reachable_subnets(
+            PORTS, ROUTERS, set(), set(), topology_check=False
+        )
+        assert reachable == {"sub-priv", "sub-island", "sub-shared"}
+
+    def test_targets_skip_network_ports_ipv6_and_unreachable(self):
+        targets = NetworkRules.floating_targets(
+            PORTS, {"srv-1": "web"}, {"sub-priv", "sub-shared"}
+        )
+        assert [t["id"] for t in targets] == [
+            "vp-3_10.0.0.7",
+            "vp-1_192.168.1.20",
+        ]
+        assert targets[1] == {
+            "id": "vp-1_192.168.1.20",
+            "port_id": "vp-1",
+            "ip_address": "192.168.1.20",
+            "instance_id": "srv-1",
+            "instance_name": "web",
+            "name": "web 192.168.1.20",
+        }
+        # Without a server name the port stands in.
+        assert targets[0]["name"] == "vp-3 10.0.0.7"
+
+    def test_targets_for_one_instance(self):
+        targets = NetworkRules.floating_targets(
+            PORTS, {}, {"sub-priv", "sub-shared"}, instance_id="srv-3"
+        )
+        assert [t["port_id"] for t in targets] == ["vp-3"]
+
+    def test_device_type(self):
+        assert NetworkRules.device_type("compute:nova") == "compute"
+        assert NetworkRules.device_type("neutron:LOADBALANCERV2") == (
+            "loadbalancer"
+        )
+        assert NetworkRules.device_type("network:dhcp") == "network:dhcp"
+        assert NetworkRules.device_type("") is None
+
+
+class TestRouterInterfaces:
+    def test_subnets_need_a_gateway_and_no_interface_yet(self):
+        networks = [
+            {
+                "id": "net-1",
+                "name": "private",
+                "subnets": [
+                    {"id": "s-1", "cidr": "10.0.0.0/24", "gateway_ip": "10.0.0.1"},
+                    {"id": "s-2", "cidr": "10.0.1.0/24", "gateway_ip": None},
+                    {"id": "s-3", "cidr": "10.0.2.0/24", "gateway_ip": "10.0.2.1"},
+                ],
+            }
+        ]
+        choices = rules().router_interface_subnets(networks, {"s-3"})
+        assert [c["id"] for c in choices] == ["s-1"]
+        assert choices[0]["network_name"] == "private"
+
+
+class TestTrunkCandidates:
+    PORTS = [
+        {"id": "p-free", "admin_state_up": True, "device_owner": ""},
+        {"id": "p-vm", "admin_state_up": True, "device_owner": "compute:nova"},
+        {"id": "p-down", "admin_state_up": False, "device_owner": ""},
+        {"id": "p-dhcp", "admin_state_up": True, "device_owner": "network:dhcp"},
+        {"id": "p-parent", "admin_state_up": True, "device_owner": ""},
+        {"id": "p-child", "admin_state_up": True, "device_owner": ""},
+    ]
+    TRUNKS = [{"port_id": "p-parent", "sub_ports": [{"port_id": "p-child"}]}]
+
+    def test_parents_and_subports(self):
+        parents = NetworkRules.trunk_parent_candidates(self.PORTS, self.TRUNKS)
+        assert [p["id"] for p in parents] == ["p-free", "p-vm"]
+        subports = NetworkRules.trunk_subport_candidates(self.PORTS, self.TRUNKS)
+        assert [p["id"] for p in subports] == ["p-free"]
+
+
+class TestSubnetBody:
+    DNS = ["1.1.1.1", "1.0.0.1"]
+
+    def test_defaults_apply_on_create(self):
+        body = subnet_body(
+            {"name": "s", "cidr": "192.168.0.0/24", "enable_dhcp": True},
+            self.DNS,
+        )
+        assert body == {
+            "name": "s",
+            "cidr": "192.168.0.0/24",
+            "ip_version": 4,
+            "enable_dhcp": True,
+            "dns_nameservers": ["1.1.1.1", "1.0.0.1"],
+        }
+
+    def test_full_create(self):
+        body = subnet_body(
+            {
+                "cidr": "10.1.0.0/16",
+                "gateway_ip": "10.1.0.254",
+                "allocation_pools": [{"start": "10.1.1.1", "end": "10.1.1.9"}],
+                "dns_nameservers": ["8.8.8.8"],
+                "host_routes": [
+                    {"destination": "10.2.0.0/16", "nexthop": "10.1.0.1"}
+                ],
+            },
+            self.DNS,
+        )
+        assert body["gateway_ip"] == "10.1.0.254"
+        assert body["allocation_pools"] == [
+            {"start": "10.1.1.1", "end": "10.1.1.9"}
+        ]
+        assert body["dns_nameservers"] == ["8.8.8.8"]
+        assert body["host_routes"] == [
+            {"destination": "10.2.0.0/16", "nexthop": "10.1.0.1"}
+        ]
+
+    def test_no_gateway_wins(self):
+        body = subnet_body(
+            {"cidr": "10.0.0.0/24", "gateway_ip": "10.0.0.1", "no_gateway": True},
+            self.DNS,
+        )
+        assert body["gateway_ip"] is None
+
+    @pytest.mark.parametrize(
+        "data, message",
+        [
+            ({"cidr": "nope"}, "not a network address"),
+            ({"cidr": "10.0.0.1/32"}, "too small"),
+            ({"cidr": "fd00::/64"}, "inconsistent"),
+            ({"cidr": "fd00::/64", "ip_version": 6}, "IPv6"),
+            ({}, "network address or an address pool"),
+            ({"cidr": "10.0.0.0/24", "gateway_ip": "fd00::1"}, "gateway IP"),
+            (
+                {
+                    "cidr": "10.0.0.0/24",
+                    "allocation_pools": [{"start": "10.0.0.9", "end": "10.0.0.2"}],
+                },
+                "after its end",
+            ),
+            ({"cidr": "10.0.0.0/24", "dns_nameservers": ["x"]}, "DNS name server"),
+            (
+                {
+                    "cidr": "10.0.0.0/24",
+                    "host_routes": [{"destination": "bad", "nexthop": "10.0.0.1"}],
+                },
+                "host route destination",
+            ),
+        ],
+    )
+    def test_rejections(self, data, message):
+        with pytest.raises(BadRequest, match=message):
+            subnet_body(data, self.DNS)
+
+    def test_ipv6_allowed_when_enabled(self):
+        body = subnet_body(
+            {"cidr": "fd00::/64", "ip_version": 6}, self.DNS, enable_ipv6=True
+        )
+        assert body["ip_version"] == 6
+
+    def test_update_sends_only_given_fields_and_clears_lists(self):
+        body = subnet_body(
+            {"name": "renamed", "allocation_pools": []}, self.DNS, is_create=False
+        )
+        assert body == {"name": "renamed", "allocation_pools": []}
+        assert subnet_body({}, self.DNS, is_create=False) == {}
+
+
+class TestPortForwardingBody:
+    def test_single_ports_and_ranges(self):
+        body = port_forwarding_body(
+            {
+                "protocol": "TCP",
+                "internal_port": "22",
+                "external_port": "2200:2210",
+                "internal_ip_address": "10.0.0.5",
+                "internal_port_id": "p-1",
+                "description": "ssh",
+            }
+        )
+        assert body == {
+            "protocol": "tcp",
+            "internal_port": 22,
+            "external_port_range": "2200:2210",
+            "internal_ip_address": "10.0.0.5",
+            "internal_port_id": "p-1",
+            "description": "ssh",
+        }
+
+    @pytest.mark.parametrize(
+        "value, message",
+        [("0", "outside"), ("abc", "not a port"), ("90:80", "reversed")],
+    )
+    def test_rejections(self, value, message):
+        with pytest.raises(BadRequest, match=message):
+            port_forwarding_body({"internal_port": value})
+
+
+class TestStaticRoutes:
+    def test_normalises(self):
+        assert static_routes(
+            [{"destination": "10.5.0.1/16", "nexthop": "192.168.1.5"}]
+        ) == [{"destination": "10.5.0.0/16", "nexthop": "192.168.1.5"}]
+
+    @pytest.mark.parametrize(
+        "route, message",
+        [
+            ({"destination": "x", "nexthop": "10.0.0.1"}, "not a CIDR"),
+            ({"destination": "10.0.0.0/8", "nexthop": "y"}, "next hop"),
+            ({"destination": "10.0.0.0/8", "nexthop": "fd00::1"}, "IP version"),
+        ],
+    )
+    def test_rejections(self, route, message):
+        with pytest.raises(BadRequest, match=message):
+            static_routes([route])

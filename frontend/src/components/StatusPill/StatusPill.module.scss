@@ -1,0 +1,47 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hive-space-1);
+  padding: 0 var(--hive-space-2);
+  min-height: 1.5rem;
+  border-radius: 100px;
+  font-size: var(--hive-font-size-xs);
+  font-weight: var(--hive-font-weight-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.neutral {
+  color: var(--hive-color-gray-700);
+  background: var(--hive-color-gray-50);
+}
+
+.info {
+  color: var(--hive-color-indigo);
+  background: var(--hive-color-info-tint);
+}
+
+.success {
+  color: var(--hive-color-success-strong);
+  background: var(--hive-color-success-tint);
+}
+
+.warning {
+  color: var(--hive-color-warning-strong);
+  background: var(--hive-color-warning-tint);
+}
+
+.danger {
+  color: var(--hive-color-danger-strong);
+  background: var(--hive-color-danger-tint);
+}
+
+.progress {
+  color: var(--hive-color-purple-700);
+  background: var(--hive-color-purple-50);
+}
+
+.spinner {
+  width: 0.875em;
+  height: 0.875em;
+}

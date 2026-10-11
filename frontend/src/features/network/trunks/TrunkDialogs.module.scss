@@ -1,0 +1,28 @@
+.subports {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+  padding-top: var(--hive-space-3);
+  border-top: var(--hive-border-width) solid var(--hive-color-rule);
+}
+
+.subheading {
+  margin: 0;
+  font-size: var(--hive-font-size-base);
+  font-weight: var(--hive-font-weight-semibold);
+}
+
+.subport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+  padding: var(--hive-space-3);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius);
+}
+
+.muted {
+  margin: 0;
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}

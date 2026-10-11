@@ -1,0 +1,125 @@
+@use "mixins" as *;
+
+.intro {
+  margin: 0;
+  max-width: 48rem;
+  color: var(--hive-color-text-muted);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+}
+
+.limits {
+  display: grid;
+  gap: var(--hive-space-4);
+
+  @include up($bp-md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.idLink {
+  color: inherit;
+  font-weight: var(--hive-font-weight-semibold);
+}
+
+.muted {
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}
+
+/* create page */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
+  align-items: end;
+}
+
+.filter {
+  min-width: 14rem;
+}
+
+.flavors {
+  display: grid;
+  gap: var(--hive-space-4);
+
+  @include up($bp-lg) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.specs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--hive-space-1) var(--hive-space-3);
+  margin: 0 0 var(--hive-space-3);
+  font-size: var(--hive-font-size-sm);
+
+  dt {
+    color: var(--hive-color-text-muted);
+  }
+
+  dd {
+    margin: 0;
+  }
+}
+
+.slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+}
+
+.slot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--hive-space-3);
+  flex-wrap: wrap;
+}
+
+.maintenance {
+  margin: var(--hive-space-2) 0 0;
+  padding: var(--hive-space-2) var(--hive-space-3);
+  background: var(--hive-color-warning-tint);
+  border-radius: var(--hive-radius-sm);
+  font-size: var(--hive-font-size-sm);
+}
+
+/* detail page */
+
+.grid {
+  display: grid;
+  gap: var(--hive-space-4);
+  align-items: start;
+
+  @include up($bp-lg) {
+    grid-template-columns: 3fr 2fr;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2);
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+  margin: 0 0 var(--hive-space-3);
+}
+
+.estimate {
+  margin: 0;
+  font-size: var(--hive-font-size-sm);
+}

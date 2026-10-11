@@ -1,0 +1,9 @@
+---
+features:
+  - |
+    Initial walking skeleton of Hive, the Nectar Research Cloud dashboard
+    replacing Horizon: a FastAPI backend-for-frontend that receives the
+    manuka login POST at ``/auth/websso/``, scopes Keystone tokens and keeps
+    sessions in Redis; a React single-page app on the ARDC design system
+    with the dashboard shell, login, home and My Details pages; the Horizon
+    URL redirect map; and the container image.

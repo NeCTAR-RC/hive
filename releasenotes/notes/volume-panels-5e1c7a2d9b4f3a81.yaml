@@ -1,0 +1,14 @@
+---
+features:
+  - |
+    The Volumes, Snapshots and Backups panels are built in Hive, backed by
+    ``/api/volumes``. Creating a volume requires an availability zone, the
+    volume type picker is filtered by the zone's ``RESKEY:availability_zones``
+    extra spec, a volume from a snapshot or another volume inherits its
+    type, and a backup can be restored into a new volume in a chosen zone
+    and type, as the Nectar Horizon fork does. Volumes can be attached,
+    detached, extended, snapshotted, backed up and uploaded to an image.
+  - |
+    An exceeded Cinder or Nova quota now comes back as ``409
+    quota_exceeded`` with the service's message, instead of being treated
+    as a rate limit.

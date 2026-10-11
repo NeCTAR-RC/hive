@@ -1,0 +1,26 @@
+---
+features:
+  - |
+    Orchestration panels: Heat stacks (list, detail with resources, events,
+    outputs and template, launch from pasted text or a URL with a generated
+    parameters form, update, suspend, resume, check and delete), resource
+    types and template versions with their functions.
+  - |
+    DNS panels: Designate zones (create, edit, delete with the project
+    quota) and record sets (create, edit, delete with per-type record
+    validation; the SOA and apex NS record sets are read-only).
+  - |
+    Share panels: Manila shares (create from scratch or a snapshot, edit,
+    metadata, resize, revert, access rules, delete), share snapshots and
+    their access rules, security services, share groups and share group
+    snapshots. The share networks panel stays removed, as at Nectar. The
+    protocols offered come from ``HIVE_MANILA_SHARE_PROTOCOLS``; the API
+    microversion from ``HIVE_MANILA_MICROVERSION``.
+  - |
+    Database panels: Trove instances (launch with the Nectar form: no
+    volume type, one network, required allowed CIDRs, optional initial
+    databases and user, configuration group and restore from backup;
+    update, resize volume, resize flavour, upgrade datastore version,
+    restart, attach and detach configuration groups, root access, users
+    and databases with access grants), backups and configuration groups
+    with typed parameter validation.

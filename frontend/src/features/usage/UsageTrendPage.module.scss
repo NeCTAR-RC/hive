@@ -1,0 +1,61 @@
+@use "mixins" as *;
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+
+  @include up($bp-md) {
+    flex-direction: row;
+    align-items: end;
+    flex-wrap: wrap;
+  }
+}
+
+.range {
+  max-width: 24rem;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2);
+}
+
+.note {
+  margin: var(--hive-space-2) 0 0;
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}
+
+.grid {
+  display: grid;
+  gap: var(--hive-space-4);
+  grid-template-columns: minmax(0, 1fr);
+
+  @include up($bp-lg) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.wide {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.total {
+  min-width: 0;
+}
+
+.totalValue {
+  margin: 0;
+  font-size: var(--hive-font-size-3xl);
+  font-weight: var(--hive-font-weight-bold);
+  color: var(--hive-color-text-heading);
+}
+
+.muted {
+  margin: 0 0 var(--hive-space-2);
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}

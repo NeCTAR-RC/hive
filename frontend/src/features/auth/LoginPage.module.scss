@@ -1,0 +1,62 @@
+@use "mixins" as *;
+
+.page {
+  flex: 1;
+  display: grid;
+  min-height: 100%;
+
+  @include up($bp-md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.brand {
+  display: none;
+  background:
+    radial-gradient(
+      circle at 20% 20%,
+      var(--hive-color-brand-blue) 0,
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 80% 70%,
+      var(--hive-color-brand-pink) 0,
+      transparent 45%
+    ),
+    var(--hive-color-brand-purple);
+
+  @include up($bp-md) {
+    display: block;
+  }
+}
+
+.card {
+  display: grid;
+  align-content: center;
+  gap: var(--hive-space-4);
+  max-width: 32rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--hive-space-8) var(--hive-gutter);
+}
+
+.logo {
+  width: 14rem;
+}
+
+.title {
+  color: var(--hive-color-text-heading);
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
+  margin-top: var(--hive-space-2);
+}
+
+.help,
+.terms {
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}

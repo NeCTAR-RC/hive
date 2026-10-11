@@ -1,0 +1,75 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--hive-space-3);
+  font-size: var(--hive-font-size-sm);
+}
+
+.label {
+  overflow-wrap: anywhere;
+}
+
+.value {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.share {
+  color: var(--hive-color-text-muted);
+}
+
+.track {
+  height: var(--hive-space-2);
+  background: var(--hive-color-gray-100);
+  border-radius: var(--hive-radius-sm);
+  overflow: hidden;
+}
+
+.bar1,
+.bar2,
+.bar3,
+.bar4,
+.bar5,
+.barOther {
+  height: 100%;
+  border-radius: var(--hive-radius-sm);
+}
+
+.bar1 {
+  background: var(--hive-chart-1);
+}
+
+.bar2 {
+  background: var(--hive-chart-2);
+}
+
+.bar3 {
+  background: var(--hive-chart-3);
+}
+
+.bar4 {
+  background: var(--hive-chart-4);
+}
+
+.bar5 {
+  background: var(--hive-chart-5);
+}
+
+.barOther {
+  background: var(--hive-chart-other);
+}

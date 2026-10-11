@@ -1,0 +1,102 @@
+@use "mixins" as *;
+
+.usage {
+  margin: 0;
+  color: var(--hive-color-text-muted);
+}
+
+.nameLink {
+  color: inherit;
+  font-weight: var(--hive-font-weight-semibold);
+}
+
+.layout {
+  display: grid;
+  gap: var(--hive-space-4);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+
+  @include up($bp-lg) {
+    grid-template-columns: minmax(0, 1fr) 18rem;
+  }
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.side {
+  min-width: 0;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--hive-space-2) var(--hive-space-3);
+  margin: 0;
+  font-size: var(--hive-font-size-sm);
+
+  dt {
+    color: var(--hive-color-text-muted);
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+.url {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+  overflow-wrap: anywhere;
+}
+
+.uploadBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.uploadList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.uploadItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+.uploadRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--hive-space-3);
+  font-size: var(--hive-font-size-sm);
+}
+
+.uploadName {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--hive-color-text-muted);
+  white-space: nowrap;
+}
+
+.progress {
+  width: 100%;
+  height: var(--hive-space-2);
+  accent-color: var(--hive-color-link);
+}

@@ -1,0 +1,30 @@
+.box {
+  display: grid;
+  gap: var(--hive-space-2);
+  padding: var(--hive-space-3);
+  background: var(--hive-color-page);
+  border-radius: var(--hive-radius);
+  font-size: var(--hive-font-size-sm);
+}
+
+.small {
+  font-size: var(--hive-font-size-xs);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-1);
+  font-size: var(--hive-font-size-xs);
+  font-weight: var(--hive-font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hive-color-text-muted);
+  margin-top: var(--hive-space-2);
+}
+
+.value {
+  font-size: var(--hive-font-size-base);
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-text-heading);
+}

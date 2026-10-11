@@ -1,0 +1,119 @@
+// The one place Hive reads the ARDC design-system tokens. Everything else
+// consumes the --hive-* custom properties, so a dark palette can be added
+// under [data-theme="dark"] later without touching a component.
+@use "@ardc-ui/react/styles/variables" as ardc;
+
+:root,
+:root[data-theme="light"] {
+  // Brand
+  --hive-color-brand-purple: #{ardc.$brand-purple-500};
+  --hive-color-brand-blue: #{ardc.$brand-blue-500};
+  --hive-color-brand-pink: #{ardc.$brand-pink-500};
+  --hive-color-brand-yellow: #{ardc.$brand-yellow-500};
+  --hive-color-purple-50: #{ardc.$secondary-purple-50};
+  --hive-color-purple-700: #{ardc.$secondary-purple-700};
+  --hive-color-indigo: #{ardc.$secondary-indigo-500};
+  --hive-color-green: #{ardc.$secondary-green-500};
+  --hive-color-orange: #{ardc.$secondary-orange-500};
+  --hive-color-yellow-700: #{ardc.$secondary-yellow-700};
+
+  // Neutrals
+  --hive-color-white: #{ardc.$neutral-white};
+  --hive-color-gray-50: #{ardc.$neutral-gray-50};
+  --hive-color-gray-100: #{ardc.$neutral-gray-100};
+  --hive-color-gray-300: #{ardc.$neutral-gray-300};
+  --hive-color-gray-500: #{ardc.$neutral-gray-500};
+  --hive-color-gray-700: #{ardc.$neutral-gray-700};
+  --hive-color-gray-900: #{ardc.$neutral-gray-900};
+
+  // Text
+  --hive-color-text-heading: #{ardc.$text-color-heading};
+  --hive-color-text-body: #{ardc.$text-color-body-strong};
+  --hive-color-text-muted: #{ardc.$text-color-body-muted};
+  --hive-color-link: #{ardc.$text-color-link};
+
+  // Messaging (strong colour on its tint; pairs verified for 4.5:1)
+  --hive-color-danger: #{ardc.$semantic-red-500};
+  --hive-color-danger-strong: #{ardc.$semantic-red-700};
+  --hive-color-danger-tint: #{ardc.$semantic-red-50};
+  --hive-color-success-strong: #{ardc.$semantic-green-700};
+  --hive-color-success-tint: #{ardc.$semantic-green-50};
+  --hive-color-warning-strong: #{ardc.$secondary-yellow-700};
+  --hive-color-warning-tint: #{ardc.$semantic-yellow-50};
+  --hive-color-warning-200: #{ardc.$semantic-yellow-200};
+  --hive-color-info: #{ardc.$semantic-blue-600};
+  --hive-color-info-tint: #{ardc.$semantic-blue-100};
+
+  // Surfaces
+  --hive-color-page: #{ardc.$neutral-gray-50};
+  --hive-color-surface: #{ardc.$neutral-white};
+  --hive-color-rule: #{ardc.$neutral-gray-100};
+  --hive-color-sidebar: #{ardc.$neutral-white};
+  --hive-color-sidebar-active: #{ardc.$secondary-purple-50};
+
+  // Spacing (4px scale)
+  --hive-space-1: #{ardc.$spacing-1};
+  --hive-space-2: #{ardc.$spacing-2};
+  --hive-space-3: #{ardc.$spacing-3};
+  --hive-space-4: #{ardc.$spacing-4};
+  --hive-space-5: #{ardc.$spacing-5};
+  --hive-space-6: #{ardc.$spacing-6};
+  --hive-space-8: #{ardc.$spacing-8};
+  --hive-space-16: #{ardc.$spacing-16};
+
+  // Shape and motion
+  --hive-radius: #{ardc.$border-radius};
+  --hive-radius-sm: #{ardc.$border-radius-sm};
+  --hive-radius-lg: #{ardc.$border-radius-lg};
+  --hive-border-width: #{ardc.$border-width};
+  --hive-shadow-sm: #{ardc.$shadow-sm};
+  --hive-transition-fast: #{ardc.$transition-fast};
+  --hive-transition-base: #{ardc.$transition-base};
+  --hive-focus-ring: #{ardc.$focus-ring-width} solid
+    #{ardc.$focus-ring-color-on-light};
+  --hive-focus-ring-offset: #{ardc.$focus-ring-offset};
+
+  // Type
+  --hive-font-family: #{ardc.$font-family-base};
+  --hive-font-mono:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  --hive-font-size-xs: #{ardc.$font-size-xs};
+  --hive-font-size-sm: #{ardc.$font-size-sm};
+  --hive-font-size-base: #{ardc.$font-size-base};
+  --hive-font-size-lg: #{ardc.$font-size-lg};
+  --hive-font-size-xl: #{ardc.$font-size-xl};
+  --hive-font-size-3xl: #{ardc.$font-size-3xl};
+  --hive-font-size-5xl: #{ardc.$font-size-5xl};
+  --hive-font-weight-normal: #{ardc.$font-weight-normal};
+  --hive-font-weight-semibold: #{ardc.$font-weight-semibold};
+  --hive-font-weight-bold: #{ardc.$font-weight-bold};
+
+  // Layout (Hive-only)
+  --hive-sidebar-width: 15rem;
+  --hive-sidebar-rail: 3.5rem;
+  --hive-bar-height: 3.5rem;
+  --hive-header-band-height: 5.5rem;
+  --hive-header-nav-height: 4rem;
+  --hive-content-max: 75rem;
+  --hive-gutter: var(--hive-space-4);
+
+  // Stacking
+  --hive-z-sticky: 10;
+  --hive-z-drawer: 40;
+  --hive-z-toast: 50;
+
+  // Charts (categorical slots validated against white; see plan)
+  --hive-chart-1: #{ardc.$semantic-blue-600};
+  --hive-chart-2: #{ardc.$brand-pink-500};
+  --hive-chart-3: #{ardc.$secondary-yellow-700};
+  --hive-chart-4: #{ardc.$secondary-green-500};
+  --hive-chart-5: #{ardc.$brand-purple-500};
+  --hive-chart-other: #{ardc.$neutral-gray-500};
+}
+
+@media (width >= 1024px) {
+  :root {
+    --hive-gutter: var(--hive-space-6);
+  }
+}

@@ -1,0 +1,42 @@
+@use "mixins" as *;
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+  max-width: 40rem;
+
+  @include up($bp-sm) {
+    flex-direction: row;
+    align-items: end;
+  }
+}
+
+.field {
+  flex: 1;
+}
+
+.hint {
+  margin: var(--hive-space-2) 0 0;
+  color: var(--hive-color-text-muted);
+}
+
+.link {
+  color: inherit;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  max-width: 48rem;
+}
+
+.ids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+}

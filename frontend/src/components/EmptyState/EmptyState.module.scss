@@ -1,0 +1,21 @@
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--hive-space-2);
+  padding: var(--hive-space-8) var(--hive-space-4);
+  text-align: center;
+  color: var(--hive-color-text-muted);
+}
+
+.title {
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-text-heading);
+}
+
+.body {
+  max-width: 40rem;
+}
+
+.action {
+  margin-top: var(--hive-space-2);
+}

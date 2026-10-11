@@ -1,0 +1,25 @@
+.nameLink {
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-link);
+}
+
+.addresses {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--hive-font-mono);
+  font-size: var(--hive-font-size-sm);
+}
+
+.muted {
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}
+
+.statusFilter {
+  min-width: 14rem;
+}
+
+.riskLink {
+  text-decoration: none;
+}

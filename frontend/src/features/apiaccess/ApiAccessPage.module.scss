@@ -1,0 +1,17 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+}
+
+.endpoint {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hive-space-2);
+
+  code {
+    word-break: break-all;
+    font-size: var(--hive-font-size-sm);
+  }
+}

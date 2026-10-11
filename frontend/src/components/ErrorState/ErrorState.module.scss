@@ -1,0 +1,14 @@
+.alert {
+  display: grid;
+  gap: var(--hive-space-2);
+}
+
+.title {
+  font-weight: var(--hive-font-weight-semibold);
+}
+
+.reference {
+  font-size: var(--hive-font-size-xs);
+  font-family: var(--hive-font-mono);
+  color: var(--hive-color-text-muted);
+}

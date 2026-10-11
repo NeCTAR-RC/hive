@@ -1,0 +1,13 @@
+.tooltip {
+  padding: var(--hive-space-1) var(--hive-space-2);
+  background: var(--hive-color-surface);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius-sm);
+  box-shadow: var(--hive-shadow-sm);
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-body);
+}
+
+.tooltipDate {
+  font-weight: var(--hive-font-weight-semibold);
+}

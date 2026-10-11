@@ -1,0 +1,51 @@
+.intro {
+  margin: 0;
+  max-width: 48rem;
+  color: var(--hive-color-text-muted);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  max-width: 56rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--hive-font-size-lg);
+}
+
+.highlight {
+  outline: var(--hive-focus-ring);
+  outline-offset: var(--hive-focus-ring-offset);
+  border-radius: var(--hive-radius-lg);
+}
+
+.muted {
+  margin: 0;
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}
+
+.risks {
+  list-style: none;
+  margin: var(--hive-space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.risk {
+  padding-left: var(--hive-space-3);
+  border-left: var(--hive-space-1) solid var(--hive-color-danger);
+
+  p {
+    margin: 0 0 var(--hive-space-1);
+  }
+}
+
+.riskName {
+  font-weight: var(--hive-font-weight-semibold);
+}

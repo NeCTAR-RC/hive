@@ -1,0 +1,22 @@
+.meter {
+  width: 100%;
+}
+
+.warning [class*="fill"] {
+  background: var(--hive-color-warning-strong);
+}
+
+.danger [class*="fill"] {
+  background: var(--hive-color-danger);
+}
+
+.unlimited {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--hive-space-2);
+  font-size: var(--hive-font-size-sm);
+}
+
+.label {
+  color: var(--hive-color-text-muted);
+}

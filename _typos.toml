@@ -1,0 +1,7 @@
+[files]
+extend-exclude = [
+  "frontend/pnpm-lock.yaml",
+  "frontend/dist/*",
+  "backend/tests/fixtures/*",
+  "cover/*",
+]

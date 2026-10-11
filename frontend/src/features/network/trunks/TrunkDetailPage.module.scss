@@ -1,0 +1,11 @@
+@use "mixins" as *;
+
+.grid {
+  display: grid;
+  gap: var(--hive-space-4);
+  grid-template-columns: 1fr;
+
+  @include up($bp-lg) {
+    grid-template-columns: 1fr 1fr;
+  }
+}

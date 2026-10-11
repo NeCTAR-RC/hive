@@ -1,0 +1,43 @@
+# Python
+*.py[cod]
+__pycache__/
+*.egg-info/
+.eggs/
+build/
+dist/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+cover/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/dist-mock/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/storybook-static/
+frontend/vendor/
+
+# Local state and secrets
+.env
+/test-cred
+/.dev/
+
+# Reference material kept beside the repo, not part of it
+/existing-dashboard-code/
+/horizon-replacement
+/hive-old/
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+frontend/smoke-out/

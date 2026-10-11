@@ -1,0 +1,15 @@
+---
+features:
+  - |
+    The Network dashboard: Networks (with subnets and ports), Routers (with
+    interfaces, gateways and static routes), Floating IPs (allocate,
+    associate, disassociate and release, plus associate and disassociate
+    from an instance), Port Forwardings and Trunks when neutron offers the
+    extensions, and the Network Topology as a list grouped by network.
+    The Nectar rules of the Horizon fork apply: only the project's own
+    networks can take a router interface, only networks tagged as floating
+    are offered as router gateways and floating IP pools, floating IP
+    targets must sit behind a router with such a gateway, new subnets get
+    the deployment's default name servers, and IPv6, HA and distributed
+    routers are not offered. New settings: ``HIVE_SUBNET_DEFAULT_DNS_NAMESERVERS``,
+    ``HIVE_NETWORK_ENABLE_IPV6`` and ``HIVE_NETWORK_FIP_TOPOLOGY_CHECK``.

@@ -1,0 +1,24 @@
+@use "mixins" as *;
+
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hive-space-2);
+  margin-top: var(--hive-space-2);
+}
+
+.muted {
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+}
+
+.grid {
+  display: grid;
+  gap: var(--hive-space-4);
+  grid-template-columns: 1fr;
+
+  @include up($bp-lg) {
+    grid-template-columns: 1fr 1fr;
+  }
+}

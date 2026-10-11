@@ -1,0 +1,12 @@
+---
+features:
+  - |
+    Images can be created from a file on the user's computer as well as
+    from a URL. The file streams through the backend to the image service
+    (``PUT /api/compute/images/{id}/file``), capped by
+    ``HIVE_IMAGE_UPLOAD_MAX_BYTES`` (20 GB by default) with a read timeout
+    of ``HIVE_IMAGE_UPLOAD_TIMEOUT`` seconds.
+  - |
+    The Compute overview shows the past 3 months of daily service unit
+    usage as a line chart with a "View as table" alternative, matching the
+    Horizon overview panel.

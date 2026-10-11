@@ -1,0 +1,8 @@
+.page {
+  display: grid;
+  gap: var(--hive-space-4);
+  justify-items: start;
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: var(--hive-space-16) var(--hive-gutter);
+}

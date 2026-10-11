@@ -1,0 +1,43 @@
+// Breakpoints shared by every Hive module. Phone is the default; `up()` adds
+// behaviour as the viewport grows.
+$bp-sm: 480px;
+$bp-md: 768px;
+$bp-lg: 1024px;
+$bp-xl: 1280px;
+$bp-xxl: 1440px;
+
+@mixin up($bp) {
+  @media (width >= $bp) {
+    @content;
+  }
+}
+
+@mixin down($bp) {
+  @media (width < $bp) {
+    @content;
+  }
+}
+
+@mixin visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@mixin focus-ring {
+  outline: var(--hive-focus-ring);
+  outline-offset: var(--hive-focus-ring-offset);
+}
+
+// A white panel with a rule, the Horizon "panel" users know.
+@mixin panel {
+  background: var(--hive-color-surface);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius);
+}

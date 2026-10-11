@@ -1,0 +1,10 @@
+{
+  "include": ["backend/hive", "backend/tests", "scripts"],
+  "exclude": ["**/__pycache__", ".tox", "frontend"],
+  "extraPaths": ["backend"],
+  "venvPath": ".tox",
+  "venv": "py314",
+  "pythonVersion": "3.14",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none"
+}

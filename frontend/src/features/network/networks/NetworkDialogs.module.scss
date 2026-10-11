@@ -1,0 +1,13 @@
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+  padding-top: var(--hive-space-3);
+  border-top: var(--hive-border-width) solid var(--hive-color-rule);
+}
+
+.subheading {
+  margin: var(--hive-space-2) 0 0;
+  font-size: var(--hive-font-size-base);
+  font-weight: var(--hive-font-weight-semibold);
+}

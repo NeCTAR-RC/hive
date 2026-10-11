@@ -1,0 +1,27 @@
+@use "mixins" as *;
+
+.list {
+  display: grid;
+  gap: var(--hive-space-3);
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  gap: var(--hive-space-1);
+
+  @include up($bp-md) {
+    grid-template-columns: minmax(10rem, 1fr) 2fr;
+    gap: var(--hive-space-4);
+  }
+}
+
+.label {
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}
+
+.value {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

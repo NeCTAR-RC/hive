@@ -1,0 +1,28 @@
+---
+features:
+  - |
+    The Nectar panels are now native pages: Project Members (add and remove
+    the member and tenantmanager roles, resolving accounts through manuka),
+    My Details (edit affiliation and phone numbers, connect or disconnect an
+    ORCID iD through the accounts service), Reset Password (a fresh API
+    password shown once, with the session re-issued), User Details lookup
+    for helpdesk roles, Application Credentials (with the three-month
+    default expiry, one-time secret, openrc and clouds.yaml downloads),
+    Credentials (the project's EC2 key pair and the user's Keystone
+    credentials), Usage Trend (SU by service, by instance and per day with
+    the daily budget guide, plus the per-instance breakdown named through
+    Gnocchi), Allocation Usage (the SU budget burn-down), Security Risks
+    (grouped by resource, linked from the instance list) and Reservations
+    (free windows per flavour, create, extend, delete, calendar export).
+  - |
+    New settings: ``HIVE_ORCID_URL``, ``HIVE_ORCID_LINK_URL`` and
+    ``HIVE_ORCID_UNLINK_URL`` for the ORCID round trip,
+    ``HIVE_PASSWORD_RESET_TOKEN`` (the shared original password Horizon
+    uses) and ``HIVE_PASSWORD_RESET_DELAY``,
+    ``HIVE_APP_CREDENTIAL_EXPIRY_MONTHS`` and ``HIVE_USAGE_DATA_FROM``.
+fixes:
+  - |
+    CloudKitty summaries page through every row instead of stopping at the
+    first thousand, the allocation burn-down no longer counts future-dated
+    rows or divides by zero for a one-day allocation, and a reservation runs
+    to the end of the last day chosen rather than a day past it.

@@ -1,0 +1,96 @@
+@use "@ardc-ui/react/styles/fonts";
+@use "@ardc-ui/react/styles/typography" as ardc;
+@use "./tokens";
+@use "./mixins" as *;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--hive-font-family);
+  color: var(--hive-color-text-body);
+  background: var(--hive-color-page);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+
+  @include ardc.text-style(body-16);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+}
+
+h1 {
+  @include ardc.text-style(h2);
+}
+
+h2 {
+  @include ardc.text-style(h3);
+}
+
+h3 {
+  @include ardc.text-style(h4);
+}
+
+h4 {
+  @include ardc.text-style(h5);
+}
+
+@include down($bp-md) {
+  h1 {
+    @include ardc.text-style(mobile-h2);
+  }
+
+  h2 {
+    @include ardc.text-style(mobile-h3);
+  }
+}
+
+a {
+  color: var(--hive-color-link);
+}
+
+code,
+pre {
+  font-family: var(--hive-font-mono);
+}
+
+img,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+:focus-visible {
+  @include focus-ring;
+}
+
+.visually-hidden {
+  @include visually-hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,20 @@
+---
+features:
+  - |
+    The Compute panels are built in Hive: Overview (quota meters, service
+    units, instances by status, security risks), Instances (list with
+    search, status filter, batch start, shut off, reboot and delete, and the
+    full Horizon row action set), the instance detail page (overview,
+    interfaces, volumes, security groups, console log and action log), the
+    launch wizard with the Nectar rules (availability zone required, classic
+    network first and preselected, community images hidden until searched,
+    SU per hour and the preemptible notice on flavours), Images (community
+    search, URL import, edit, delete), Key Pairs (create, import, delete) and
+    Server Groups.
+  - |
+    Security Groups and their rules are managed in Hive, with the Nectar
+    presets and no default remote CIDR.
+  - |
+    API Access lists the service endpoints, shows the user's credentials and
+    downloads the OpenStack RC file and clouds.yaml from the dashboard
+    (``/api/api-access/openrc`` and ``/api/api-access/clouds.yaml``).

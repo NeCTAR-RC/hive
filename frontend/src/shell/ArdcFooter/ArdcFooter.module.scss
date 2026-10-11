@@ -1,0 +1,91 @@
+@use "mixins" as *;
+
+.footer {
+  margin-top: auto;
+  background: var(--hive-color-gray-900);
+  color: var(--hive-color-white);
+  font-size: var(--hive-font-size-sm);
+
+  a {
+    color: var(--hive-color-white);
+  }
+}
+
+.container {
+  display: grid;
+  gap: var(--hive-space-6);
+  max-width: var(--hive-content-max);
+  margin: 0 auto;
+  padding: var(--hive-space-8) var(--hive-gutter);
+
+  @include up($bp-md) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.brand {
+  display: grid;
+  gap: var(--hive-space-4);
+  align-content: start;
+}
+
+.ncris {
+  width: 10rem;
+}
+
+.ardc {
+  width: 7rem;
+}
+
+.ncrisText {
+  color: var(--hive-color-gray-300);
+}
+
+.heading {
+  font-size: var(--hive-font-size-lg);
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-white);
+  margin-bottom: var(--hive-space-3);
+}
+
+.quick ul,
+.legal {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.quick li {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+  padding: var(--hive-space-1) 0;
+
+  &::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    background: var(--hive-color-brand-purple);
+    flex: none;
+  }
+}
+
+.acknowledgement {
+  grid-column: 1 / -1;
+  color: var(--hive-color-gray-300);
+}
+
+.legalBand {
+  border-top: var(--hive-border-width) solid var(--hive-color-gray-700);
+
+  .container {
+    display: block;
+    padding-block: var(--hive-space-4);
+  }
+}
+
+.legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2) var(--hive-space-6);
+}

@@ -1,0 +1,13 @@
+# Build and test artifacts
+dist
+dist-mock
+coverage
+public/mockServiceWorker.js
+test-results
+playwright-report
+storybook-static
+
+# Generated files
+pnpm-lock.yaml
+pnpm-workspace.yaml
+src/lib/api/schema.d.ts

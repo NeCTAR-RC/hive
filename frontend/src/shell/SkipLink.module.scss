@@ -1,0 +1,21 @@
+@use "mixins" as *;
+
+.skip {
+  @include visually-hidden;
+
+  &:focus {
+    position: fixed;
+    top: var(--hive-space-2);
+    left: var(--hive-space-2);
+    z-index: var(--hive-z-toast);
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: var(--hive-space-2) var(--hive-space-4);
+    clip-path: none;
+    background: var(--hive-color-surface);
+    color: var(--hive-color-link);
+    border-radius: var(--hive-radius);
+    box-shadow: var(--hive-shadow-sm);
+  }
+}
