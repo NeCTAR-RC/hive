@@ -1,0 +1,5 @@
+---
+fixes:
+  - |
+    Opening the project selector now puts the cursor in the project
+    filter, so the user can start typing a project name straight away.

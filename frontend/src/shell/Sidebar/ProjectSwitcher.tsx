@@ -48,6 +48,11 @@ export function ProjectSwitcher({ me }: { me: Me }) {
                 {me.projects.length > SEARCH_THRESHOLD && (
                   <SearchField
                     size="sm"
+                    // The user has just opened this popover, so moving
+                    // focus into it is the expected dialog behaviour; the
+                    // rule guards against focus stolen on page load.
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
                     aria-label="Filter projects"
                     placeholder="Filter projects"
                     value={filter}
