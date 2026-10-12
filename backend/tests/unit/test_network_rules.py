@@ -3,6 +3,9 @@ import pytest
 from hive.errors import BadRequest
 from hive.nectar.networks import (
     NetworkRules,
+    PURPOSE_ANY,
+    PURPOSE_BOOT,
+    PURPOSE_ROUTER,
     port_forwarding_body,
     static_routes,
     subnet_body,
@@ -62,6 +65,92 @@ def rules(**overrides) -> NetworkRules:
     }
     args.update(overrides)
     return NetworkRules(**args)
+
+
+CLASSIC = {"id": "classic", "name": "Classic Provider", "subnets": []}
+ALPHA = {"id": "a", "name": "alpha", "subnets": [{"id": "s-a"}]}
+BRAVO = {"id": "b", "name": "Bravo", "subnets": [{"id": "s-b"}]}
+EMPTY = {"id": "empty", "name": "no subnets", "subnets": []}
+
+
+class TestClassification:
+    """The network sets of Horizon changes 71397 to 71399."""
+
+    def test_shared_tags_depend_on_purpose(self):
+        r = rules()
+        assert r.shared_tags_for(PURPOSE_BOOT) == ["nectar:bootable"]
+        assert r.shared_tags_for(PURPOSE_ROUTER) == []
+        assert r.shared_tags_for(PURPOSE_ANY) == [
+            "nectar:floating",
+            "nectar:bootable",
+        ]
+
+    def test_shared_query_asks_neutron_for_the_tags(self):
+        r = rules()
+        assert r.shared_query_params(PURPOSE_BOOT) == {
+            "shared": "true",
+            "tags-any": "nectar:bootable",
+        }
+        # Routers never get a shared network.
+        assert r.shared_query_params(PURPOSE_ROUTER) is None
+        assert r.floating_query_params() == {
+            "router:external": "true",
+            "tags-any": "nectar:floating",
+        }
+
+    def test_no_bootable_tag_offers_no_shared_network_for_boot(self):
+        r = rules(bootable_tag=None)
+        assert r.configured
+        assert r.shared_query_params(PURPOSE_BOOT) is None
+        assert r.shared_query_params(PURPOSE_ANY) == {
+            "shared": "true",
+            "tags-any": "nectar:floating",
+        }
+
+    def test_without_tags_every_listing_is_upstream(self):
+        r = rules(bootable_tag=None, floating_tag=None)
+        assert not r.configured
+        for purpose in (PURPOSE_BOOT, PURPOSE_ROUTER, PURPOSE_ANY):
+            assert r.shared_tags_for(purpose) is None
+            assert r.shared_query_params(purpose) == {"shared": "true"}
+        assert r.floating_query_params() == {"router:external": "true"}
+
+    def test_classic_leads_except_for_routers(self):
+        r = rules()
+        assert r.offers_classic(PURPOSE_BOOT)
+        assert r.offers_classic(PURPOSE_ANY)
+        assert not r.offers_classic(PURPOSE_ROUTER)
+        assert r.is_classic("classic")
+        assert not r.is_classic("a")
+        unset = rules(classic_network_id="")
+        assert not unset.offers_classic(PURPOSE_BOOT)
+        assert not unset.is_classic("classic")
+
+    def test_order_is_classic_shared_project_external_once_each(self):
+        ordered = rules().order(
+            [CLASSIC], [BRAVO, CLASSIC], [ALPHA, BRAVO], [EMPTY]
+        )
+        assert [n["id"] for n in ordered] == ["classic", "b", "a", "empty"]
+
+    def test_launch_candidates_keep_only_the_classic_subnetless_network(
+        self,
+    ):
+        candidates = rules().launch_candidates([BRAVO, CLASSIC, ALPHA, EMPTY])
+        assert [n["id"] for n in candidates] == ["classic", "a", "b"]
+        # Without a classic network every subnet-less network is dropped.
+        plain = rules(classic_network_id="").launch_candidates(
+            [BRAVO, CLASSIC, ALPHA, EMPTY]
+        )
+        assert [n["id"] for n in plain] == ["a", "b"]
+
+    def test_attachable_ports_are_free_and_on_bootable_networks(self):
+        ports = [
+            {"id": "free", "device_owner": "", "network_id": "a"},
+            {"id": "bound", "device_owner": "compute:nova", "network_id": "a"},
+            {"id": "elsewhere", "device_owner": "", "network_id": "float"},
+        ]
+        usable = rules().attachable_ports(ports, {"a", "classic"})
+        assert [p["id"] for p in usable] == ["free"]
 
 
 class TestFloatingTargets:

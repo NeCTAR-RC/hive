@@ -5,7 +5,9 @@ Ported from the Horizon fork, ``openstack_dashboard/api/neutron.py``
 ``_query_classic_net``, ``network_list_for_tenant`` ordering,
 ``subnet_list_for_tenant``) and
 ``dashboards/project/instances/utils.py`` (launch candidates and
-attachable ports). Which networks a user is offered depends on what they
+attachable ports), as proposed in Gerrit changes 71397, 71398 and 71399
+on nectar/2025.1 (still in review in October 2026; follow them if the
+rules change). Which networks a user is offered depends on what they
 are about to do with them; operators classify networks with tags:
 
 * the floating tag marks external networks usable for floating IPs and

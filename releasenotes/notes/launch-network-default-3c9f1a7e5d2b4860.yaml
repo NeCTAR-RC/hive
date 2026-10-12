@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    The launch wizard preselects the classic network when it is offered
+    and otherwise only a network that is the sole choice, as the Horizon
+    launch dialog does. It used to tick the first of several networks.

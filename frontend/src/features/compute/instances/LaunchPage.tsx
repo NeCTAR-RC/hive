@@ -1,7 +1,8 @@
 // The launch wizard. One react-hook-form across seven steps, each validated
 // on Next; the Nectar rules (AZ required, classic network first and
-// preselected, community images hidden until searched, SU per hour and the
-// preemptible notice on flavours) come from the backend's launch options.
+// preselected, otherwise only a sole network, community images hidden until
+// searched, SU per hour and the preemptible notice on flavours) come from
+// the backend's launch options.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
@@ -66,6 +67,7 @@ import {
   CreateKeyPairDialog,
   ImportKeyPairDialog,
 } from "../keypairs/KeyPairDialogs";
+import { defaultNetworkIds } from "./launch";
 import styles from "./LaunchPage.module.scss";
 
 const schema = z
@@ -201,7 +203,6 @@ export function LaunchPage() {
     if (!data || applied.current) return;
     applied.current = true;
     const source = parseSource(search.source);
-    const classic = data.networks?.find((n) => n.is_classic);
     const keyPairs = data.key_pairs ?? [];
     form.reset({
       ...form.getValues(),
@@ -211,11 +212,7 @@ export function LaunchPage() {
         search.flavor && data.flavors?.some((f) => f.id === search.flavor)
           ? search.flavor
           : "",
-      networks: classic
-        ? [classic.id]
-        : data.networks?.[0]
-          ? [data.networks[0].id]
-          : [],
+      networks: defaultNetworkIds(data.networks),
       security_groups: data.security_groups?.some((g) => g.name === "default")
         ? ["default"]
         : [],
