@@ -41,7 +41,14 @@ in `../existing-dashboard-code/` (git-ignored).
 ## Dev loop
 
 ```
-make env && make dev            # redis + API :8000 + Vite :5173
-python scripts/dev-login.py     # log the browser in the way manuka does
+make env && make start          # redis + API :8000 + Vite :5173, in the background
+make login                      # one-shot login URL (consumed on first use)
+make restart                    # after backend edits (reload misses them here)
+make status | make stop         # logs and pids live in .dev/
 node frontend/scripts/live-smoke.mjs <one-shot url>   # browser smoke + axe
 ```
+
+`scripts/dev-stack.sh` is behind those targets; `make dev` is the
+foreground variant. Never write the literal patterns `dev-login.py`,
+`hive-web --host` or `vite` in a shell command that runs the script: its
+pkill fallbacks would match that shell.

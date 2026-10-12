@@ -37,4 +37,9 @@ env:
 dev:
 	./scripts/dev.sh
 
-.PHONY: build push env dev
+# The same stack as background services: start, restart (API + Vite only,
+# sessions survive), stop (redis too), status, and a one-shot login URL.
+start restart stop status login:
+	./scripts/dev-stack.sh $@
+
+.PHONY: build push env dev start restart stop status login

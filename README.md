@@ -34,14 +34,23 @@ browser (SPA) --same origin--> FastAPI (/api, /auth, static SPA)
 
 ```
 make env                    # .env from ./test-cred (git-ignored)
-make dev                    # redis + API (:8000, reload) + Vite (:5173)
-python scripts/dev-login.py # log the browser in the way manuka does
+make start                  # redis + API (:8000, reload) + Vite (:5173), in the background
+make login                  # print a one-shot login URL; open it once in a browser
+make restart                # restart the API and Vite after backend edits (session survives)
+make status                 # what is running, and where the logs are (.dev/)
+make stop                   # stop everything, redis included
 ```
 
-`scripts/dev-login.py` gets an unscoped token with the credentials in
-`test-cred` and serves manuka's auto-submitting form once on
+Those targets call `scripts/dev-stack.sh`, which also has `logs`. `make dev`
+runs the same stack in the foreground instead. `uvicorn --reload` can miss
+backend edits on machines at the inotify watch limit; `make restart` is the
+fix.
+
+`make login` runs `scripts/dev-login.py`: it gets an unscoped token with the
+credentials in `test-cred` and serves manuka's auto-submitting form once on
 `127.0.0.1:8765`, so the real cross-site POST and cookie path is exercised
-without a manuka whitelist entry.
+without a manuka whitelist entry. The URL is consumed on first use and
+lands you in the account's first project; switch projects from the header.
 
 ```
 tox                 # unit tests and lint (py314, pep8)
