@@ -151,5 +151,8 @@ export function eligibility(
 
 export const RESERVATIONS_HELP =
   "https://support.ehelp.edu.au/support/solutions/articles/6000258960";
+/** The feedback form linked from every reservation page (_feedback.html). */
+export const FEEDBACK_FORM =
+  "https://docs.google.com/forms/d/e/1FAIpQLSddgKesBdril36Xk-VkVF4ejazbUM5i82DelJDQbNCt1d9IWg/viewform";
 export const LAUNCH_HELP =
   "https://support.ehelp.edu.au/support/solutions/articles/6000259638";

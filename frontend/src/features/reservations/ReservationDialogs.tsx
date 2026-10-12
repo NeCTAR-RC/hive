@@ -1,11 +1,14 @@
-// The reserve dialog (the slot picker's modal in nectar_reservations.js)
-// and the extend dialog (_extend.html).
+// The "Reserve time slot" modal (create.html:126-187 with the eligibility
+// panel of nectar_reservations.js:581-710) and the extend dialog
+// (_extend.html).
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { parseDate, type CalendarDate } from "@internationalized/date";
 import {
   Alert,
+  Check,
+  Close,
   DatePicker,
   DateRangePicker,
   FieldError,
@@ -14,12 +17,8 @@ import {
 } from "@ardc-ui/react";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type {
-  FreeSlot,
-  Reservation,
-  ReservationFlavor,
-  ReservationOptions,
-} from "../../lib/api/types";
+import { StackedMeter } from "../../components/StackedMeter/StackedMeter";
+import type { Reservation, ReservationOptions } from "../../lib/api/types";
 import { formatCalendarDate, formatNumber } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import {
@@ -27,14 +26,15 @@ import {
   useCreateReservation,
   useExtendReservation,
 } from "./api";
+import type { PickedSlot } from "./SlotGantt";
 import {
   daysBetween,
   eligibility,
+  flavorDisk,
   flavorRate,
-  slotFirstDay,
-  slotLastDay,
+  flavorSize,
 } from "./status";
-import styles from "./ReservationsPage.module.scss";
+import styles from "./CreateReservationPage.module.scss";
 
 type Range = { start: CalendarDate; end: CalendarDate } | null;
 
@@ -49,24 +49,22 @@ function safeDate(value: string | null | undefined): CalendarDate | null {
 
 export function ReserveDialog({
   projectId,
-  flavor,
-  slot,
+  picked,
   options,
   onClose,
 }: {
   projectId: string;
-  flavor: ReservationFlavor;
-  slot: FreeSlot;
+  picked: PickedSlot;
   options: ReservationOptions;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
   const create = useCreateReservation(projectId);
-  const first = slotFirstDay(slot.start, options.today);
-  const last = slotLastDay(slot.end) ?? first;
+  const { flavor, bar, selection } = picked;
   const [range, setRange] = useState<Range>(() => {
-    const start = safeDate(first);
-    return start ? { start, end: start } : null;
+    const start = safeDate(selection.start);
+    const end = safeDate(selection.end);
+    return start && end ? { start, end } : null;
   });
   const days = range
     ? daysBetween(range.start.toString(), range.end.toString())
@@ -78,6 +76,13 @@ export function ReserveDialog({
     options.su_used,
     options.su_budget,
   );
+  const limits = options.limits;
+  const budget =
+    options.su_budget !== null && options.su_budget > 0
+      ? options.su_budget
+      : null;
+  const showSu = flavor.rate !== null && flavor.rate > 0 && budget !== null;
+  const suTotal = (options.su_used ?? 0) + (check.suEstimate ?? 0);
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!range || !check.eligible || !flavor.id) return;
@@ -99,62 +104,148 @@ export function ReserveDialog({
       },
     );
   };
-  const minValue = safeDate(first);
-  const maxValue = safeDate(last);
+  const minValue = safeDate(bar.first);
+  const maxValue = safeDate(bar.last);
   return (
     <FormDialog
       isOpen
       onOpenChange={(open) => !open && onClose()}
-      title={`Reserve ${flavor.name ?? "flavour"}`}
+      title="Reserve time slot"
+      size="lg"
       submitLabel="Reserve"
       onSubmit={submit}
       isPending={create.isPending}
+      isSubmitDisabled={days <= 0 || !check.eligible}
       error={create.error}
     >
-      <p>
-        Available from {formatCalendarDate(first)} to {formatCalendarDate(last)}
-        . Reservations run from the start of the first day to the end of the
-        last day (UTC); one starting today begins in a few minutes.
-      </p>
-      <DateRangePicker
-        value={range}
-        onChange={setRange}
-        isRequired
-        isInvalid={days > 0 && !check.eligible}
-        {...(minValue ? { minValue } : {})}
-        {...(maxValue ? { maxValue } : {})}
-      >
-        <Label>Reservation dates</Label>
-        <Text slot="description">
-          Up to {check.maxDays} {check.maxDays === 1 ? "day" : "days"} for this
-          flavour with your project&apos;s remaining limit.
-        </Text>
-        <FieldError>{check.reasons[0]}</FieldError>
-      </DateRangePicker>
-      <div className={styles.summary} aria-live="polite">
-        <p className={styles.estimate}>
-          <strong>{days}</strong> {days === 1 ? "day" : "days"} selected
+      <div className={styles.reserveHead}>
+        <h3 className={styles.reserveFlavor}>{flavor.name ?? flavor.id}</h3>
+        <dl className={styles.reserveDetails}>
+          <div>
+            <dt>Class</dt>
+            <dd>{flavor.category ?? "-"}</dd>
+          </div>
+          <div>
+            <dt>Description</dt>
+            <dd>{flavor.description || "-"}</dd>
+          </div>
+          <div>
+            <dt>Availability zone</dt>
+            <dd>{flavor.availability_zone ?? "-"}</dd>
+          </div>
+          <div>
+            <dt>Size</dt>
+            <dd>{flavorSize(flavor) || "-"}</dd>
+          </div>
+          <div>
+            <dt>Disk</dt>
+            <dd>{flavorDisk(flavor) || "-"}</dd>
+          </div>
+          <div>
+            <dt>Max duration</dt>
+            <dd>
+              {flavor.max_days} {flavor.max_days === 1 ? "day" : "days"}
+            </dd>
+          </div>
+          <div>
+            <dt>Usage rate</dt>
+            <dd>{flavorRate(flavor)}</dd>
+          </div>
+        </dl>
+      </div>
+      <div className={styles.reserveColumns}>
+        <div>
+          <h4 className={styles.reserveHeading}>Confirm dates</h4>
+          <p>How long do you want to reserve?</p>
+          <DateRangePicker
+            value={range}
+            onChange={setRange}
+            isRequired
+            isInvalid={days > 0 && !check.eligible}
+            {...(minValue ? { minValue } : {})}
+            {...(maxValue ? { maxValue } : {})}
+          >
+            <Label>Reservation dates</Label>
+            <Text slot="description">
+              Free {formatCalendarDate(bar.first)} to{" "}
+              {formatCalendarDate(bar.last)}; up to {check.maxDays}{" "}
+              {check.maxDays === 1 ? "day" : "days"} for this flavour with your
+              project&apos;s remaining limit.
+            </Text>
+            <FieldError>{check.reasons[0]}</FieldError>
+          </DateRangePicker>
+          <p className={styles.reserveDays}>
+            {days} {days === 1 ? "day" : "days"} selected
+          </p>
           {check.suEstimate !== null && (
-            <>
-              , about <strong>{formatNumber(check.suEstimate)} SU</strong> at{" "}
-              {flavorRate(flavor)}
-            </>
+            <p className={styles.reserveSu}>
+              {formatNumber(check.suEstimate)} Service Units
+            </p>
           )}
-          .
-        </p>
-        {days > 0 && check.eligible && (
-          <Alert tone="success" role="status">
-            Eligible.
-            {options.su_budget !== null && options.su_budget > 0
-              ? " This estimate does not include SU used between now and the start date."
-              : ""}
+          <Alert tone="info">
+            Reservations created with today&apos;s date as the start date will
+            begin in a few minutes from now. All future reservations will begin
+            at 00:00 UTC and end at 23:59 UTC.
           </Alert>
-        )}
-        {days > 0 && !check.eligible && (
-          <Alert tone="danger" role="status">
-            Not eligible: {check.reasons.join(" ")}
-          </Alert>
-        )}
+        </div>
+        <div className={styles.eligibility}>
+          <h4 className={styles.reserveHeading}>Eligibility status</h4>
+          <p>Based on your current usage and project allocation limits.</p>
+          <div className={styles.figure}>
+            <p className={styles.figureValue}>
+              {limits.days_used + days} /{" "}
+              {limits.max_days === null ? "No limit" : limits.max_days}
+            </p>
+            <p className={styles.figureLabel}>Total days / Max days</p>
+            {limits.max_days !== null && (
+              <StackedMeter
+                label="Total days / Max days"
+                used={limits.days_used}
+                pending={days}
+                max={limits.max_days}
+                valueText={`${limits.days_used + days} of ${limits.max_days} days`}
+              />
+            )}
+          </div>
+          {showSu && budget !== null && (
+            <div className={styles.figure}>
+              <p className={styles.figureValue}>
+                {formatNumber(Math.round(suTotal))} / {formatNumber(budget)}
+              </p>
+              <p className={styles.figureLabel}>SU total / SU budget</p>
+              <StackedMeter
+                label="SU total / SU budget"
+                used={options.su_used ?? 0}
+                pending={check.suEstimate ?? 0}
+                max={budget}
+                valueText={`${formatNumber(Math.round(suTotal))} of ${formatNumber(budget)} service units`}
+              />
+            </div>
+          )}
+          <div className={styles.verdict} role="status" aria-live="polite">
+            {days > 0 && check.eligible && (
+              <>
+                <p className={styles.eligible}>
+                  <Check aria-hidden="true" /> Eligible
+                </p>
+                {budget !== null && (
+                  <p>
+                    <strong>Note:</strong> this calculation does not take into
+                    account SU usage between now and the reservation start date.
+                  </p>
+                )}
+              </>
+            )}
+            {days > 0 && !check.eligible && (
+              <>
+                <p className={styles.notEligible}>
+                  <Close aria-hidden="true" /> Not eligible
+                </p>
+                <p>{check.reasons.join(" ")}</p>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </FormDialog>
   );

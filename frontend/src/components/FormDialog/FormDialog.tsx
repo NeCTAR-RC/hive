@@ -13,6 +13,9 @@ export interface FormDialogProps {
   submitTone?: "danger";
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   isPending?: boolean;
+  /** Keeps the submit button disabled, for a form the dialog itself can
+   * tell is not valid yet (the reason belongs in the form body). */
+  isSubmitDisabled?: boolean;
   error?: unknown;
   children: ReactNode;
 }
@@ -30,6 +33,7 @@ export function FormDialog({
   submitTone,
   onSubmit,
   isPending = false,
+  isSubmitDisabled = false,
   error,
   children,
 }: FormDialogProps) {
@@ -61,6 +65,7 @@ export function FormDialog({
               <Button
                 type="submit"
                 form={formId}
+                isDisabled={isSubmitDisabled}
                 {...(submitTone ? { tone: submitTone } : {})}
               >
                 {submitLabel}

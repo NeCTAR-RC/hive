@@ -1,0 +1,256 @@
+@use "mixins" as *;
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-3);
+}
+
+.scroller {
+  position: relative;
+  // The sticky headers and labels layer inside the chart only, never over
+  // a dialog or the dashboard bar.
+  isolation: isolate;
+  max-height: 32rem;
+  overflow: auto;
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius-sm);
+  background: var(--hive-color-surface);
+}
+
+.grid {
+  --gantt-label: 12.5rem;
+  --gantt-day: 1.25rem;
+  --gantt-month-height: 1.5rem;
+
+  display: grid;
+  min-width: max-content;
+  font-size: var(--hive-font-size-xs);
+
+  @include down($bp-md) {
+    --gantt-label: 9.5rem;
+  }
+}
+
+// Layers inside the chart: bars 1-2, row labels 3, headers 4, corner 5.
+.corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  background: var(--hive-color-surface);
+  border-right: var(--hive-border-width) solid var(--hive-color-rule);
+}
+
+.month {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  grid-row: 1;
+  height: var(--gantt-month-height);
+  overflow: hidden;
+  padding: 0 var(--hive-space-2);
+  line-height: var(--gantt-month-height);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--hive-color-gray-900);
+  background: var(--hive-color-gray-100);
+
+  &:nth-child(odd) {
+    background: var(--hive-color-gray-300);
+  }
+}
+
+.day {
+  position: sticky;
+  top: var(--gantt-month-height);
+  z-index: 4;
+  padding: var(--hive-space-1) 0;
+  text-align: center;
+  color: var(--hive-color-white);
+  background: var(--hive-color-gray-900);
+  border-right: var(--hive-border-width) solid var(--hive-color-gray-700);
+}
+
+.day.today {
+  background: var(--hive-color-brand-purple);
+}
+
+.row {
+  display: contents;
+}
+
+.label {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  grid-column: 1;
+  padding: var(--hive-space-2);
+  background: var(--hive-color-info-tint);
+  border-right: var(--hive-border-width) solid var(--hive-color-rule);
+  border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--hive-font-size-sm);
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-text-body);
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &[aria-expanded="true"] .chevron {
+    transform: rotate(180deg);
+  }
+}
+
+.chevron {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  transition: transform var(--hive-transition-fast);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--hive-space-1) var(--hive-space-2);
+  margin: var(--hive-space-2) 0 0;
+
+  dt {
+    font-weight: var(--hive-font-weight-semibold);
+    color: var(--hive-color-text-body);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.track {
+  position: relative;
+  display: grid;
+  grid-column: 2 / -1;
+  align-items: center;
+  min-height: 2.5rem;
+  border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
+
+  > * {
+    grid-row: 1;
+  }
+}
+
+.trackAlt {
+  background: var(--hive-color-gray-50);
+}
+
+.todayColumn {
+  align-self: stretch;
+  background: var(--hive-color-purple-50);
+}
+
+.bar {
+  position: relative;
+  z-index: 1;
+  height: 1.25rem;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--hive-radius-sm);
+}
+
+.free {
+  background: var(--hive-chart-4);
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.maintenance {
+  z-index: 2;
+  height: 0.75rem;
+  background: var(--hive-color-orange);
+  cursor: not-allowed;
+}
+
+.shade {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--hive-color-white);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: var(--hive-z-toast);
+  max-width: 18rem;
+  padding: var(--hive-space-2) var(--hive-space-3);
+  border-radius: var(--hive-radius-sm);
+  background: var(--hive-color-gray-900);
+  color: var(--hive-color-white);
+  font-size: var(--hive-font-size-xs);
+  pointer-events: none;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2) var(--hive-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--hive-space-2);
+  }
+}
+
+// Plain blocks, not the bar classes: a flex item honours z-index even when
+// static, and the bars' layers would then compete with dialogs.
+.swatch {
+  display: inline-block;
+  width: 1rem;
+  height: 0.75rem;
+  border-radius: var(--hive-radius-sm);
+}
+
+.swatchFree {
+  background: var(--hive-chart-4);
+}
+
+.swatchMaintenance {
+  background: var(--hive-color-orange);
+}
+
+.swatchToday {
+  background: var(--hive-color-brand-purple);
+}

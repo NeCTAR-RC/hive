@@ -187,16 +187,43 @@ test.describe("reservations", () => {
     await expectNoHorizontalScroll(page);
   });
 
-  test("creates a reservation from a free window", async ({ page }) => {
+  test("creates a reservation from the availability chart", async ({
+    page,
+  }) => {
     await page.goto("/reservations/new");
+    await expect(page.getByText("Used 2 of 20")).toBeVisible();
+    await expect(page.getByText(/1,234.5\/5,000 Service Units/)).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "ardc.g3.xlarge", level: 2 }),
+      page.getByRole("img", { name: /^Maintenance .*Firmware updates/ }),
     ).toBeVisible();
-    await expect(page.getByText("Firmware updates")).toBeVisible();
+    await expect(
+      page.getByRole("group", { name: "ardc.h4.large" }),
+    ).toBeVisible();
+
+    // The class filter narrows the chart and lands in the URL.
+    await page.getByRole("radio", { name: "GPU" }).click();
+    await expect(page).toHaveURL(/category=GPU/);
+    await expect(
+      page.getByRole("group", { name: "ardc.h4.large" }),
+    ).toBeHidden();
+
+    // Flavour details fold out of the row header.
+    await page
+      .getByRole("button", { name: "ardc.g3.xlarge", exact: true })
+      .click();
+    await expect(page.getByText("L4 with 24GB of GPU RAM")).toBeVisible();
+    await expectNoSeriousA11yIssues(page);
+    await expectNoHorizontalScroll(page);
+
+    // Clicking the middle of the bar starts there, for the eligible days.
     await page.getByRole("button", { name: /^Reserve ardc.g3.xlarge/ }).click();
-    const dialog = page.getByRole("dialog", { name: "Reserve ardc.g3.xlarge" });
-    await expect(dialog.getByText(/1 day selected/)).toBeVisible();
-    await expect(dialog.getByText("Eligible.")).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Reserve time slot" });
+    await expect(
+      dialog.getByRole("heading", { name: "ardc.g3.xlarge" }),
+    ).toBeVisible();
+    await expect(dialog.getByText("7 days selected")).toBeVisible();
+    await expect(dialog.getByText("9 / 20")).toBeVisible();
+    await expect(dialog.getByText("Eligible", { exact: true })).toBeVisible();
     await expectNoSeriousA11yIssues(page);
     await dialog.getByRole("button", { name: "Reserve", exact: true }).click();
     await expect(page).toHaveURL(/\/reservations\/res-2$/);

@@ -1,0 +1,26 @@
+.track {
+  display: flex;
+  width: 100%;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: var(--hive-radius-sm);
+  background: var(--hive-color-gray-100);
+}
+
+.used {
+  display: block;
+  height: 100%;
+  background: var(--hive-color-warning-strong);
+  transition: width var(--hive-transition-fast);
+}
+
+.pending {
+  display: block;
+  height: 100%;
+  background: var(--hive-color-success-strong);
+  transition: width var(--hive-transition-fast);
+}
+
+.over .pending {
+  background: var(--hive-color-danger);
+}

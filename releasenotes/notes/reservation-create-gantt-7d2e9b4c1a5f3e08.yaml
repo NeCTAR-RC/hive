@@ -1,0 +1,12 @@
+---
+features:
+  - |
+    The create reservation page now matches the Horizon reservation panel:
+    the flavour class notes, project limits and service unit usage on top,
+    then an availability chart with one row per flavour over the next three
+    months, free slots as bars you click on the day you want to start,
+    maintenance windows marked, and class and availability zone filters.
+    Choosing a slot opens the "Reserve time slot" dialog with the flavour
+    details, the date range, the day and service unit totals and an
+    eligibility panel showing the days and service units against the
+    project's limits.

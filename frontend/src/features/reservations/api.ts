@@ -55,6 +55,8 @@ export function reservationOptionsQuery(projectId: string) {
 export type SlotParams = {
   category?: string;
   availability_zone?: string;
+  /** The last day to look for free slots, "YYYY-MM-DD". */
+  end?: string;
 };
 
 export function slotsQuery(projectId: string, params: SlotParams) {

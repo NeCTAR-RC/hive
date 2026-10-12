@@ -1,33 +1,72 @@
-// Create a reservation: the free slots per flavour (Horizon's Gantt) as an
-// accessible list of windows, filtered by class and availability zone.
-import { useMemo, useState } from "react";
+// Create a reservation, laid out as warre-dashboard's create.html: the
+// flavour class notes and limits on top, then the availability chart with
+// its class and zone filters, and the feedback block at the foot.
+import { useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Alert, Button, Label, Select, SelectItem } from "@ardc-ui/react";
+import {
+  Alert,
+  Badge,
+  Label,
+  Link,
+  Select,
+  SelectItem,
+  TabItem,
+  Tabs,
+  ToggleButtonGroup,
+  ToggleButtonGroupItem,
+} from "@ardc-ui/react";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { Panel } from "../../components/Panel/Panel";
+import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type {
-  FreeSlot,
-  MaintenanceWindow,
-  ReservationFlavor,
+  ReservationLimits,
+  ReservationOptions,
 } from "../../lib/api/types";
-import { formatCalendarDate } from "../../lib/format";
+import { formatNumber } from "../../lib/format";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { createReservationRoute } from "../../app/router";
 import { reservationOptionsQuery, slotsQuery } from "./api";
+import { buildRows, ganttRange } from "./gantt";
 import { ReserveDialog } from "./ReservationDialogs";
-import {
-  flavorDisk,
-  flavorRate,
-  flavorSize,
-  slotFirstDay,
-  slotLastDay,
-} from "./status";
-import styles from "./ReservationsPage.module.scss";
+import { SlotGantt, type PickedSlot } from "./SlotGantt";
+import { FEEDBACK_FORM } from "./status";
+import styles from "./CreateReservationPage.module.scss";
 
 const ALL = "__all";
+
+/** The flavour class notes from create.html:36-55. */
+const FLAVOR_CLASSES = [
+  {
+    id: "g1",
+    title: "G1",
+    heading: "G1 - Visualisation GPU",
+    text: "G1 instances come with Nvidia A40s which brings state-of-the-art features for ray-traced rendering, simulation and virtual production.",
+  },
+  {
+    id: "g2",
+    title: "G2",
+    heading: "G2 - Compute GPU",
+    text: "G2 instances come with the latest generation Nvidia A100 GPUs and provide the highest performance for machine learning training and high performance computing in the cloud.",
+  },
+  {
+    id: "h4",
+    title: "H4",
+    heading: "H4 - Large RAM",
+    text: "H4 instances come with RAM starting from h4.xsmall with 180G to the h4.xxlarge with 1920G.",
+  },
+];
+
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 export function CreateReservationPage() {
   const projectId = useProjectId();
@@ -36,16 +75,18 @@ export function CreateReservationPage() {
   const options = useQuery(reservationOptionsQuery(projectId));
   const category = search.category ?? "";
   const zone = search.zone ?? "";
-  const slots = useQuery(
-    slotsQuery(projectId, {
+  const today = options.data?.today;
+  const range = useMemo(() => (today ? ganttRange(today) : null), [today]);
+  const slots = useQuery({
+    ...slotsQuery(projectId, {
       ...(category ? { category } : {}),
       ...(zone ? { availability_zone: zone } : {}),
+      ...(range ? { end: range.last } : {}),
     }),
-  );
-  const [reserving, setReserving] = useState<{
-    flavor: ReservationFlavor;
-    slot: FreeSlot;
-  } | null>(null);
+    enabled: range !== null,
+  });
+  const [picked, setPicked] = useState<PickedSlot | null>(null);
+  const classLabelId = useId();
 
   const setFilter = (patch: { category?: string; zone?: string }) =>
     void navigate({
@@ -58,20 +99,18 @@ export function CreateReservationPage() {
       replace: true,
     });
 
-  const byFlavor = useMemo(() => {
-    const groups = new Map<string, FreeSlot[]>();
-    for (const slot of slots.data?.slots ?? []) {
-      const list = groups.get(slot.flavor_id) ?? [];
-      list.push(slot);
-      groups.set(slot.flavor_id, list);
-    }
-    return groups;
-  }, [slots.data]);
+  const rows = useMemo(() => {
+    if (!range || !slots.data) return [];
+    return buildRows(
+      slots.data.flavors,
+      slots.data.slots,
+      options.data?.maintenance_windows ?? [],
+      range,
+    ).filter((row) => row.bars.some((bar) => bar.kind === "free"));
+  }, [range, slots.data, options.data]);
 
-  const canCreate = options.data?.limits.can_create ?? true;
-  const flavors = (slots.data?.flavors ?? []).filter(
-    (flavor) => flavor.id && byFlavor.has(flavor.id),
-  );
+  const limits = options.data?.limits;
+  const canCreate = limits?.can_create ?? true;
 
   return (
     <>
@@ -82,160 +121,204 @@ export function CreateReservationPage() {
           { label: "Compute" },
           { label: "Reservations", href: "/reservations" },
         ]}
-      >
-        <p className={styles.intro}>
-          Choose a flavour and one of its free windows, then pick the days. Each
-          window shows the earliest and latest day you can reserve.
-        </p>
-      </PageHeader>
+        actions={
+          <Link variant="secondary" size="sm" href="/reservations">
+            Back
+          </Link>
+        }
+      />
       <div className={styles.stack}>
-        {options.isError ? (
-          <ErrorState error={options.error} onRetry={() => options.refetch()} />
-        ) : options.data && !canCreate ? (
-          <Alert tone="danger" role="status">
-            You can&apos;t create a reservation because your project limits have
-            been reached.
-          </Alert>
-        ) : null}
-        <div className={styles.filters}>
-          <Select
-            selectedKey={category || ALL}
-            onSelectionChange={(key) =>
-              setFilter({ category: key === ALL ? "" : String(key) })
-            }
-            className={styles.filter}
-          >
-            <Label>Flavour class</Label>
-            <SelectItem id={ALL}>All classes</SelectItem>
-            {(options.data?.categories ?? []).map((item) => (
-              <SelectItem key={item} id={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </Select>
-          <Select
-            selectedKey={zone || ALL}
-            onSelectionChange={(key) =>
-              setFilter({ zone: key === ALL ? "" : String(key) })
-            }
-            className={styles.filter}
-          >
-            <Label>Availability zone</Label>
-            <SelectItem id={ALL}>All zones</SelectItem>
-            {(options.data?.availability_zones ?? []).map((item) => (
-              <SelectItem key={item} id={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </Select>
-        </div>
-        {slots.isPending || options.isPending ? (
-          <SkeletonLines lines={6} />
-        ) : slots.isError ? (
-          <ErrorState error={slots.error} onRetry={() => slots.refetch()} />
-        ) : flavors.length === 0 ? (
-          <Alert tone="warning" role="status">
-            There are no available time slots for this selection.
-          </Alert>
-        ) : (
-          <div className={styles.flavors}>
-            {flavors.map((flavor) => (
-              <FlavorCard
-                key={flavor.id}
-                flavor={flavor}
-                slots={byFlavor.get(flavor.id ?? "") ?? []}
-                windows={options.data?.maintenance_windows ?? []}
-                today={options.data?.today ?? ""}
-                canReserve={canCreate}
-                onReserve={(slot) => setReserving({ flavor, slot })}
-              />
-            ))}
+        <div className={styles.columns}>
+          <Panel>
+            <p className={styles.lead}>
+              To make a reservation, select an available time slot from the
+              chart below. You can customise the reservation start and end dates
+              within the available time slot. Reservations are specified in days
+              and must be a minimum of 1 day. All flavours have a maximum number
+              of days they can be reserved for, which is shown in the flavour
+              details.
+            </p>
+            <h2 className={styles.subheading}>Available flavour classes</h2>
+            <Tabs aria-label="Flavour classes" collapseBelow={false}>
+              {FLAVOR_CLASSES.map((item) => (
+                <TabItem key={item.id} id={item.id} title={item.title}>
+                  <h3 className={styles.classHeading}>{item.heading}</h3>
+                  <p className={styles.classText}>{item.text}</p>
+                </TabItem>
+              ))}
+            </Tabs>
+            <p className={styles.note}>
+              <Badge>Note</Badge>{" "}
+              <strong>GPU flavours are not available to Auckland users.</strong>
+            </p>
+            <Alert tone="info">
+              Reservation days run in UTC. Your browser&apos;s time zone is{" "}
+              <strong>{browserTimeZone()}</strong>.
+            </Alert>
+          </Panel>
+          <div className={styles.stack}>
+            <Panel title="Reservation limits">
+              {options.isPending ? (
+                <SkeletonLines lines={2} />
+              ) : options.isError ? (
+                <ErrorState
+                  error={options.error}
+                  onRetry={() => options.refetch()}
+                />
+              ) : limits ? (
+                <Limits limits={limits} />
+              ) : null}
+            </Panel>
+            <Panel title="Usage limit">
+              {options.isPending ? (
+                <SkeletonLines lines={1} />
+              ) : options.data ? (
+                <Usage options={options.data} />
+              ) : null}
+            </Panel>
           </div>
-        )}
+        </div>
+        <Panel title="Select flavour availability">
+          <div className={styles.toolbar}>
+            <div className={styles.field}>
+              <span id={classLabelId} className={styles.fieldLabel}>
+                Flavour class
+              </span>
+              <ToggleButtonGroup
+                selectionMode="single"
+                disallowEmptySelection
+                selectedKeys={new Set([category || ALL])}
+                onSelectionChange={(keys) => {
+                  const [key] = keys;
+                  setFilter({
+                    category:
+                      key === undefined || key === ALL ? "" : String(key),
+                  });
+                }}
+                aria-labelledby={classLabelId}
+              >
+                <ToggleButtonGroupItem id={ALL}>All</ToggleButtonGroupItem>
+                {(options.data?.categories ?? []).map((item) => (
+                  <ToggleButtonGroupItem key={item} id={item}>
+                    {item}
+                  </ToggleButtonGroupItem>
+                ))}
+              </ToggleButtonGroup>
+            </div>
+            <Select
+              selectedKey={zone || ALL}
+              onSelectionChange={(key) =>
+                setFilter({ zone: key === ALL ? "" : String(key) })
+              }
+              className={styles.zone}
+            >
+              <Label>Availability zone</Label>
+              <SelectItem id={ALL}>All</SelectItem>
+              {(options.data?.availability_zones ?? []).map((item) => (
+                <SelectItem key={item} id={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </Select>
+          </div>
+          {options.isError ? (
+            <ErrorState
+              error={options.error}
+              onRetry={() => options.refetch()}
+            />
+          ) : options.data && !canCreate ? (
+            <Alert tone="danger" role="status">
+              You can&apos;t create a reservation because your project limits
+              have been reached.
+            </Alert>
+          ) : slots.isPending || !range ? (
+            <SkeletonLines lines={6} />
+          ) : slots.isError ? (
+            <ErrorState error={slots.error} onRetry={() => slots.refetch()} />
+          ) : rows.length === 0 ? (
+            <Alert tone="warning" role="status">
+              There are no available time slots for this selection.
+            </Alert>
+          ) : (
+            <SlotGantt
+              rows={rows}
+              range={range}
+              daysLeft={limits?.days_left ?? null}
+              canReserve={canCreate}
+              onPick={setPicked}
+            />
+          )}
+        </Panel>
+        <section
+          className={styles.feedback}
+          aria-labelledby="reservation-feedback"
+        >
+          <h2 id="reservation-feedback">We&apos;d love your feedback!</h2>
+          <p>
+            Thank you for using the Reservation System. Please let us know about
+            your experience via the online feedback form.
+          </p>
+          <ExternalLink href={FEEDBACK_FORM}>Feedback form</ExternalLink>
+        </section>
       </div>
-      {reserving && options.data && (
+      {picked && options.data && (
         <ReserveDialog
           projectId={projectId}
-          flavor={reserving.flavor}
-          slot={reserving.slot}
+          picked={picked}
           options={options.data}
-          onClose={() => setReserving(null)}
+          onClose={() => setPicked(null)}
         />
       )}
     </>
   );
 }
 
-function FlavorCard({
-  flavor,
-  slots,
-  windows,
-  today,
-  canReserve,
-  onReserve,
-}: {
-  flavor: ReservationFlavor;
-  slots: FreeSlot[];
-  windows: MaintenanceWindow[];
-  today: string;
-  canReserve: boolean;
-  onReserve: (slot: FreeSlot) => void;
-}) {
-  const maintenance = windows.filter(
-    (window) =>
-      window.flavors.length === 0 ||
-      window.flavors.some((f) => f.id === flavor.id),
-  );
+function Limits({ limits }: { limits: ReservationLimits }) {
   return (
-    <Panel title={flavor.name ?? "Flavour"} headingLevel={2}>
-      <dl className={styles.specs}>
-        <dt>Class</dt>
-        <dd>{flavor.category ?? "-"}</dd>
-        <dt>Description</dt>
-        <dd>{flavor.description || "-"}</dd>
-        <dt>Zone</dt>
-        <dd>{flavor.availability_zone ?? "-"}</dd>
-        <dt>Size</dt>
-        <dd>{flavorSize(flavor) || "-"}</dd>
-        <dt>Disk</dt>
-        <dd>{flavorDisk(flavor) || "-"}</dd>
-        <dt>Maximum</dt>
-        <dd>
-          {flavor.max_days} {flavor.max_days === 1 ? "day" : "days"}
-        </dd>
-        <dt>Usage rate</dt>
-        <dd>{flavorRate(flavor)}</dd>
-      </dl>
-      <h3 className="visually-hidden">Free windows for {flavor.name}</h3>
-      <ul className={styles.slots}>
-        {slots.map((slot, index) => {
-          const first = slotFirstDay(slot.start, today);
-          const last = slotLastDay(slot.end) ?? first;
-          const label = `${formatCalendarDate(first)} to ${formatCalendarDate(last)}`;
-          return (
-            <li key={index} className={styles.slot}>
-              <span>{label}</span>
-              {canReserve && last >= first && (
-                <Button
-                  variant="secondary"
-                  size="xs"
-                  onPress={() => onReserve(slot)}
-                  aria-label={`Reserve ${flavor.name ?? "flavour"} from ${label}`}
-                >
-                  Reserve
-                </Button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {maintenance.map((window) => (
-        <p key={window.id ?? window.start ?? ""} className={styles.maintenance}>
-          <strong>Maintenance</strong> {formatCalendarDate(window.start)} to{" "}
-          {formatCalendarDate(window.end)}
-          {window.note ? `: ${window.note}` : ""}
-        </p>
-      ))}
-    </Panel>
+    <div className={styles.limits}>
+      <QuotaMeter
+        label="Days"
+        value={limits.days_used}
+        max={limits.max_days}
+        valueText={
+          limits.max_days === null
+            ? `Used ${limits.days_used} (No limit)`
+            : `Used ${limits.days_used} of ${limits.max_days}`
+        }
+      />
+      <QuotaMeter
+        label="Reservations"
+        value={limits.reservations_used}
+        max={limits.max_reservations}
+        valueText={
+          limits.max_reservations === null
+            ? `Used ${limits.reservations_used} (No limit)`
+            : `Used ${limits.reservations_used} of ${limits.max_reservations}`
+        }
+      />
+    </div>
+  );
+}
+
+function Usage({ options }: { options: ReservationOptions }) {
+  if (options.su_used === null) {
+    return (
+      <p className={styles.usage}>
+        Service unit usage for this project is unavailable right now.
+      </p>
+    );
+  }
+  const budget =
+    options.su_budget === null || options.su_budget < 0
+      ? "Unlimited"
+      : formatNumber(options.su_budget);
+  return (
+    <p className={styles.usage}>
+      You have used{" "}
+      <strong>
+        {formatNumber(options.su_used)}/{budget} Service Units
+      </strong>{" "}
+      in this project allocation period.
+    </p>
   );
 }

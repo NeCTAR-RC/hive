@@ -93,6 +93,26 @@ const FLAVOR: ReservationFlavor = {
   end: null,
 };
 
+const FLAVOR_H4: ReservationFlavor = {
+  id: "f2",
+  name: "ardc.h4.large",
+  description: "Large memory",
+  category: "H4",
+  availability_zone: "ardctest-artm",
+  vcpu: 32,
+  memory_mb: 376832,
+  disk_gb: 30,
+  ephemeral_gb: 0,
+  max_length_hours: 336,
+  max_days: 14,
+  rate: 2,
+  is_public: true,
+  active: true,
+  slots: 1,
+  start: null,
+  end: null,
+};
+
 const LIMITS: ReservationLimits = {
   max_hours: 480,
   hours_used: 48,
@@ -124,8 +144,8 @@ let reservations: Reservation[] = [
 
 const options: ReservationOptions = {
   limits: LIMITS,
-  flavors: [FLAVOR],
-  categories: ["GPU"],
+  flavors: [FLAVOR, FLAVOR_H4],
+  categories: ["GPU", "H4"],
   availability_zones: ["ardctest-artm"],
   maintenance_windows: [
     {
@@ -422,20 +442,30 @@ export const nectarHandlers = [
     HttpResponse.json({ items: reservations, limits: LIMITS }),
   ),
   http.get("/api/reservations/options", () => HttpResponse.json(options)),
-  http.get("/api/reservations/slots", () =>
-    HttpResponse.json({
+  http.get("/api/reservations/slots", ({ request }) => {
+    const category = new URL(request.url).searchParams.get("category");
+    const flavors = [FLAVOR, FLAVOR_H4].filter(
+      (flavor) => !category || flavor.category === category,
+    );
+    const slots = [
+      {
+        flavor_id: "f1",
+        start: `${isoDay(0)}T00:00:00+00:00`,
+        end: `${isoDay(30)}T00:00:00+00:00`,
+      },
+      {
+        flavor_id: "f2",
+        start: `${isoDay(5)}T00:00:00+00:00`,
+        end: `${isoDay(60)}T00:00:00+00:00`,
+      },
+    ].filter((slot) => flavors.some((flavor) => flavor.id === slot.flavor_id));
+    return HttpResponse.json({
       start: isoDay(0),
       end: isoDay(90),
-      flavors: [FLAVOR],
-      slots: [
-        {
-          flavor_id: "f1",
-          start: `${isoDay(0)}T00:00:00+00:00`,
-          end: `${isoDay(30)}T00:00:00+00:00`,
-        },
-      ],
-    }),
-  ),
+      flavors,
+      slots,
+    });
+  }),
   http.post("/api/reservations", async ({ request }) => {
     const body = (await request.json()) as {
       flavor_id: string;
