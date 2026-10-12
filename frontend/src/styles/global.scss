@@ -84,6 +84,15 @@ svg {
   @include visually-hidden;
 }
 
+// The design-system dialog backdrop is position: fixed with no z-index, so
+// the sticky dashboard bar and the drawers would paint above it. Lift it
+// above the drawer layer and keep it under toasts. The selector matches the
+// CSS-module class of @ardc-ui/react's Modal; drop this once the design
+// system sets a z-index of its own.
+[class*="Dialog-module__overlay"] {
+  z-index: var(--hive-z-modal);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    Dialogs now sit above the dashboard bar and the navigation drawers.
+    The design system's dialog backdrop has no stacking order of its own,
+    so the sticky top bar used to stay bright above every dimmed dialog.
