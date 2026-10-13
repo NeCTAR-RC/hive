@@ -1,9 +1,11 @@
 # Hive
 
 React SPA + FastAPI backend-for-frontend replacing the Nectar Horizon
-dashboard. Full design and milestone plan: the approved plan this repo was
-scaffolded from (Oct 2026); reference code for parity lives beside the repo
-in `../existing-dashboard-code/` (git-ignored).
+dashboard; `README.md` covers the architecture. Behaviour must match the
+Nectar Horizon deployment: for parity work, clone the Nectar branches of
+horizon, nectar-dashboard, magnum-ui, octavia-dashboard, varroa-dashboard
+and warre-dashboard into `existing-dashboard-code/` (git-ignored) and read
+the panel being reproduced there.
 
 ## Layout
 

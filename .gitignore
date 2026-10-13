@@ -40,4 +40,4 @@ frontend/vendor/
 !.vscode/extensions.json
 .idea/
 *.swp
-frontend/smoke-out/
+smoke-out/

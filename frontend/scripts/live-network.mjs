@@ -8,6 +8,8 @@
 //
 //   node scripts/live-network.mjs <one-shot login URL> [base] [project name]
 import { chromium } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const [
   loginUrl,
@@ -23,6 +25,9 @@ if (!loginUrl) {
   process.exit(2);
 }
 const NAME = `hive-smoke-${Date.now().toString(36)}`;
+// Screenshots land here (git-ignored by default); override with HIVE_SMOKE_OUT.
+const OUT = process.env.HIVE_SMOKE_OUT ?? "smoke-out";
+mkdirSync(OUT, { recursive: true });
 const CIDR = `10.${200 + (Date.now() % 50)}.0.0/24`;
 const browser = await chromium.launch();
 const context = await browser.newContext({
@@ -256,7 +261,7 @@ try {
 
   await page
     .screenshot({
-      path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m3/live-topology.png",
+      path: join(OUT, "live-topology.png"),
       fullPage: true,
     })
     .catch(() => {});
@@ -276,7 +281,7 @@ try {
   );
   await page
     .screenshot({
-      path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m3/live-topology.png",
+      path: join(OUT, "live-topology.png"),
       fullPage: true,
     })
     .catch(() => {});
@@ -337,7 +342,7 @@ try {
   console.log("FAILED:", String(error).slice(0, 500));
   await page
     .screenshot({
-      path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m3/live-network-failure.png",
+      path: join(OUT, "live-network-failure.png"),
       fullPage: true,
     })
     .catch(() => {});

@@ -2,9 +2,14 @@
 // for it to become ACTIVE, exercise the detail tabs, then delete it.
 //   node live-launch.mjs <one-shot login URL> [base]
 import { chromium } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const [loginUrl, base = "http://localhost:5173"] = process.argv.slice(2);
 const NAME = `hive-smoke-${Date.now().toString(36)}`;
+// Screenshots land here (git-ignored by default); override with HIVE_SMOKE_OUT.
+const OUT = process.env.HIVE_SMOKE_OUT ?? "smoke-out";
+mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 const context = await browser.newContext({
   viewport: { width: 1366, height: 900 },
@@ -131,7 +136,7 @@ console.log(
     .slice(0, 200),
 );
 await page.screenshot({
-  path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m1/live-instance.png",
+  path: join(OUT, "live-instance.png"),
   fullPage: true,
 });
 

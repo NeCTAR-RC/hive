@@ -6,6 +6,8 @@
 //
 //   node scripts/live-volumes.mjs <one-shot login URL> [base] [project name]
 import { chromium } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const [
   loginUrl,
@@ -22,6 +24,9 @@ if (!loginUrl) {
   process.exit(2);
 }
 const NAME = `hive-smoke-${Date.now().toString(36)}`;
+// Screenshots land here (git-ignored by default); override with HIVE_SMOKE_OUT.
+const OUT = process.env.HIVE_SMOKE_OUT ?? "smoke-out";
+mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 const context = await browser.newContext({
   viewport: { width: 1366, height: 900 },
@@ -232,7 +237,7 @@ try {
   }
   if (snapshotId) {
     await page.screenshot({
-      path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m2/live-volume.png",
+      path: join(OUT, "live-volume.png"),
       fullPage: true,
     });
 
@@ -268,7 +273,7 @@ try {
     .getByRole("heading", { name: NAME, level: 1 })
     .waitFor({ timeout: 30_000 });
   await page.screenshot({
-    path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m2/live-volume-detail.png",
+    path: join(OUT, "live-volume-detail.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Actions" }).click();
@@ -295,7 +300,7 @@ try {
   console.log("FAILED:", String(error).slice(0, 500));
   await page
     .screenshot({
-      path: "/tmp/claude-1000/-home-sam-projects-nectar-hive/0e7a60ed-707d-4d4d-8a7a-7b90458a8566/scratchpad/smoke-m2/live-volume-failure.png",
+      path: join(OUT, "live-volume-failure.png"),
       fullPage: true,
     })
     .catch(() => {});
