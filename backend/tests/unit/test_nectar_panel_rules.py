@@ -256,6 +256,42 @@ def test_eligibility():
     )["eligible"]
 
 
+def test_slot_days():
+    def at(day, hour=0, minute=0, second=0):
+        return datetime(2026, 10, day, hour, minute, second, tzinfo=UTC)
+
+    # A slot that is open now runs from today; one that ends at midnight
+    # covers up to the day before.
+    assert reservations.slot_days(at(10), at(20), NOW) == (
+        date(2026, 10, 10),
+        date(2026, 10, 19),
+    )
+    assert reservations.slot_days(at(1), at(20, 23, 59), NOW) == (
+        date(2026, 10, 10),
+        date(2026, 10, 20),
+    )
+    # The stale fragment warre reports from midnight today when the
+    # flavour was booked earlier today: no whole day, so no slot.
+    assert reservations.slot_days(at(10), at(10, 3, 23), NOW) is None
+    # A slot that opens later today or part way through a day counts from
+    # the next day; one that opens at midnight counts from that day.
+    assert reservations.slot_days(at(10, 14), at(20), NOW) == (
+        date(2026, 10, 11),
+        date(2026, 10, 19),
+    )
+    assert reservations.slot_days(at(12, 0, 1), at(20), NOW) == (
+        date(2026, 10, 13),
+        date(2026, 10, 19),
+    )
+    assert reservations.slot_days(at(12), at(20), NOW) == (
+        date(2026, 10, 12),
+        date(2026, 10, 19),
+    )
+    # A one-minute gap between reservations is not a day.
+    assert reservations.slot_days(at(12), at(12), NOW) is None
+    assert reservations.slot_days(at(12, 0, 1), at(13, 0, 59), NOW) is None
+
+
 def test_extend_window():
     limits = reservations.limits_summary(
         {"maxHours": 240, "totalHoursUsed": 48}

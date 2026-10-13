@@ -7,7 +7,7 @@ import type {
   MaintenanceWindow,
   ReservationFlavor,
 } from "../../lib/api/types";
-import { slotFirstDay, slotLastDay } from "./status";
+import { slotLastDay } from "./status";
 
 const DAY_MS = 86_400_000;
 const MONTHS_AHEAD = 3;
@@ -143,7 +143,8 @@ function clip(
 
 /** One row per flavour with its free slots and the maintenance windows that
  * apply to it (a window with no flavours applies to all), as Horizon
- * chains them on the flavour's row (nectar_reservations.js:146-220). */
+ * chains them on the flavour's row (nectar_reservations.js:146-220). A
+ * free slot spans the whole days the backend says it can be reserved for. */
 export function buildRows(
   flavors: ReservationFlavor[],
   slots: FreeSlot[],
@@ -157,9 +158,7 @@ export function buildRows(
     slots
       .filter((slot) => slot.flavor_id === flavor.id)
       .forEach((slot, index) => {
-        const first = slotFirstDay(slot.start, range.today);
-        const last = slotLastDay(slot.end) ?? range.last;
-        const placed = clip(range, first, last);
+        const placed = clip(range, slot.first_day, slot.last_day);
         if (!placed) return;
         bars.push({
           kind: "free",

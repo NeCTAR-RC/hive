@@ -6,7 +6,6 @@ import {
   flavorDisk,
   flavorRate,
   flavorSize,
-  slotFirstDay,
   slotLastDay,
   statusLabel,
   statusTone,
@@ -47,15 +46,10 @@ describe("reservation status helpers", () => {
     expect(flavorRate({ ...flavor, rate: null })).toBe("Free");
   });
 
-  it("turns slot timestamps into whole days", () => {
+  it("turns maintenance window ends into whole days", () => {
     expect(slotLastDay("2026-11-10T00:00:00+00:00")).toBe("2026-11-09");
     expect(slotLastDay("2026-11-10T12:00:00+00:00")).toBe("2026-11-10");
-    expect(slotFirstDay("2026-10-01T00:00:00+00:00", "2026-10-10")).toBe(
-      "2026-10-10",
-    );
-    expect(slotFirstDay("2026-10-20T00:00:00+00:00", "2026-10-10")).toBe(
-      "2026-10-20",
-    );
+    expect(slotLastDay(null)).toBeNull();
     expect(daysBetween("2026-10-12", "2026-10-14")).toBe(3);
   });
 

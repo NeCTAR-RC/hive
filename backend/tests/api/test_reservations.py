@@ -108,9 +108,17 @@ async def test_list_reservations_with_limits(logged_in, upstream):
 
 async def test_reservation_options_and_slots(logged_in, upstream):
     mock_warre(upstream)
+    today = datetime.now(UTC).date()
     slots = upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
         return_value=httpx.Response(
-            200, json=[{"start": future(0), "end": future(30)}]
+            200,
+            json=[
+                # Already over: the fragment warre reports from midnight
+                # when a day is asked for from its start.
+                {"start": future(-1), "end": future(-1, 3, 23)},
+                {"start": future(0), "end": future(30)},
+                {"start": future(40, 10), "end": future(50, 23, 59)},
+            ],
         )
     )
     body = (await logged_in.get("/api/reservations/options")).json()
@@ -125,10 +133,36 @@ async def test_reservation_options_and_slots(logged_in, upstream):
             "/api/reservations/slots", params={"category": "GPU"}
         )
     ).json()
-    assert body["slots"][0]["flavor_id"] == "f1"
     assert body["flavors"][0]["rate"] == 0.899
+    assert [
+        (s["flavor_id"], s["first_day"], s["last_day"]) for s in body["slots"]
+    ] == [
+        (
+            "f1",
+            today.isoformat(),
+            (today + timedelta(days=29)).isoformat(),
+        ),
+        (
+            "f1",
+            (today + timedelta(days=41)).isoformat(),
+            (today + timedelta(days=50)).isoformat(),
+        ),
+    ]
+    # Warre is asked from now, not from midnight today, and up to midnight
+    # after the window's last day.
     sent = slots.calls.last.request.url.params
-    assert sent["start"] == datetime.now(UTC).date().isoformat()
+    assert "start" not in sent
+    assert sent["end"] == (today + timedelta(days=91)).isoformat()
+
+    body = (
+        await logged_in.get(
+            "/api/reservations/slots",
+            params={"start": (today + timedelta(days=5)).isoformat()},
+        )
+    ).json()
+    sent = slots.calls.last.request.url.params
+    assert sent["start"] == (today + timedelta(days=5)).isoformat()
+    assert body["start"] == (today + timedelta(days=5)).isoformat()
 
 
 async def test_create_reservation(logged_in, upstream):

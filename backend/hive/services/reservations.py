@@ -1,7 +1,7 @@
 """Reservations (warre): list, create, extend, delete and export."""
 
 import asyncio
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, time, timedelta, UTC
 
 from hive.clients.nectar import WarreClient
 from hive.errors import BadRequest, Conflict, HiveError
@@ -139,8 +139,17 @@ async def slots(
     start: date | None,
     end: date | None,
 ) -> dict:
-    """Free slots per flavour over the window (Horizon's
-    ``/api/warre/flavor-slots/``, ``api/rest/reservation.py:23-53``)."""
+    """Free slots per flavour over the window of whole days ``start`` to
+    ``end`` inclusive (Horizon's ``/api/warre/flavor-slots/``,
+    ``api/rest/reservation.py:23-53``), each reduced to the days it can be
+    reserved for.
+
+    Warre reads a ``start`` date as midnight on that day and defaults to
+    now (``api/v1/resources/flavor.py:195-208``), so only a future start
+    is sent: asking from midnight today returns slots that have already
+    passed. The end is sent as midnight after the last day so that day is
+    covered in full.
+    """
     warre = _warre(ctx)
     params = {}
     if category:
@@ -148,27 +157,45 @@ async def slots(
     if availability_zone:
         params["availability_zone"] = availability_zone
     flavors = await warre.flavors(**params)
-    today = datetime.now(UTC).date()
+    now = datetime.now(UTC)
+    today = now.date()
     start = start or today
     end = end or start + timedelta(days=SLOT_WINDOW_DAYS)
+    sent_start = start.isoformat() if start > today else None
+    sent_end = (end + timedelta(days=1)).isoformat()
+    window_start = (
+        datetime.combine(start, time.min, UTC) if sent_start else now
+    )
+    window_end = datetime.combine(end + timedelta(days=1), time.min, UTC)
     semaphore = asyncio.Semaphore(FAN_OUT)
 
     async def fetch(flavor: dict) -> list[dict]:
         async with semaphore:
             try:
                 free = await warre.free_slots(
-                    flavor["id"], start.isoformat(), end.isoformat()
+                    flavor["id"], sent_start, sent_end
                 )
             except HiveError:
                 return []
-        return [
-            {
-                "flavor_id": flavor["id"],
-                "start": slot.get("start"),
-                "end": slot.get("end"),
-            }
-            for slot in free
-        ]
+        found = []
+        for slot in free:
+            days = rules.slot_days(
+                rules.parse_when(slot.get("start")) or window_start,
+                rules.parse_when(slot.get("end")) or window_end,
+                now,
+            )
+            if days is None:
+                continue
+            found.append(
+                {
+                    "flavor_id": flavor["id"],
+                    "start": slot.get("start"),
+                    "end": slot.get("end"),
+                    "first_day": days[0].isoformat(),
+                    "last_day": days[1].isoformat(),
+                }
+            )
+        return found
 
     groups = await asyncio.gather(*(fetch(f) for f in flavors if f.get("id")))
     return {

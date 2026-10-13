@@ -452,11 +452,15 @@ export const nectarHandlers = [
         flavor_id: "f1",
         start: `${isoDay(0)}T00:00:00+00:00`,
         end: `${isoDay(30)}T00:00:00+00:00`,
+        first_day: isoDay(0),
+        last_day: isoDay(29),
       },
       {
         flavor_id: "f2",
         start: `${isoDay(5)}T00:00:00+00:00`,
         end: `${isoDay(60)}T00:00:00+00:00`,
+        first_day: isoDay(5),
+        last_day: isoDay(59),
       },
     ].filter((slot) => flavors.some((flavor) => flavor.id === slot.flavor_id));
     return HttpResponse.json({

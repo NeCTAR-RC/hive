@@ -69,8 +69,9 @@ export function flavorRate(flavor: ReservationFlavor): string {
   return `${formatNumber(flavor.rate)} SU/hour`;
 }
 
-/** The last whole day a free slot covers: a slot ending at midnight ends
- * on the previous day. */
+/** The last day a maintenance window covers: a window ending at midnight
+ * ends on the previous day. (Free slots come from the backend with the
+ * days they can be reserved for already worked out.) */
 export function slotLastDay(end: string | null): string | null {
   if (!end) return null;
   const date = new Date(end);
@@ -83,12 +84,6 @@ export function slotLastDay(end: string | null): string | null {
     date.setUTCDate(date.getUTCDate() - 1);
   }
   return date.toISOString().slice(0, 10);
-}
-
-export function slotFirstDay(start: string | null, today: string): string {
-  if (!start) return today;
-  const day = start.slice(0, 10);
-  return day < today ? today : day;
 }
 
 /** Inclusive days between two ISO dates. */

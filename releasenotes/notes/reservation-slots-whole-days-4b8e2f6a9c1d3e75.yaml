@@ -1,0 +1,12 @@
+---
+fixes:
+  - |
+    The create reservation chart no longer offers a flavour for today when
+    its free time today has already passed, which ended in a "No capacity"
+    error from the reservation service. Hive asked the service for free
+    slots from midnight today, so a flavour booked earlier in the day came
+    back with a slot that was already over. Free slots are now requested
+    from the current time and reduced to the whole days they can be
+    reserved for, so a slot that starts or ends part way through a day is
+    not offered for that day. The last day of the chart's window can now
+    be reserved too.

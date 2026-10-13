@@ -1286,6 +1286,9 @@ export interface FreeSlot {
   flavor_id: string;
   start: string | null;
   end: string | null;
+  /** The whole UTC days the slot can be reserved for, inclusive. */
+  first_day: string;
+  last_day: string;
 }
 
 export interface SlotsResponse {

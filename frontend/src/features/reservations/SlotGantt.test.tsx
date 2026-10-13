@@ -33,6 +33,8 @@ const rows = buildRows(
       flavor_id: "f1",
       start: "2026-10-12T00:00:00+00:00",
       end: "2026-11-01T00:00:00+00:00",
+      first_day: "2026-10-12",
+      last_day: "2026-10-31",
     },
   ],
   [

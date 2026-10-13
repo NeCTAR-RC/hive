@@ -20,10 +20,17 @@
   and the estimated SU (``rate * 24 * days``) plus the SU already used
   must fit the budget unless it is unlimited
   (``nectar_reservations.js:581-620, 727-793``).
+- Free slots: warre only accepts a reservation when the free slot it
+  recomputes starts exactly at the reservation start and reaches its end
+  (warre ``manager.py:89-104``), so a slot is offered only for the whole
+  days it covers (``slot_days``). Horizon maps slot timestamps to days
+  with ``getLocalStartDay`` and ``getLocalEndDay``
+  (``nectar_reservations.js:269-309``), which offers partial days that
+  warre then refuses; Hive does not copy that.
 - Calendar export follows ``calendar_export.py``.
 """
 
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, time, timedelta, UTC
 import math
 from urllib.parse import urlencode
 
@@ -178,6 +185,39 @@ def reservation_times(
 
 def extend_end(end: date) -> datetime:
     return datetime(end.year, end.month, end.day, *LAST_MINUTE, tzinfo=UTC)
+
+
+def slot_days(
+    start: datetime, end: datetime, now: datetime
+) -> tuple[date, date] | None:
+    """The whole UTC days a warre free slot can be reserved for, or None.
+
+    A reservation runs from 00:00 on its first day (a few minutes from now
+    when that day is today, ``reservation_times``) to 23:59 on its last.
+    The slot must already be open for today to count; a later slot counts
+    from the day it starts when it starts at midnight and from the next
+    day otherwise (warre reports a slot after a reservation as starting a
+    minute after that reservation ends, ``manager.py:303-320``). The last
+    day is the one the slot ends on when it reaches 23:59, and the day
+    before otherwise, so a slot that ends part way through a day, such as
+    one that has already passed today, is not offered for that day.
+    """
+    start = start.astimezone(UTC)
+    end = end.astimezone(UTC)
+    now = now.astimezone(UTC)
+    if start <= now:
+        first = now.date()
+    elif start.time() == time.min:
+        first = start.date()
+    else:
+        first = start.date() + timedelta(days=1)
+    if (end.hour, end.minute) >= LAST_MINUTE:
+        last = end.date()
+    else:
+        last = end.date() - timedelta(days=1)
+    if last < first:
+        return None
+    return first, last
 
 
 def eligibility(

@@ -76,13 +76,17 @@ describe("gantt rows", () => {
       [
         {
           flavor_id: "f1",
-          start: "2026-10-01T00:00:00+00:00",
+          start: "2026-10-12T08:41:16+00:00",
           end: "2026-11-01T00:00:00+00:00",
+          first_day: "2026-10-12",
+          last_day: "2026-10-31",
         },
         {
           flavor_id: "f2",
           start: "2027-03-01T00:00:00+00:00",
           end: "2027-04-01T00:00:00+00:00",
+          first_day: "2027-03-01",
+          last_day: "2027-03-31",
         },
       ],
       [
@@ -105,8 +109,8 @@ describe("gantt rows", () => {
     );
     expect(rows).toHaveLength(2);
     const [first, second] = rows;
-    // The slot starts before today and is cut to today; its midnight end
-    // is the previous day.
+    // The slot spans the days the backend worked out; the window's
+    // midnight end is the previous day.
     expect(first?.bars.map((bar) => [bar.kind, bar.first, bar.last])).toEqual([
       ["free", "2026-10-12", "2026-10-31"],
       ["maintenance", "2026-10-20", "2026-10-21"],
@@ -128,6 +132,8 @@ describe("gantt rows", () => {
           flavor_id: "f1",
           start: "2026-10-12T00:00:00+00:00",
           end: "2026-10-22T00:00:00+00:00",
+          first_day: "2026-10-12",
+          last_day: "2026-10-21",
         },
       ],
       [],
