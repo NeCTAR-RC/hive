@@ -2,7 +2,6 @@
 // load balancers with their statuses and floating IPs.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { Link } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -10,6 +9,7 @@ import {
   type ColumnDef,
 } from "../../components/DataTable/DataTable";
 import { filterRows } from "../../components/DataTable/filter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { LoadBalancer } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
@@ -42,6 +42,9 @@ export function LoadBalancersPage() {
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [deleting, setDeleting] = useState<LoadBalancer[]>([]);
+  const [disassociating, setDisassociating] = useState<LoadBalancer | null>(
+    null,
+  );
 
   const columns = useMemo<ColumnDef<LoadBalancer>[]>(
     () => [
@@ -50,13 +53,9 @@ export function LoadBalancersPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/load-balancers/$lbId"
-            params={{ lbId: row.id }}
-            className={styles.nameLink}
-          >
+          <RouteLink to="/load-balancers/$lbId" params={{ lbId: row.id }}>
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -189,13 +188,7 @@ export function LoadBalancersPage() {
             ? {
                 id: "disassociate",
                 label: "Disassociate floating IP",
-                onAction: () =>
-                  disassociate.mutate(row.id, {
-                    onSuccess: () =>
-                      notify.success("Floating IP disassociated."),
-                    onError: () =>
-                      notify.danger("Could not disassociate the floating IP."),
-                  }),
+                onAction: () => setDisassociating(row),
               }
             : {
                 id: "associate",
@@ -238,6 +231,29 @@ export function LoadBalancersPage() {
           onClose={() => setDialog(null)}
         />
       )}
+      <ConfirmDialog
+        isOpen={disassociating !== null}
+        onOpenChange={(open) => !open && setDisassociating(null)}
+        title={`Disassociate floating IP ${disassociating?.floating_ip?.address ?? ""}?`}
+        confirmLabel="Disassociate"
+        isPending={disassociate.isPending}
+        error={disassociate.error}
+        onConfirm={() => {
+          if (!disassociating) return;
+          disassociate.mutate(disassociating.id, {
+            onSuccess: () => {
+              notify.success("Floating IP disassociated.");
+              setDisassociating(null);
+            },
+          });
+        }}
+      >
+        <p>
+          The load balancer {disassociating?.name || disassociating?.id} is no
+          longer reachable at this address. The floating IP stays in your
+          project.
+        </p>
+      </ConfirmDialog>
       <ConfirmDialog
         isOpen={deleting.length > 0}
         onOpenChange={(open) => !open && setDeleting([])}

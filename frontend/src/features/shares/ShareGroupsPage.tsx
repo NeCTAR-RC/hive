@@ -2,7 +2,7 @@
 // share_group_snapshots panels), with one group's detail and members.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -15,6 +15,7 @@ import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import type { ShareGroup, ShareGroupSnapshot } from "../../lib/api/types";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
@@ -35,6 +36,7 @@ import {
   EditShareGroupSnapshotDialog,
 } from "./ShareGroupDialogs";
 import { statusLabel, statusTone } from "./status";
+import { TruncatedText } from "./TruncatedText";
 import styles from "./Shares.module.scss";
 
 type GroupDialog = { kind: "edit" | "snapshot"; group: ShareGroup } | null;
@@ -67,13 +69,12 @@ export function ShareGroupsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/shares/share-groups/$groupId"
             params={{ groupId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -337,12 +338,12 @@ export function ShareGroupDetailPage() {
               <ul className={styles.list}>
                 {data.members.map((share) => (
                   <li key={share.id}>
-                    <RouterLink
+                    <RouteLink
                       to="/shares/shares/$shareId"
                       params={{ shareId: share.id }}
                     >
                       {share.name || share.id}
-                    </RouterLink>{" "}
+                    </RouteLink>{" "}
                     ({share.size} GiB, {statusLabel(share.status).toLowerCase()}
                     )
                   </li>
@@ -393,7 +394,7 @@ export function ShareGroupSnapshotsPage() {
       {
         id: "description",
         label: "Description",
-        cell: (row) => (row.description ?? "").slice(0, 40),
+        cell: (row) => <TruncatedText text={row.description} />,
         hideBelow: "lg",
       },
       {
@@ -418,12 +419,12 @@ export function ShareGroupSnapshotsPage() {
         label: "Source share group",
         cell: (row) =>
           row.share_group_id ? (
-            <RouterLink
+            <RouteLink
               to="/shares/share-groups/$groupId"
               params={{ groupId: row.share_group_id }}
             >
               {row.share_group_name || row.share_group_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),

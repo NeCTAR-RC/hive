@@ -18,12 +18,13 @@ import {
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type { ClusterOptions } from "../../lib/api/types";
 import { formatMb } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
+import { loadingProps } from "../../components/buttonState";
 import { clusterOptionsQuery, useCreateCluster } from "./api";
+import { driversFor, templateFor, zonesFor } from "./status";
 import styles from "./Kubernetes.module.scss";
 
 const schema = z
@@ -60,23 +61,6 @@ const schema = z
 
 type FormValues = z.infer<typeof schema>;
 
-function templateFor(
-  options: ClusterOptions | undefined,
-  version: string,
-  zone: string,
-  driver: string,
-) {
-  const combination = options?.combinations.find(
-    (c) =>
-      c.kubernetes_version === version &&
-      c.availability_zone === zone &&
-      c.network_driver === driver,
-  );
-  return combination
-    ? options?.templates.find((t) => t.id === combination.template_id)
-    : undefined;
-}
-
 export function CreateClusterPage() {
   const projectId = useProjectId();
   const navigate = useNavigate();
@@ -110,30 +94,9 @@ export function CreateClusterPage() {
   const data = options.data;
 
   // Cascading pickers: each one narrows the next (workflow.service.js).
-  const zones = useMemo(
-    () =>
-      [
-        ...new Set(
-          (data?.combinations ?? [])
-            .filter((c) => c.kubernetes_version === version)
-            .map((c) => c.availability_zone),
-        ),
-      ].sort(),
-    [data, version],
-  );
+  const zones = useMemo(() => zonesFor(data, version), [data, version]);
   const drivers = useMemo(
-    () =>
-      [
-        ...new Set(
-          (data?.combinations ?? [])
-            .filter(
-              (c) =>
-                c.kubernetes_version === version &&
-                c.availability_zone === zone,
-            )
-            .map((c) => c.network_driver),
-        ),
-      ].sort(),
+    () => driversFor(data, version, zone),
     [data, version, zone],
   );
   const template = templateFor(data, version, zone, driver);
@@ -357,13 +320,13 @@ export function CreateClusterPage() {
               />
             )}
             <div className={styles.buttons}>
-              {create.isPending ? (
-                <Button state="loading" loadingText="Creating..." isDisabled>
-                  Create cluster
-                </Button>
-              ) : (
-                <Button type="submit">Create cluster</Button>
-              )}
+              <Button
+                type="submit"
+                {...loadingProps(create.isPending, "Creating...")}
+                isPending={create.isPending}
+              >
+                Create cluster
+              </Button>
             </div>
           </div>
           <Panel title="Template" headingLevel={2} className={styles.summary}>

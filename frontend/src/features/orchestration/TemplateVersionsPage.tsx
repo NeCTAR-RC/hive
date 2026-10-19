@@ -2,7 +2,6 @@
 // functions each version offers.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import {
   DataTable,
   type ColumnDef,
@@ -12,7 +11,7 @@ import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { templateVersionRoute } from "../../app/router";
 import { templateFunctionsQuery, templateVersionsQuery } from "./api";
-import styles from "./Orchestration.module.scss";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function TemplateVersionsPage() {
   const projectId = useProjectId();
@@ -24,13 +23,12 @@ export function TemplateVersionsPage() {
         label: "Version",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/orchestration/template-versions/$version"
             params={{ version: row.version }}
-            className={styles.nameLink}
           >
             {row.version}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.version,
       },

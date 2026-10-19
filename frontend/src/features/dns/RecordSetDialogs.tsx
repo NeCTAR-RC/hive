@@ -14,23 +14,18 @@ import { FormDialog } from "../../components/FormDialog/FormDialog";
 import type { RecordSet, Zone } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import { useCreateRecordSet, useUpdateRecordSet, zonesQuery } from "./api";
-import { RECORD_HINTS } from "./status";
+import { RECORD_HINTS, recordSetUpdateBody, splitRecords } from "./status";
 
-function splitRecords(text: string): string[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
+const TTL_MESSAGE = "Enter a whole number of seconds";
 
 const createSchema = z.object({
   type: z.string().min(1, "Choose a record type"),
-  name: z.string().trim().max(255),
+  name: z.string().trim().max(255, "At most 255 characters"),
   records: z.string().refine((v) => splitRecords(v).length > 0, {
     message: "Enter at least one record",
   }),
-  ttl: z.number().int().min(0).optional(),
-  description: z.string().trim().max(160),
+  ttl: z.number(TTL_MESSAGE).int(TTL_MESSAGE).min(0, TTL_MESSAGE).optional(),
+  description: z.string().trim().max(160, "At most 160 characters"),
 });
 
 export function CreateRecordSetDialog({
@@ -128,8 +123,8 @@ const editSchema = z.object({
   records: z.string().refine((v) => splitRecords(v).length > 0, {
     message: "Enter at least one record",
   }),
-  ttl: z.number().int().min(0).optional(),
-  description: z.string().trim().max(160),
+  ttl: z.number(TTL_MESSAGE).int(TTL_MESSAGE).min(0, TTL_MESSAGE).optional(),
+  description: z.string().trim().max(160, "At most 160 characters"),
 });
 
 export function EditRecordSetDialog({
@@ -157,9 +152,7 @@ export function EditRecordSetDialog({
       {
         zoneId: zone.id,
         id: recordset.id,
-        records: splitRecords(values.records),
-        ...(values.ttl !== undefined ? { ttl: values.ttl } : {}),
-        description: values.description,
+        ...recordSetUpdateBody(values),
       },
       {
         onSuccess: () => {
@@ -195,6 +188,7 @@ export function EditRecordSetDialog({
         label="TTL"
         addon="seconds"
         minValue={0}
+        description="Leave blank to use the zone default."
       />
       <TextAreaInput
         control={form.control}

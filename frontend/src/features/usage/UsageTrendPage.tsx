@@ -4,7 +4,13 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { parseDate } from "@internationalized/date";
-import { Alert, Button, DateRangePicker, Label } from "@ardc-ui/react";
+import {
+  Alert,
+  DateRangePicker,
+  Label,
+  ToggleButtonGroup,
+  ToggleButtonGroupItem,
+} from "@ardc-ui/react";
 import { BarList } from "../../components/Charts/BarList";
 import { ChartFigure } from "../../components/Charts/ChartFigure";
 import { LazyDailyLineChart } from "../../components/Charts/LazyDailyLineChart";
@@ -29,6 +35,7 @@ import { usageTrendRoute } from "../../app/router";
 import { dailyPoints, peak } from "../compute/overview/usage";
 import { usageInstancesQuery, usageOptionsQuery } from "./api";
 import {
+  activePreset,
   dailyGuide,
   daysAgo,
   isoDate,
@@ -56,6 +63,7 @@ export function UsageTrendPage() {
     [search, dataFrom],
   );
   const { begin, end } = range;
+  const preset = activePreset(begin, end, dataFrom);
 
   const instances = useQuery(usageInstancesQuery(projectId, begin, end));
   const byType = useQuery(
@@ -175,27 +183,28 @@ export function UsageTrendPage() {
           >
             <Label>Date range</Label>
           </DateRangePicker>
-          <div
-            className={styles.presets}
-            role="group"
+          <ToggleButtonGroup
+            selectionMode="single"
+            selectedKeys={preset ? new Set([preset]) : new Set()}
+            onSelectionChange={(keys) => {
+              const [key] = keys;
+              const chosen = PRESETS.find((p) => p.id === key);
+              if (chosen) {
+                setRange({
+                  begin: daysAgo(chosen.days),
+                  end: isoDate(new Date()),
+                });
+              }
+            }}
             aria-label="Date range presets"
+            className={styles.presets}
           >
-            {PRESETS.map((preset) => (
-              <Button
-                key={preset.id}
-                variant="secondary"
-                size="xs"
-                onPress={() =>
-                  setRange({
-                    begin: daysAgo(preset.days),
-                    end: isoDate(new Date()),
-                  })
-                }
-              >
-                {preset.label}
-              </Button>
+            {PRESETS.map((item) => (
+              <ToggleButtonGroupItem key={item.id} id={item.id}>
+                {item.label}
+              </ToggleButtonGroupItem>
             ))}
-          </div>
+          </ToggleButtonGroup>
         </div>
         <p className={styles.note}>
           Service unit (SU) data is available from{" "}

@@ -5,20 +5,28 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Loading } from "@ardc-ui/react";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import {
+  ComboboxInput,
+  NumberInput,
   SelectInput,
+  SwitchInput,
   TextAreaInput,
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type { DbConfigurationDetail } from "../../lib/api/types";
+import type {
+  DbConfigurationDetail,
+  DbParameterSpec,
+} from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import {
   dbConfigurationsQuery,
   useCreateConfiguration,
   useSetConfigurationValues,
 } from "./api";
+import { parameterKind, parameterValue } from "./status";
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(64),
@@ -76,7 +84,13 @@ export function CreateConfigurationDialog({
       error={create.error}
     >
       {configurations.isPending ? (
-        <SkeletonLines lines={3} />
+        <Loading>Loading datastores...</Loading>
+      ) : configurations.isError ? (
+        <ErrorState
+          error={configurations.error}
+          title="Could not load datastores"
+          onRetry={() => void configurations.refetch()}
+        />
       ) : (
         <>
           <TextInput
@@ -109,9 +123,66 @@ export function CreateConfigurationDialog({
 }
 
 const parameterSchema = z.object({
-  name: z.string().min(1, "Choose a parameter"),
-  value: z.string().trim().min(1, "Enter a value"),
+  // The combobox clears to null.
+  name: z
+    .string()
+    .nullable()
+    .refine((v) => Boolean(v), "Choose a parameter"),
+  text: z.string().trim(),
+  number: z.number().optional(),
+  flag: z.boolean(),
 });
+
+type ParameterForm = z.infer<typeof parameterSchema>;
+
+/** Checks the field the parameter's type uses, as the backend's
+ * coerce_parameter does (config_param_manager.py:155-186). */
+function parameterResolver(parameters: readonly DbParameterSpec[]) {
+  return zodResolver(
+    parameterSchema.superRefine((v, ctx) => {
+      const spec = parameters.find((p) => p.name === v.name);
+      const kind = parameterKind(spec?.type);
+      if (kind === "string" && !v.text) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["text"],
+          message: "Enter a value",
+        });
+      }
+      if (kind === "integer" || kind === "float") {
+        if (v.number === undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["number"],
+            message: "Enter a number",
+          });
+          return;
+        }
+        if (kind === "integer" && !Number.isInteger(v.number)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["number"],
+            message: "Enter a whole number",
+          });
+        }
+        if (spec?.min != null && v.number < spec.min) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["number"],
+            message: `Must be at least ${spec.min}`,
+          });
+        }
+        if (spec?.max != null && v.number > spec.max) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["number"],
+            message: `Must be at most ${spec.max}`,
+          });
+        }
+      }
+    }),
+  );
+}
 
 export function AddParameterDialog({
   projectId,
@@ -123,12 +194,13 @@ export function AddParameterDialog({
   onClose: () => void;
 }) {
   const setValues = useSetConfigurationValues(projectId);
-  const form = useForm<z.infer<typeof parameterSchema>>({
-    resolver: zodResolver(parameterSchema),
-    defaultValues: { name: "", value: "" },
+  const form = useForm<ParameterForm>({
+    resolver: parameterResolver(configuration.parameters),
+    defaultValues: { name: "", text: "", number: undefined, flag: false },
   });
   const chosen = useWatch({ control: form.control, name: "name" });
   const spec = configuration.parameters.find((p) => p.name === chosen);
+  const kind = parameterKind(spec?.type);
   const hint = spec
     ? [
         spec.type ? `Type ${spec.type}` : null,
@@ -150,7 +222,10 @@ export function AddParameterDialog({
     setValues.mutate(
       {
         id: configuration.id,
-        values: { ...current, [values.name]: values.value },
+        values: {
+          ...current,
+          [values.name ?? ""]: parameterValue(kind, values),
+        },
       },
       {
         onSuccess: () => {
@@ -170,7 +245,7 @@ export function AddParameterDialog({
       isPending={setValues.isPending}
       error={setValues.error}
     >
-      <SelectInput
+      <ComboboxInput
         control={form.control}
         name="name"
         label="Parameter"
@@ -179,14 +254,28 @@ export function AddParameterDialog({
           label: p.name ?? "",
         }))}
         isRequired
-      />
-      <TextInput
-        control={form.control}
-        name="value"
-        label="Value"
-        isRequired
         {...(hint ? { description: hint } : {})}
       />
+      {kind === "boolean" ? (
+        <SwitchInput control={form.control} name="flag" label="Value" />
+      ) : kind === "integer" || kind === "float" ? (
+        <NumberInput
+          control={form.control}
+          name="number"
+          label="Value"
+          isRequired
+          {...(spec?.min != null ? { minValue: spec.min } : {})}
+          {...(spec?.max != null ? { maxValue: spec.max } : {})}
+          {...(kind === "integer" ? { step: 1 } : {})}
+        />
+      ) : (
+        <TextInput
+          control={form.control}
+          name="text"
+          label="Value"
+          isRequired
+        />
+      )}
     </FormDialog>
   );
 }

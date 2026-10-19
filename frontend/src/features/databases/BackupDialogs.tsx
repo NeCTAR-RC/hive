@@ -1,19 +1,21 @@
 // Create backup (trove-dashboard database_backups/workflows): name, an
 // active instance, description and an optional completed parent backup.
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert } from "@ardc-ui/react";
+import { Alert, Loading } from "@ardc-ui/react";
 import {
   SelectInput,
   TextAreaInput,
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { notify } from "../../lib/notify";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { dbBackupsQuery, useCreateBackup } from "./api";
+import { parentBackups, validParentId } from "./status";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Enter a backup name").max(80),
@@ -46,16 +48,28 @@ export function CreateBackupDialog({
     resetOptions: { keepDirtyValues: true },
   });
   const chosen = useWatch({ control: form.control, name: "instance_id" });
-  const parents = (backups.data?.items ?? []).filter(
-    (b) => b.status === "COMPLETED" && b.instance_id === chosen,
-  );
+  const parentId = useWatch({ control: form.control, name: "parent_id" });
+  const items = backups.data?.items;
+  const parents = parentBackups(items ?? [], chosen);
+  // A parent belongs to one instance: choosing another instance clears it
+  // (the backend refuses a parent of another instance with 400).
+  useEffect(() => {
+    if (validParentId(items ?? [], chosen, parentId) !== parentId) {
+      form.setValue("parent_id", "");
+    }
+  }, [items, chosen, parentId, form]);
   const submit = form.handleSubmit((values) => {
+    const parent = validParentId(
+      items ?? [],
+      values.instance_id,
+      values.parent_id,
+    );
     create.mutate(
       {
         name: values.name,
         instance_id: values.instance_id,
         ...(values.description ? { description: values.description } : {}),
-        ...(values.parent_id ? { parent_id: values.parent_id } : {}),
+        ...(parent ? { parent_id: parent } : {}),
       },
       {
         onSuccess: () => {
@@ -76,7 +90,13 @@ export function CreateBackupDialog({
       error={create.error}
     >
       {backups.isPending ? (
-        <SkeletonLines lines={3} />
+        <Loading>Loading instances...</Loading>
+      ) : backups.isError ? (
+        <ErrorState
+          error={backups.error}
+          title="Could not load instances"
+          onRetry={() => void backups.refetch()}
+        />
       ) : instances.length === 0 ? (
         <Alert tone="info" role="status">
           No active database instances to back up.

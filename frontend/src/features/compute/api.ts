@@ -44,8 +44,9 @@ const POLL_MS = 5000;
 export function instancesQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Paginated<Instance>>("/api/compute/instances", {
+        signal,
         query: { limit: LIST_LIMIT },
       }),
     staleTime: staleTimes.list,
@@ -58,8 +59,10 @@ export function instancesQuery(projectId: string) {
 export function instanceQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId),
-    queryFn: () =>
-      apiFetch<InstanceDetail>(`/api/compute/instances/${instanceId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<InstanceDetail>(`/api/compute/instances/${instanceId}`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
@@ -69,9 +72,10 @@ export function instanceQuery(projectId: string, instanceId: string) {
 export function instanceVolumesQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId, "volumes"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<InstanceVolume>>(
         `/api/compute/instances/${instanceId}/volumes`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -80,9 +84,10 @@ export function instanceVolumesQuery(projectId: string, instanceId: string) {
 export function instancePortsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId, "ports"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<InstancePort>>(
         `/api/compute/instances/${instanceId}/ports`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -91,9 +96,10 @@ export function instancePortsQuery(projectId: string, instanceId: string) {
 export function instanceActionLogQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId, "action-log"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<InstanceAction>>(
         `/api/compute/instances/${instanceId}/action-log`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -106,10 +112,10 @@ export function consoleOutputQuery(
 ) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId, "log", length),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<{ output: string }>(
         `/api/compute/instances/${instanceId}/console-output`,
-        { query: { length } },
+        { signal, query: { length } },
       ),
     staleTime: 0,
   });
@@ -118,9 +124,10 @@ export function consoleOutputQuery(
 export function resizeFlavorsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "instances", instanceId, "resize-flavors"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<Flavor>>(
         `/api/compute/instances/${instanceId}/resize-flavors`,
+        { signal },
       ),
     staleTime: staleTimes.static,
   });
@@ -129,7 +136,8 @@ export function resizeFlavorsQuery(projectId: string, instanceId: string) {
 export function flavorsQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "flavors"),
-    queryFn: () => apiFetch<Items<Flavor>>("/api/compute/flavors"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<Flavor>>("/api/compute/flavors", { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -137,8 +145,10 @@ export function flavorsQuery(projectId: string) {
 export function availabilityZonesQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "availability-zones"),
-    queryFn: () =>
-      apiFetch<Items<AvailabilityZone>>("/api/compute/availability-zones"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<AvailabilityZone>>("/api/compute/availability-zones", {
+        signal,
+      }),
     staleTime: staleTimes.static,
   });
 }
@@ -146,7 +156,8 @@ export function availabilityZonesQuery(projectId: string) {
 export function limitsQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "limits"),
-    queryFn: () => apiFetch<ComputeLimits>("/api/compute/limits"),
+    queryFn: ({ signal }) =>
+      apiFetch<ComputeLimits>("/api/compute/limits", { signal }),
     staleTime: staleTimes.quota,
   });
 }
@@ -160,8 +171,9 @@ export interface ImageListParams {
 export function imagesQuery(projectId: string, params: ImageListParams) {
   return queryOptions({
     queryKey: computeKey(projectId, "images", params),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<Image>>("/api/compute/images", {
+        signal,
         query: {
           visibility: params.visibility,
           q: params.q,
@@ -175,7 +187,8 @@ export function imagesQuery(projectId: string, params: ImageListParams) {
 export function imageQuery(projectId: string, imageId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "images", "detail", imageId),
-    queryFn: () => apiFetch<Image>(`/api/compute/images/${imageId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Image>(`/api/compute/images/${imageId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -183,7 +196,8 @@ export function imageQuery(projectId: string, imageId: string) {
 export function keyPairsQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "keypairs"),
-    queryFn: () => apiFetch<Items<KeyPair>>("/api/compute/keypairs"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<KeyPair>>("/api/compute/keypairs", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -191,8 +205,10 @@ export function keyPairsQuery(projectId: string) {
 export function keyPairQuery(projectId: string, name: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "keypairs", name),
-    queryFn: () =>
-      apiFetch<KeyPair>(`/api/compute/keypairs/${encodeURIComponent(name)}`),
+    queryFn: ({ signal }) =>
+      apiFetch<KeyPair>(`/api/compute/keypairs/${encodeURIComponent(name)}`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
   });
 }
@@ -200,7 +216,8 @@ export function keyPairQuery(projectId: string, name: string) {
 export function serverGroupsQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "server-groups"),
-    queryFn: () => apiFetch<Items<ServerGroup>>("/api/compute/server-groups"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ServerGroup>>("/api/compute/server-groups", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -208,7 +225,8 @@ export function serverGroupsQuery(projectId: string) {
 export function launchOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: computeKey(projectId, "launch-options"),
-    queryFn: () => apiFetch<LaunchOptions>("/api/compute/launch-options"),
+    queryFn: ({ signal }) =>
+      apiFetch<LaunchOptions>("/api/compute/launch-options", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -239,6 +257,35 @@ export function useInstanceAction(projectId: string) {
       await invalidate("instances");
       if (variables.action === "snapshot") await invalidate("images");
     },
+  });
+}
+
+/**
+ * The same action on several instances, settled together and followed by a
+ * single refetch of the list (one per instance would restart the 1000-row
+ * fetch N times). Resolves with every outcome; it never rejects.
+ */
+export function useBatchInstanceAction(projectId: string) {
+  const invalidate = useInvalidate(projectId);
+  return useMutation({
+    mutationFn: ({
+      instanceIds,
+      action,
+      body,
+    }: {
+      instanceIds: string[];
+      action: string;
+      body?: Record<string, unknown>;
+    }) =>
+      Promise.allSettled(
+        instanceIds.map((instanceId) =>
+          apiFetch<ActionResult>(
+            `/api/compute/instances/${instanceId}/actions/${action}`,
+            { method: "POST", json: body ?? {} },
+          ),
+        ),
+      ),
+    onSettled: () => invalidate("instances"),
   });
 }
 

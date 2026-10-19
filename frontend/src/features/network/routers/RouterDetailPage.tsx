@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, TabItem, Tabs } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
@@ -40,6 +40,7 @@ import {
 import { useRouterActions } from "./RouterActions";
 import { AddInterfaceDialog, AddRouteDialog } from "./RouterDialogs";
 import styles from "./RouterDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const TABS = ["overview", "interfaces", "routes"] as const;
 type Tab = (typeof TABS)[number];
@@ -87,9 +88,9 @@ export function RouterDetailPage() {
         {notFound ? (
           <p>
             There is no router <code>{routerId}</code> in this project.{" "}
-            <RouterLink to="/network/routers" search={{}}>
+            <RouteLink to="/network/routers" search={{}}>
               Back to routers
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -178,13 +179,13 @@ function Overview({ router }: { router: RouterDetail }) {
             label: "External network",
             value: gateway ? (
               gateway.network_id ? (
-                <RouterLink
+                <RouteLink
                   to="/network/networks/$networkId"
                   params={{ networkId: gateway.network_id }}
                   search={{}}
                 >
                   {gateway.network_name ?? gateway.network_id}
-                </RouterLink>
+                </RouteLink>
               ) : (
                 gateway.network_name
               )
@@ -242,9 +243,9 @@ function Interfaces({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink to="/network/ports/$portId" params={{ portId: row.id }}>
+          <RouteLink to="/network/ports/$portId" params={{ portId: row.id }}>
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
       },
@@ -253,13 +254,13 @@ function Interfaces({
         label: "Network",
         cell: (row) =>
           row.network_id ? (
-            <RouterLink
+            <RouteLink
               to="/network/networks/$networkId"
               params={{ networkId: row.network_id }}
               search={{}}
             >
               {row.network_name ?? row.network_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),
@@ -387,7 +388,7 @@ function StaticRoutes({
   router: RouterDetail;
 }) {
   const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState<HostRoute | null>(null);
+  const [removing, setRemoving] = useState<HostRoute[]>([]);
   const setRoutes = useSetRoutes(projectId);
   const routeId = (route: HostRoute) => `${route.destination}|${route.nexthop}`;
   const columns = useMemo<ColumnDef<HostRoute>[]>(
@@ -422,7 +423,7 @@ function StaticRoutes({
               ? "Static route deleted."
               : `${targets.length} static routes deleted.`,
           );
-          setRemoving(null);
+          setRemoving([]);
         },
       },
     );
@@ -452,7 +453,7 @@ function StaticRoutes({
             id: "delete",
             label: "Delete static route",
             tone: "danger",
-            onAction: () => setRemoving(row),
+            onAction: () => setRemoving([row]),
           },
         ]}
         batchActions={[
@@ -460,7 +461,7 @@ function StaticRoutes({
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (selected) => removeRoutes(selected),
+            onAction: (selected) => setRemoving(selected),
           },
         ]}
       />
@@ -472,15 +473,35 @@ function StaticRoutes({
         />
       )}
       <ConfirmDialog
-        isOpen={removing !== null}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        title={`Delete the route to ${removing?.destination ?? ""}?`}
+        isOpen={removing.length > 0}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving([]);
+            setRoutes.reset();
+          }
+        }}
+        title={
+          removing.length === 1
+            ? `Delete the route to ${removing[0]?.destination ?? ""}?`
+            : `Delete ${removing.length} static routes?`
+        }
         confirmLabel="Delete"
         tone="danger"
         isPending={setRoutes.isPending}
         error={setRoutes.error}
-        onConfirm={() => removing && removeRoutes([removing])}
-      />
+        onConfirm={() => removeRoutes(removing)}
+      >
+        {removing.length > 1 && (
+          <ul>
+            {removing.map((route) => (
+              <li key={routeId(route)}>
+                <code>{route.destination}</code> via{" "}
+                <code>{route.nexthop}</code>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ConfirmDialog>
     </>
   );
 }

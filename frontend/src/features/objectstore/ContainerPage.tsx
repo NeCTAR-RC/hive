@@ -2,14 +2,11 @@
 // upload, folder creation, download, copy and delete, plus the public
 // access toggle (Horizon project/containers objects view).
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  Link as RouterLink,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { Alert, Button, Switch } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
+import { loadingProps } from "../../components/buttonState";
 import { CopyButton } from "../../components/CopyButton/CopyButton";
 import {
   DataTable,
@@ -17,6 +14,8 @@ import {
 } from "../../components/DataTable/DataTable";
 import { filterRows } from "../../components/DataTable/filter";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
+import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { StoreObject } from "../../lib/api/types";
@@ -39,6 +38,7 @@ import {
   ObjectDetailsDialog,
   UploadDialog,
 } from "./ObjectStoreDialogs";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import styles from "./ObjectStore.module.scss";
 
 type Dialog =
@@ -50,16 +50,18 @@ type Dialog =
 
 export function ContainerPage() {
   const projectId = useProjectId();
-  const params = useParams({ strict: false }) as {
-    container?: string;
-    _splat?: string;
-  };
+  // One page serves the container route and its folder (splat) route.
+  const params = useParams({ strict: false });
   const container = params.container ?? "";
   const path = (params._splat ?? "").replace(/^\/+|\/+$/g, "");
   const prefix = path ? `${path}/` : "";
   const navigate = useNavigate();
   const detail = useQuery(containerQuery(projectId, container));
-  const objects = useQuery(objectsQuery(projectId, container, path));
+  const objects = useInfiniteQuery(objectsQuery(projectId, container, path));
+  const listed = useMemo(
+    () => objects.data?.pages.flatMap((page) => page.items) ?? [],
+    [objects.data],
+  );
   const update = useUpdateContainer(projectId);
   const remove = useDeleteObjects(projectId);
   const [query, setQuery] = useState("");
@@ -88,12 +90,12 @@ export function ContainerPage() {
         isRowHeader: true,
         cell: (row) =>
           row.is_folder ? (
-            <RouterLink
-              to={folderHref(container, `${prefix}${row.basename}`)}
-              className={styles.nameLink}
+            <RouteLink
+              to="/object-store/containers/$container/$"
+              params={{ container, _splat: `${prefix}${row.basename}` }}
             >
               {row.basename}/
-            </RouterLink>
+            </RouteLink>
           ) : (
             <span>{row.basename}</span>
           ),
@@ -123,8 +125,8 @@ export function ContainerPage() {
     [container, prefix],
   );
   const rows = useMemo(
-    () => filterRows(objects.data?.items ?? [], query, columns),
-    [objects.data, query, columns],
+    () => filterRows(listed, query, columns),
+    [listed, query, columns],
   );
 
   const confirmDelete = () => {
@@ -174,10 +176,10 @@ export function ContainerPage() {
       />
       <div className={styles.layout}>
         <div className={styles.main}>
-          {objects.data?.has_more && (
+          {objects.hasNextPage && (
             <Alert tone="info" role="status">
-              Only the first {objects.data.items.length} entries are shown. Open
-              a folder to see more.
+              The first {listed.length} entries are shown; the search covers
+              only these. Load more to see the rest.
             </Alert>
           )}
           <DataTable
@@ -198,12 +200,10 @@ export function ContainerPage() {
             }}
             resetKey={`${path}|${query}`}
             emptyTitle={
-              objects.data?.items.length
-                ? "Nothing matches"
-                : "This folder is empty"
+              listed.length ? "Nothing matches" : "This folder is empty"
             }
             emptyBody={
-              objects.data?.items.length === 0 ? (
+              objects.data && listed.length === 0 ? (
                 <p>Upload files or create a folder to get started.</p>
               ) : null
             }
@@ -216,7 +216,11 @@ export function ContainerPage() {
                       label: "Open folder",
                       onAction: () =>
                         void navigate({
-                          to: folderHref(container, `${prefix}${row.basename}`),
+                          to: "/object-store/containers/$container/$",
+                          params: {
+                            container,
+                            _splat: `${prefix}${row.basename}`,
+                          },
                         }),
                     },
                     {
@@ -266,6 +270,19 @@ export function ContainerPage() {
               },
             ]}
           />
+          {objects.hasNextPage && (
+            <div className={styles.loadMore}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onPress={() => void objects.fetchNextPage()}
+                isPending={objects.isFetchingNextPage}
+                {...loadingProps(objects.isFetchingNextPage, "Loading...")}
+              >
+                Load more
+              </Button>
+            </div>
+          )}
         </div>
         <Panel title="Container" className={styles.side}>
           {detail.isPending ? (
@@ -273,60 +290,74 @@ export function ContainerPage() {
           ) : detail.isError ? (
             <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
           ) : (
-            <dl className={styles.facts}>
-              <dt>Objects</dt>
-              <dd>{detail.data.object_count}</dd>
-              <dt>Size</dt>
-              <dd>{formatBytes(detail.data.bytes)}</dd>
-              {detail.data.storage_policy && (
-                <>
-                  <dt>Storage policy</dt>
-                  <dd>{detail.data.storage_policy}</dd>
-                </>
-              )}
-              <dt>Public access</dt>
-              <dd>
-                <Switch
-                  isSelected={detail.data.is_public}
-                  isDisabled={update.isPending}
-                  onChange={(selected) =>
-                    update.mutate(
-                      { container, is_public: selected },
+            <KeyValueList
+              items={[
+                { label: "Objects", value: detail.data.object_count },
+                { label: "Size", value: formatBytes(detail.data.bytes) },
+                ...(detail.data.storage_policy
+                  ? [
                       {
-                        onSuccess: () =>
-                          notify.success(
-                            selected
-                              ? `${container} is now public.`
-                              : `${container} is now private.`,
-                          ),
+                        label: "Storage policy",
+                        value: detail.data.storage_policy,
                       },
-                    )
-                  }
-                >
-                  {detail.data.is_public ? "Enabled" : "Disabled"}
-                </Switch>
-                {update.isError && (
-                  <ErrorState
-                    error={update.error}
-                    title="Could not change access"
-                  />
-                )}
-              </dd>
-              {detail.data.is_public && (
-                <>
-                  <dt>Public URL</dt>
-                  <dd className={styles.url}>
-                    <a href={detail.data.public_url}>
-                      {detail.data.public_url}
-                    </a>
-                    <CopyButton
-                      text={detail.data.public_url}
-                      label="Copy URL"
-                    />
-                  </dd>
-                </>
-              )}
-            </dl>
+                    ]
+                  : []),
+                {
+                  label: "Public access",
+                  value: (
+                    <>
+                      <Switch
+                        isSelected={detail.data.is_public}
+                        isDisabled={update.isPending}
+                        onChange={(selected) =>
+                          update.mutate(
+                            { container, is_public: selected },
+                            {
+                              onSuccess: () =>
+                                notify.success(
+                                  selected
+                                    ? `${container} is now public.`
+                                    : `${container} is now private.`,
+                                ),
+                            },
+                          )
+                        }
+                      >
+                        {detail.data.is_public ? "Enabled" : "Disabled"}
+                      </Switch>
+                      {update.isError && (
+                        <ErrorState
+                          error={update.error}
+                          title="Could not change access"
+                        />
+                      )}
+                    </>
+                  ),
+                },
+                ...(detail.data.is_public
+                  ? [
+                      {
+                        label: "Public URL",
+                        value: (
+                          <span className={styles.url}>
+                            <ExternalLink
+                              href={detail.data.public_url}
+                              target="_blank"
+                              wrap
+                            >
+                              {detail.data.public_url}
+                            </ExternalLink>
+                            <CopyButton
+                              text={detail.data.public_url}
+                              label="Copy URL"
+                            />
+                          </span>
+                        ),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           )}
         </Panel>
       </div>
@@ -362,7 +393,12 @@ export function ContainerPage() {
       )}
       <ConfirmDialog
         isOpen={deleting.length > 0}
-        onOpenChange={(open) => !open && setDeleting([])}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleting([]);
+            remove.reset();
+          }
+        }}
         title={
           deleting.length === 1
             ? `Delete ${deleting[0]?.basename}${deleting[0]?.is_folder ? " and everything in it" : ""}?`

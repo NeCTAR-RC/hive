@@ -2,7 +2,7 @@
 // the list, and one group's values, instances and details.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, TabItem, Tabs } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -13,6 +13,7 @@ import { filterRows } from "../../components/DataTable/filter";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type {
   DbConfiguration,
@@ -51,13 +52,12 @@ export function DbConfigurationsPage() {
         label: "Configuration group name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/databases/configuration-groups/$configurationId"
             params={{ configurationId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -230,10 +230,15 @@ export function DbConfigurationDetailPage() {
     ],
     [],
   );
-  const valueRows = Object.entries(data?.values ?? {}).map(([name, value]) => ({
-    name,
-    value: typeof value === "string" ? value : JSON.stringify(value),
-  }));
+  const values = data?.values;
+  const valueRows = useMemo(
+    () =>
+      Object.entries(values ?? {}).map(([name, value]) => ({
+        name,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+      })),
+    [values],
+  );
 
   const removeValue = (key: string) => {
     if (!data) return;
@@ -427,12 +432,12 @@ function Instances({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/databases/instances/$instanceId"
             params={{ instanceId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
       },

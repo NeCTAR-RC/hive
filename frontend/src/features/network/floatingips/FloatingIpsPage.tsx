@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
@@ -26,6 +26,7 @@ import {
 } from "../status";
 import { useFloatingIpActions } from "./FloatingIpActions";
 import { AllocateFloatingIpDialog } from "./FloatingIpDialogs";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
@@ -93,13 +94,13 @@ export function FloatingIpsPage() {
         label: "Mapped fixed IP",
         cell: (row) =>
           row.instance_id && row.instance_type === "compute" ? (
-            <RouterLink
+            <RouteLink
               to="/compute/instances/$instanceId"
               params={{ instanceId: row.instance_id }}
               search={{}}
             >
               {floatingIpTargetLabel(row)}
-            </RouterLink>
+            </RouteLink>
           ) : (
             floatingIpTargetLabel(row)
           ),

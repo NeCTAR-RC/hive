@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert } from "@ardc-ui/react";
+import { Alert, Loading } from "@ardc-ui/react";
 import { CodeBlock } from "../../components/CodeBlock/CodeBlock";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import {
   NumberInput,
   SelectInput,
@@ -14,7 +15,6 @@ import {
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { DbInstance, DbInstanceDetail } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import {
@@ -49,7 +49,9 @@ export function UpdateInstanceDialog({
 }) {
   const detail = useQuery(dbInstanceQuery(projectId, instance.id));
   const update = useUpdateInstance(projectId);
-  const cidrs = detail.data?.allowed_cidrs ?? ["0.0.0.0/0"];
+  // No default: until the detail loads there is no current value to show,
+  // and a failed load must never offer 0.0.0.0/0 as if it were current.
+  const cidrs = detail.data?.allowed_cidrs ?? [];
   const form = useForm<z.infer<typeof updateSchema>>({
     resolver: zodResolver(updateSchema),
     values: { name: instance.name ?? "", allowed_cidrs: cidrs.join("\n") },
@@ -79,10 +81,17 @@ export function UpdateInstanceDialog({
       submitLabel="Update"
       onSubmit={submit}
       isPending={update.isPending}
+      isSubmitDisabled={!detail.isSuccess}
       error={update.error}
     >
       {detail.isPending ? (
-        <SkeletonLines lines={3} />
+        <Loading>Loading instance...</Loading>
+      ) : detail.isError ? (
+        <ErrorState
+          error={detail.error}
+          title="Could not load the allowed CIDRs"
+          onRetry={() => void detail.refetch()}
+        />
       ) : (
         <>
           <TextInput
@@ -212,10 +221,17 @@ export function ResizeInstanceDialog({
       submitLabel="Resize instance"
       onSubmit={submit}
       isPending={resize.isPending}
+      isSubmitDisabled={flavors.length === 0}
       error={resize.error}
     >
       {candidates.isPending ? (
-        <SkeletonLines lines={2} />
+        <Loading>Loading flavours...</Loading>
+      ) : candidates.isError ? (
+        <ErrorState
+          error={candidates.error}
+          title="Could not load flavours"
+          onRetry={() => void candidates.refetch()}
+        />
       ) : (
         <>
           <p>
@@ -279,10 +295,17 @@ export function UpgradeInstanceDialog({
       submitLabel="Upgrade"
       onSubmit={submit}
       isPending={upgrade.isPending}
+      isSubmitDisabled={items.length === 0}
       error={upgrade.error}
     >
       {targets.isPending ? (
-        <SkeletonLines lines={2} />
+        <Loading>Loading versions...</Loading>
+      ) : targets.isError ? (
+        <ErrorState
+          error={targets.error}
+          title="Could not load versions"
+          onRetry={() => void targets.refetch()}
+        />
       ) : (
         <>
           <p>
@@ -357,10 +380,17 @@ export function AttachConfigurationDialog({
       submitLabel="Attach"
       onSubmit={submit}
       isPending={attach.isPending}
+      isSubmitDisabled={groups.length === 0}
       error={attach.error}
     >
       {options.isPending ? (
-        <SkeletonLines lines={2} />
+        <Loading>Loading configuration groups...</Loading>
+      ) : options.isError ? (
+        <ErrorState
+          error={options.error}
+          title="Could not load configuration groups"
+          onRetry={() => void options.refetch()}
+        />
       ) : groups.length === 0 ? (
         <Alert tone="info" role="status">
           No configuration groups exist for {instance.datastore}{" "}

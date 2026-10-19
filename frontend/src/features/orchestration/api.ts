@@ -34,7 +34,8 @@ const POLL_MS = 5000;
 export function stacksQuery(projectId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "stacks"),
-    queryFn: () => apiFetch<Items<Stack>>(`${BASE}/stacks`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<Stack>>(`${BASE}/stacks`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((s) => s.is_transitional) ? POLL_MS : false,
@@ -44,7 +45,8 @@ export function stacksQuery(projectId: string) {
 export function stackQuery(projectId: string, stackId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "stack", stackId),
-    queryFn: () => apiFetch<StackDetail>(`${BASE}/stacks/${stackId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<StackDetail>(`${BASE}/stacks/${stackId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -54,8 +56,10 @@ export function stackQuery(projectId: string, stackId: string) {
 export function stackResourcesQuery(projectId: string, stackId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "stack", stackId, "resources"),
-    queryFn: () =>
-      apiFetch<Items<StackResource>>(`${BASE}/stacks/${stackId}/resources`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<StackResource>>(`${BASE}/stacks/${stackId}/resources`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.items.some((r) => r.is_transitional) ? POLL_MS : false,
@@ -65,8 +69,10 @@ export function stackResourcesQuery(projectId: string, stackId: string) {
 export function stackEventsQuery(projectId: string, stackId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "stack", stackId, "events"),
-    queryFn: () =>
-      apiFetch<Items<StackEvent>>(`${BASE}/stacks/${stackId}/events`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<StackEvent>>(`${BASE}/stacks/${stackId}/events`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
   });
 }
@@ -74,8 +80,8 @@ export function stackEventsQuery(projectId: string, stackId: string) {
 export function stackTemplateQuery(projectId: string, stackId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "stack", stackId, "template"),
-    queryFn: () =>
-      apiFetch<StackTemplate>(`${BASE}/stacks/${stackId}/template`),
+    queryFn: ({ signal }) =>
+      apiFetch<StackTemplate>(`${BASE}/stacks/${stackId}/template`, { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -83,8 +89,10 @@ export function stackTemplateQuery(projectId: string, stackId: string) {
 export function resourceTypesQuery(projectId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "resource-types"),
-    queryFn: () =>
-      apiFetch<Items<ResourceTypeSummary>>(`${BASE}/resource-types`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ResourceTypeSummary>>(`${BASE}/resource-types`, {
+        signal,
+      }),
     staleTime: staleTimes.static,
   });
 }
@@ -92,9 +100,10 @@ export function resourceTypesQuery(projectId: string) {
 export function resourceTypeQuery(projectId: string, name: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "resource-type", name),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<ResourceTypeDetail>(
         `${BASE}/resource-types/${encodeURIComponent(name)}`,
+        { signal },
       ),
     staleTime: staleTimes.static,
   });
@@ -103,8 +112,8 @@ export function resourceTypeQuery(projectId: string, name: string) {
 export function templateVersionsQuery(projectId: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "template-versions"),
-    queryFn: () =>
-      apiFetch<Items<TemplateVersion>>(`${BASE}/template-versions`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<TemplateVersion>>(`${BASE}/template-versions`, { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -112,9 +121,10 @@ export function templateVersionsQuery(projectId: string) {
 export function templateFunctionsQuery(projectId: string, version: string) {
   return queryOptions({
     queryKey: heatKey(projectId, "template-functions", version),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<{ version: string } & Items<TemplateFunction>>(
         `${BASE}/template-versions/${encodeURIComponent(version)}/functions`,
+        { signal },
       ),
     staleTime: staleTimes.static,
   });

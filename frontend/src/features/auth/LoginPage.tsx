@@ -4,6 +4,8 @@ import { loginRoute } from "../../app/router";
 import { buildLoginUrl, safeNext } from "../../lib/login";
 import { configQuery } from "../../lib/queries";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { Skeleton } from "../../components/Skeleton/Skeleton";
 import styles from "./LoginPage.module.scss";
 
@@ -23,6 +25,20 @@ const REASONS: Record<string, { tone: "danger" | "info"; text: string }> = {
     text: "Your session ended. Please log in again.",
   },
 };
+
+const SUPPORT_SITE = "https://support.ehelp.edu.au/";
+const LOGIN_HELP_PATH = "/support/solutions/articles/6000055377";
+
+/** The login help article on the support site `help_url` points at. The
+ * configured URL is a page (by default ".../support/home"), so the article
+ * path is resolved against its origin rather than appended. */
+function loginHelpUrl(helpUrl: string | undefined): string {
+  try {
+    return new URL(LOGIN_HELP_PATH, helpUrl || SUPPORT_SITE).href;
+  } catch {
+    return new URL(LOGIN_HELP_PATH, SUPPORT_SITE).href;
+  }
+}
 
 export function LoginPage() {
   useDocumentTitle("Log in");
@@ -81,18 +97,16 @@ export function LoginPage() {
           )}
         </div>
         <p className={styles.help}>
-          <a
-            href={
-              (config?.help_url ?? "https://support.ehelp.edu.au/") +
-              "support/solutions/articles/6000055377"
-            }
-          >
+          <ExternalLink href={loginHelpUrl(config?.help_url)}>
             Having trouble logging in?
-          </a>
+          </ExternalLink>
         </p>
         <p className={styles.terms}>
           By logging in you agree to the{" "}
-          <a href="/terms">Nectar Research Cloud terms of service</a>.
+          <RouteLink to="/terms">
+            Nectar Research Cloud terms of service
+          </RouteLink>
+          .
         </p>
       </div>
     </div>

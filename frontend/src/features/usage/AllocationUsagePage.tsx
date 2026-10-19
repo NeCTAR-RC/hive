@@ -14,6 +14,7 @@ import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { allocationUsageQuery } from "./api";
 import styles from "./AllocationUsagePage.module.scss";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 
 const COLUMNS = [
   { id: "date", label: "Date" },
@@ -66,7 +67,10 @@ export function AllocationUsagePage() {
               {me?.capabilities.tenantmanager && (
                 <>
                   {" "}
-                  <a href={requestUrl}>Request more budget</a>.
+                  <ExternalLink href={requestUrl}>
+                    Request more budget
+                  </ExternalLink>
+                  .
                 </>
               )}
             </Alert>

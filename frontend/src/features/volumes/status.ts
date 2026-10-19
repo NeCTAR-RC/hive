@@ -200,7 +200,14 @@ export type SnapshotActionId =
 const SNAPSHOT_RULES: Rule<SnapshotActionId, VolumeSnapshot>[] = [
   { id: "create-volume", label: "Create volume", statuses: ["available"] },
   { id: "launch", label: "Launch as instance", statuses: ["available"] },
-  { id: "backup", label: "Create backup", statuses: ["available"] },
+  {
+    id: "backup",
+    label: "Create backup",
+    statuses: ["available"],
+    // A backup is of a volume; an orphaned snapshot has none to name.
+    when: (s) => Boolean(s.volume_id),
+    reason: "The snapshot's volume no longer exists",
+  },
   { id: "edit", label: "Edit snapshot", statuses: ["available"] },
   {
     id: "delete",

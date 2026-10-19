@@ -2,8 +2,7 @@
 // the project's instances with quota and the row actions.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
-import { Link } from "@ardc-ui/react";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
   DataTable,
@@ -11,6 +10,7 @@ import {
 } from "../../components/DataTable/DataTable";
 import { filterRows } from "../../components/DataTable/filter";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { DbInstance } from "../../lib/api/types";
 import { formatMb } from "../../lib/format";
@@ -30,7 +30,7 @@ import {
   UpdateInstanceDialog,
   UpgradeInstanceDialog,
 } from "./InstanceDialogs";
-import { statusLabel, statusTone } from "./status";
+import { quotaLimit, statusLabel, statusTone } from "./status";
 import styles from "./Databases.module.scss";
 
 type Dialog = {
@@ -56,13 +56,12 @@ export function DbInstancesPage() {
         label: "Instance name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/databases/instances/$instanceId"
             params={{ instanceId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -126,6 +125,26 @@ export function DbInstancesPage() {
   const quota = instances.data?.quota;
   const count = instances.data?.items.length ?? 0;
 
+  // Horizon skips rows that cannot restart; one toast for the batch.
+  const restartMany = async (selected: DbInstance[]) => {
+    const eligible = selected.filter((i) => i.actions.includes("restart"));
+    const results = await Promise.allSettled(
+      eligible.map((i) => restart.mutateAsync(i.id)),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed === 0) {
+      notify.success(
+        eligible.length === 1
+          ? `Restarting ${eligible[0]?.name || eligible[0]?.id}.`
+          : `Restarting ${eligible.length} instances.`,
+      );
+    } else {
+      notify.danger(
+        `Could not restart ${failed} of ${eligible.length} instances.`,
+      );
+    }
+  };
+
   const confirmDelete = async () => {
     const results = await Promise.allSettled(
       deleting.map((i) => remove.mutateAsync(i.id)),
@@ -155,9 +174,9 @@ export function DbInstancesPage() {
         title="Database Instances"
         crumbs={[{ label: "Project" }, { label: "Database" }]}
         actions={
-          <Link variant="primary" size="sm" href="/databases/instances/new">
+          <RouteLink variant="primary" size="sm" to="/databases/instances/new">
             Launch instance
-          </Link>
+          </RouteLink>
         }
       >
         {quota && quota.max_instances !== null && (
@@ -166,7 +185,7 @@ export function DbInstancesPage() {
               label="Instances"
               value={count}
               max={quota.max_instances}
-              valueText={`${count} of ${quota.max_instances < 0 ? "unlimited" : quota.max_instances} instances`}
+              valueText={`${count} of ${quotaLimit(quota.max_instances).toLowerCase()} instances`}
             />
           </div>
         )}
@@ -322,10 +341,7 @@ export function DbInstancesPage() {
             label: "Restart",
             isDisabled: (selected) =>
               selected.every((i) => !i.actions.includes("restart")),
-            onAction: (selected) =>
-              selected
-                .filter((i) => i.actions.includes("restart"))
-                .forEach((i) => restart.mutate(i.id)),
+            onAction: (selected) => void restartMany(selected),
           },
           {
             id: "delete",

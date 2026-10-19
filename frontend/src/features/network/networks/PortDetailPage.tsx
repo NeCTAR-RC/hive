@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { RowActionsMenu } from "../../../components/DataTable/DataTable";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
@@ -21,6 +21,7 @@ import {
 } from "../status";
 import { usePortActions } from "./NetworkActions";
 import styles from "./NetworkDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 export function PortDetailPage() {
   const projectId = useProjectId();
@@ -73,9 +74,9 @@ export function PortDetailPage() {
         {notFound ? (
           <p>
             There is no port <code>{portId}</code> visible to this project.{" "}
-            <RouterLink to="/network/networks" search={{}}>
+            <RouteLink to="/network/networks" search={{}}>
               Back to networks
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState error={port.error} onRetry={() => void port.refetch()} />
@@ -118,13 +119,13 @@ export function PortDetailPage() {
               {
                 label: "Network",
                 value: data.network_id ? (
-                  <RouterLink
+                  <RouteLink
                     to="/network/networks/$networkId"
                     params={{ networkId: data.network_id }}
                     search={{}}
                   >
                     {data.network_name ?? data.network_id}
-                  </RouterLink>
+                  </RouteLink>
                 ) : null,
               },
               {
@@ -150,14 +151,14 @@ export function PortDetailPage() {
                           {ip.subnet_id && (
                             <>
                               {" on subnet "}
-                              <RouterLink
+                              <RouteLink
                                 to="/network/subnets/$subnetId"
                                 params={{ subnetId: ip.subnet_id }}
                               >
                                 {network.data?.subnets.find(
                                   (s) => s.id === ip.subnet_id,
                                 )?.name || ip.subnet_id}
-                              </RouterLink>
+                              </RouteLink>
                             </>
                           )}
                         </li>
@@ -171,13 +172,13 @@ export function PortDetailPage() {
                 label: "Device ID",
                 value: data.device_id ? (
                   data.device_type === "compute" ? (
-                    <RouterLink
+                    <RouteLink
                       to="/compute/instances/$instanceId"
                       params={{ instanceId: data.device_id }}
                       search={{}}
                     >
                       {data.device_id}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     <code>{data.device_id}</code>
                   )
@@ -200,12 +201,12 @@ export function PortDetailPage() {
                     <ul className={styles.plainList}>
                       {data.security_groups.map((id) => (
                         <li key={id}>
-                          <RouterLink
+                          <RouteLink
                             to="/network/security-groups/$groupId"
                             params={{ groupId: id }}
                           >
                             {groupNames.get(id) ?? id}
-                          </RouterLink>
+                          </RouteLink>
                         </li>
                       ))}
                     </ul>

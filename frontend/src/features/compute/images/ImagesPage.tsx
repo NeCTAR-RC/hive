@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
@@ -19,6 +19,7 @@ import { imagesQuery, useDeleteImages } from "../api";
 import { CreateImageDialog, EditImageDialog } from "./ImageDialogs";
 import { imageStatusTone, visibilityLabel } from "./presentation";
 import styles from "./ImagesPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const VISIBILITY_FILTERS = [
   { id: "", label: "All visibilities" },
@@ -70,13 +71,9 @@ export function ImagesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/compute/images/$imageId"
-            params={{ imageId: row.id }}
-            className={styles.nameLink}
-          >
+          <RouteLink to="/compute/images/$imageId" params={{ imageId: row.id }}>
             {row.name ?? row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? "",
       },

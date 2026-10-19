@@ -2,8 +2,6 @@
 // project's Kubernetes clusters, quota, security risks and actions.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { Link } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
   DataTable,
@@ -12,6 +10,7 @@ import {
 import { filterRows } from "../../components/DataTable/filter";
 import { Panel } from "../../components/Panel/Panel";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { Cluster } from "../../lib/api/types";
@@ -50,13 +49,12 @@ export function ClustersPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/kubernetes/clusters/$clusterId"
             params={{ clusterId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -88,14 +86,13 @@ export function ClustersPage() {
         cell: (row) => {
           const count = riskCounts.get(row.id) ?? 0;
           return count > 0 ? (
-            <RouterLink
+            <RouteLink
               to="/security/risks"
               hash={row.id}
-              className={styles.riskLink}
               aria-label={`${count} security ${count === 1 ? "risk" : "risks"}`}
             >
               <StatusPill tone="danger">{`${count} ${count === 1 ? "risk" : "risks"}`}</StatusPill>
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           );
@@ -165,9 +162,9 @@ export function ClustersPage() {
         title="Clusters"
         crumbs={[{ label: "Project" }, { label: "Container Infra" }]}
         actions={
-          <Link variant="primary" size="sm" href="/kubernetes/clusters/new">
+          <RouteLink variant="primary" size="sm" to="/kubernetes/clusters/new">
             Create cluster
-          </Link>
+          </RouteLink>
         }
       />
       <div className={styles.stack}>

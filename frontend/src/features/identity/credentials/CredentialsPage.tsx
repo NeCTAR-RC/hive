@@ -12,7 +12,9 @@ import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
+import { loadingProps } from "../../../components/buttonState";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
 import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import type { Credential } from "../../../lib/api/types";
@@ -202,6 +204,9 @@ function Ec2Panel({
   const ensure = useEnsureEc2(projectId);
   const recreate = useRecreateEc2(projectId);
   const [recreating, setRecreating] = useState(false);
+  // The access key whose secret the user chose to show; a recreated pair
+  // starts hidden again.
+  const [revealed, setRevealed] = useState<string | null>(null);
   const credential = ec2.data?.credential ?? null;
   return (
     <Panel
@@ -228,40 +233,56 @@ function Ec2Panel({
       ) : ec2.isError ? (
         <ErrorState error={ec2.error} onRetry={() => ec2.refetch()} />
       ) : credential ? (
-        <dl className={styles.keys}>
-          <dt>Access key</dt>
-          <dd>
-            <span className={styles.copyable}>
-              <code>{credential.access}</code>
-              <CopyButton text={credential.access} label="Copy access key" />
-            </span>
-          </dd>
-          <dt>Secret key</dt>
-          <dd>
-            <CodeBlock text={credential.secret} label="Secret key" wrap />
-          </dd>
-        </dl>
+        <KeyValueList
+          items={[
+            {
+              label: "Access key",
+              value: (
+                <span className={styles.copyable}>
+                  <code>{credential.access}</code>
+                  <CopyButton
+                    text={credential.access}
+                    label="Copy access key"
+                  />
+                </span>
+              ),
+            },
+            {
+              label: "Secret key",
+              // Horizon's "View credentials" keeps the secret out of the
+              // page until asked; so does this, per credential.
+              value:
+                revealed === credential.access ? (
+                  <CodeBlock text={credential.secret} label="Secret key" wrap />
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    onPress={() => setRevealed(credential.access)}
+                  >
+                    Show secret key
+                  </Button>
+                ),
+            },
+          ]}
+        />
       ) : (
         <>
           <p>This project has no EC2 credentials yet.</p>
           {ensure.isError && (
             <ErrorState error={ensure.error} title="Could not create" />
           )}
-          {ensure.isPending ? (
-            <Button state="loading" loadingText="Creating..." isDisabled>
-              Create EC2 credentials
-            </Button>
-          ) : (
-            <Button
-              onPress={() =>
-                ensure.mutate(undefined, {
-                  onSuccess: () => notify.success("EC2 credentials created."),
-                })
-              }
-            >
-              Create EC2 credentials
-            </Button>
-          )}
+          <Button
+            isPending={ensure.isPending}
+            {...loadingProps(ensure.isPending, "Creating...")}
+            onPress={() =>
+              ensure.mutate(undefined, {
+                onSuccess: () => notify.success("EC2 credentials created."),
+              })
+            }
+          >
+            Create EC2 credentials
+          </Button>
         </>
       )}
       <ConfirmDialog

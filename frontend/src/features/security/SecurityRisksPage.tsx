@@ -3,7 +3,7 @@
 // count alert whose tone follows Horizon's thresholds.
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
 import { Alert } from "@ardc-ui/react";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
@@ -15,6 +15,7 @@ import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { groupRisks, riskName, riskTone, SECURITY_HELP } from "./risks";
 import styles from "./SecurityRisksPage.module.scss";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function SecurityRisksPage() {
   const projectId = useProjectId();
@@ -88,12 +89,12 @@ export function SecurityRisksPage() {
                       headingLevel={3}
                       actions={
                         group.resourceType === "instance" ? (
-                          <RouterLink
+                          <RouteLink
                             to="/compute/instances/$instanceId"
                             params={{ instanceId: group.resourceId }}
                           >
                             View instance
-                          </RouterLink>
+                          </RouteLink>
                         ) : null
                       }
                     >

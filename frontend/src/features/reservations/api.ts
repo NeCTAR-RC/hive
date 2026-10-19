@@ -25,7 +25,8 @@ const POLL_MS = 3000;
 export function reservationsQuery(projectId: string) {
   return queryOptions({
     queryKey: reservationKey(projectId, "list"),
-    queryFn: () => apiFetch<ReservationsResponse>("/api/reservations"),
+    queryFn: ({ signal }) =>
+      apiFetch<ReservationsResponse>("/api/reservations", { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((r) => r.status === "PENDING_CREATE")
@@ -37,7 +38,8 @@ export function reservationsQuery(projectId: string) {
 export function reservationQuery(projectId: string, reservationId: string) {
   return queryOptions({
     queryKey: reservationKey(projectId, "detail", reservationId),
-    queryFn: () => apiFetch<Reservation>(`/api/reservations/${reservationId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Reservation>(`/api/reservations/${reservationId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.status === "PENDING_CREATE" ? POLL_MS : false,
@@ -47,7 +49,8 @@ export function reservationQuery(projectId: string, reservationId: string) {
 export function reservationOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: reservationKey(projectId, "options"),
-    queryFn: () => apiFetch<ReservationOptions>("/api/reservations/options"),
+    queryFn: ({ signal }) =>
+      apiFetch<ReservationOptions>("/api/reservations/options", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -62,8 +65,11 @@ export type SlotParams = {
 export function slotsQuery(projectId: string, params: SlotParams) {
   return queryOptions({
     queryKey: reservationKey(projectId, "slots", params),
-    queryFn: () =>
-      apiFetch<SlotsResponse>("/api/reservations/slots", { query: params }),
+    queryFn: ({ signal }) =>
+      apiFetch<SlotsResponse>("/api/reservations/slots", {
+        signal,
+        query: params,
+      }),
     staleTime: staleTimes.list,
   });
 }
@@ -71,9 +77,10 @@ export function slotsQuery(projectId: string, params: SlotParams) {
 export function extendOptionsQuery(projectId: string, reservationId: string) {
   return queryOptions({
     queryKey: reservationKey(projectId, "extend", reservationId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<ExtendWindow>(
         `/api/reservations/${reservationId}/extend-options`,
+        { signal },
       ),
     staleTime: 0,
   });
@@ -81,8 +88,9 @@ export function extendOptionsQuery(projectId: string, reservationId: string) {
 
 function useInvalidate(projectId: string) {
   const queryClient = useQueryClient();
+  // Not awaited: the mutation settles without waiting for the refetches.
   return () =>
-    queryClient.invalidateQueries({ queryKey: reservationKey(projectId) });
+    void queryClient.invalidateQueries({ queryKey: reservationKey(projectId) });
 }
 
 export function useCreateReservation(projectId: string) {

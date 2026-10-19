@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import { RowActionsMenu } from "../../../components/DataTable/DataTable";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
@@ -18,6 +18,7 @@ import { imageQuery, useDeleteImages } from "../api";
 import { EditImageDialog } from "./ImageDialogs";
 import { imageStatusTone, visibilityLabel } from "./presentation";
 import styles from "./ImageDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -46,8 +47,7 @@ export function ImageDetailPage() {
         {notFound ? (
           <p>
             There is no image with id <code>{imageId}</code> visible to this
-            project.{" "}
-            <RouterLink to="/compute/images">Back to images</RouterLink>
+            project. <RouteLink to="/compute/images">Back to images</RouteLink>
           </p>
         ) : (
           <ErrorState

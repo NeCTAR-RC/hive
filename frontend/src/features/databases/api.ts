@@ -38,7 +38,7 @@ const POLL_MS = 5000;
 export function dbOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "options"),
-    queryFn: () => apiFetch<DbOptions>(`${BASE}/options`),
+    queryFn: ({ signal }) => apiFetch<DbOptions>(`${BASE}/options`, { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -46,7 +46,8 @@ export function dbOptionsQuery(projectId: string) {
 export function dbInstancesQuery(projectId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instances"),
-    queryFn: () => apiFetch<DbInstancesResponse>(`${BASE}/instances`),
+    queryFn: ({ signal }) =>
+      apiFetch<DbInstancesResponse>(`${BASE}/instances`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((i) => i.is_transitional) ? POLL_MS : false,
@@ -56,8 +57,8 @@ export function dbInstancesQuery(projectId: string) {
 export function dbInstanceQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId),
-    queryFn: () =>
-      apiFetch<DbInstanceDetail>(`${BASE}/instances/${instanceId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<DbInstanceDetail>(`${BASE}/instances/${instanceId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -67,9 +68,10 @@ export function dbInstanceQuery(projectId: string, instanceId: string) {
 export function dbUpgradeTargetsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "upgrade-targets"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<{ current: string | null } & Items<DatastoreOption>>(
         `${BASE}/instances/${instanceId}/upgrade-targets`,
+        { signal },
       ),
     staleTime: staleTimes.static,
   });
@@ -78,9 +80,10 @@ export function dbUpgradeTargetsQuery(projectId: string, instanceId: string) {
 export function dbResizeFlavorsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "resize-flavors"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<DbResizeFlavors>(
         `${BASE}/instances/${instanceId}/resize-flavors`,
+        { signal },
       ),
     staleTime: staleTimes.static,
   });
@@ -89,9 +92,10 @@ export function dbResizeFlavorsQuery(projectId: string, instanceId: string) {
 export function dbConfigDefaultsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "defaults"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<DbConfigDefault>>(
         `${BASE}/instances/${instanceId}/configuration-defaults`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -100,8 +104,10 @@ export function dbConfigDefaultsQuery(projectId: string, instanceId: string) {
 export function dbLogsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "logs"),
-    queryFn: () =>
-      apiFetch<Items<DbLog>>(`${BASE}/instances/${instanceId}/logs`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<DbLog>>(`${BASE}/instances/${instanceId}/logs`, {
+        signal,
+      }),
     staleTime: staleTimes.list,
   });
 }
@@ -114,9 +120,10 @@ export function dbLogContentsQuery(
 ) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "log", name, lines),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<DbLogContents>(
         `${BASE}/instances/${instanceId}/logs/${encodeURIComponent(name)}/contents?lines=${lines}`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -129,9 +136,10 @@ export function logDownloadUrl(instanceId: string, name: string): string {
 export function dbRootQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "root"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<{ id: string; root_enabled: boolean }>(
         `${BASE}/instances/${instanceId}/root`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -140,8 +148,10 @@ export function dbRootQuery(projectId: string, instanceId: string) {
 export function dbUsersQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "users"),
-    queryFn: () =>
-      apiFetch<Items<DbUser>>(`${BASE}/instances/${instanceId}/users`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<DbUser>>(`${BASE}/instances/${instanceId}/users`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
   });
 }
@@ -154,9 +164,10 @@ export function dbUserAccessQuery(
 ) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "access", name, host),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<{ name: string | null; granted: boolean }>>(
         `${BASE}/instances/${instanceId}/users/${encodeURIComponent(name)}/access?host=${encodeURIComponent(host)}`,
+        { signal },
       ),
     staleTime: 0,
   });
@@ -165,9 +176,10 @@ export function dbUserAccessQuery(
 export function dbDatabasesQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "databases"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<{ name: string | null }>>(
         `${BASE}/instances/${instanceId}/databases`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -176,8 +188,10 @@ export function dbDatabasesQuery(projectId: string, instanceId: string) {
 export function dbInstanceBackupsQuery(projectId: string, instanceId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "instance", instanceId, "backups"),
-    queryFn: () =>
-      apiFetch<Items<DbBackup>>(`${BASE}/instances/${instanceId}/backups`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<DbBackup>>(`${BASE}/instances/${instanceId}/backups`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.items.some((b) => b.is_transitional) ? POLL_MS : false,
@@ -187,7 +201,8 @@ export function dbInstanceBackupsQuery(projectId: string, instanceId: string) {
 export function dbBackupsQuery(projectId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "backups"),
-    queryFn: () => apiFetch<DbBackupsResponse>(`${BASE}/backups`),
+    queryFn: ({ signal }) =>
+      apiFetch<DbBackupsResponse>(`${BASE}/backups`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((b) => b.is_transitional) ? POLL_MS : false,
@@ -197,7 +212,8 @@ export function dbBackupsQuery(projectId: string) {
 export function dbBackupQuery(projectId: string, backupId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "backup", backupId),
-    queryFn: () => apiFetch<DbBackupDetail>(`${BASE}/backups/${backupId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<DbBackupDetail>(`${BASE}/backups/${backupId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -207,7 +223,8 @@ export function dbBackupQuery(projectId: string, backupId: string) {
 export function dbConfigurationsQuery(projectId: string) {
   return queryOptions({
     queryKey: troveKey(projectId, "configurations"),
-    queryFn: () => apiFetch<DbConfigurationsResponse>(`${BASE}/configurations`),
+    queryFn: ({ signal }) =>
+      apiFetch<DbConfigurationsResponse>(`${BASE}/configurations`, { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -218,26 +235,47 @@ export function dbConfigurationQuery(
 ) {
   return queryOptions({
     queryKey: troveKey(projectId, "configuration", configurationId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<DbConfigurationDetail>(
         `${BASE}/configurations/${configurationId}`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
 }
 
+/** Key suffixes under `troveKey(projectId)` that a mutation changes. */
+type Scopes = readonly (readonly unknown[])[];
+
+/** The whole trove tree: for changes that reach most lists. */
+const EVERYTHING: Scopes = [[]];
+
+function instanceScopes(id: string): Scopes {
+  return [["instances"], ["instance", id]];
+}
+
 function useInvalidate(projectId: string) {
   const queryClient = useQueryClient();
-  return () =>
-    void queryClient.invalidateQueries({ queryKey: troveKey(projectId) });
+  // Not awaited: the mutation settles without waiting for the refetches.
+  return (scopes: Scopes) => {
+    for (const scope of scopes) {
+      void queryClient.invalidateQueries({
+        queryKey: troveKey(projectId, ...scope),
+      });
+    }
+  };
 }
 
 function useSimpleMutation<TArgs, TResult>(
   projectId: string,
   fn: (args: TArgs) => Promise<TResult>,
+  scopes: (args: TArgs) => Scopes = () => EVERYTHING,
 ) {
   const invalidate = useInvalidate(projectId);
-  return useMutation({ mutationFn: fn, onSuccess: invalidate });
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (_data, args) => invalidate(scopes(args)),
+  });
 }
 
 export function useLaunchInstance(projectId: string) {
@@ -261,6 +299,7 @@ export function useUpdateInstance(projectId: string) {
         method: "PATCH",
         json: body,
       }),
+    ({ id }) => instanceScopes(id),
   );
 }
 
@@ -278,6 +317,7 @@ export function useResizeVolume(projectId: string) {
         method: "POST",
         json: { size },
       }),
+    ({ id }) => instanceScopes(id),
   );
 }
 
@@ -289,6 +329,7 @@ export function useResizeInstance(projectId: string) {
         method: "POST",
         json: { flavor },
       }),
+    ({ id }) => instanceScopes(id),
   );
 }
 
@@ -300,6 +341,7 @@ export function useUpgradeInstance(projectId: string) {
         method: "POST",
         json: { version_id: versionId },
       }),
+    ({ id }) => instanceScopes(id),
   );
 }
 
@@ -321,12 +363,19 @@ export function useLogAction(projectId: string) {
         `${BASE}/instances/${instanceId}/logs/${encodeURIComponent(name)}/actions/${action}`,
         { method: "POST" },
       ),
+    ({ instanceId }) => [
+      ["instance", instanceId, "logs"],
+      ["instance", instanceId, "log"],
+    ],
   );
 }
 
 export function useRestartInstance(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<unknown>(`${BASE}/instances/${id}/restart`, { method: "POST" }),
+  return useSimpleMutation(
+    projectId,
+    (id: string) =>
+      apiFetch<unknown>(`${BASE}/instances/${id}/restart`, { method: "POST" }),
+    (id) => instanceScopes(id),
   );
 }
 
@@ -338,23 +387,30 @@ export function useAttachConfiguration(projectId: string) {
         method: "POST",
         json: { configuration_id: configurationId },
       }),
+    ({ id }) => [...instanceScopes(id), ["configuration"]],
   );
 }
 
 export function useDetachConfiguration(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<unknown>(`${BASE}/instances/${id}/configuration`, {
-      method: "DELETE",
-    }),
+  return useSimpleMutation(
+    projectId,
+    (id: string) =>
+      apiFetch<unknown>(`${BASE}/instances/${id}/configuration`, {
+        method: "DELETE",
+      }),
+    (id) => [...instanceScopes(id), ["configuration"]],
   );
 }
 
 export function useEnableRoot(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<{ id: string; name: string | null; password: string | null }>(
-      `${BASE}/instances/${id}/root`,
-      { method: "POST" },
-    ),
+  return useSimpleMutation(
+    projectId,
+    (id: string) =>
+      apiFetch<{ id: string; name: string | null; password: string | null }>(
+        `${BASE}/instances/${id}/root`,
+        { method: "POST" },
+      ),
+    (id) => [["instance", id, "root"]],
   );
 }
 
@@ -375,6 +431,10 @@ export function useCreateUser(projectId: string) {
         method: "POST",
         json: body,
       }),
+    ({ instanceId }) => [
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -394,6 +454,10 @@ export function useDeleteUser(projectId: string) {
         `${BASE}/instances/${instanceId}/users/${encodeURIComponent(name)}?host=${encodeURIComponent(host)}`,
         { method: "DELETE" },
       ),
+    ({ instanceId }) => [
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -415,6 +479,10 @@ export function useGrantAccess(projectId: string) {
         `${BASE}/instances/${instanceId}/users/${encodeURIComponent(name)}/access?host=${encodeURIComponent(host)}`,
         { method: "PUT", json: { databases } },
       ),
+    ({ instanceId }) => [
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -436,6 +504,10 @@ export function useRevokeAccess(projectId: string) {
         `${BASE}/instances/${instanceId}/users/${encodeURIComponent(name)}/access/${encodeURIComponent(database)}?host=${encodeURIComponent(host)}`,
         { method: "DELETE" },
       ),
+    ({ instanceId }) => [
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -455,6 +527,11 @@ export function useCreateDatabase(projectId: string) {
         method: "POST",
         json: body,
       }),
+    ({ instanceId }) => [
+      ["instance", instanceId, "databases"],
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -466,6 +543,11 @@ export function useDeleteDatabase(projectId: string) {
         `${BASE}/instances/${instanceId}/databases/${encodeURIComponent(name)}`,
         { method: "DELETE" },
       ),
+    ({ instanceId }) => [
+      ["instance", instanceId, "databases"],
+      ["instance", instanceId, "users"],
+      ["instance", instanceId, "access"],
+    ],
   );
 }
 
@@ -478,12 +560,20 @@ export function useCreateBackup(projectId: string) {
       description?: string;
       parent_id?: string;
     }) => apiFetch<DbBackup>(`${BASE}/backups`, { method: "POST", json: body }),
+    ({ instance_id }) => [
+      ["backups"],
+      ["instance", instance_id, "backups"],
+      ["options"],
+    ],
   );
 }
 
 export function useDeleteBackup(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/backups/${id}`, { method: "DELETE" }),
+  return useSimpleMutation(
+    projectId,
+    (id: string) =>
+      apiFetch<void>(`${BASE}/backups/${id}`, { method: "DELETE" }),
+    (id) => [["backups"], ["backup", id], ["instance"], ["options"]],
   );
 }
 
@@ -500,6 +590,7 @@ export function useCreateConfiguration(projectId: string) {
         method: "POST",
         json: body,
       }),
+    () => [["configurations"], ["options"]],
   );
 }
 
@@ -511,11 +602,15 @@ export function useSetConfigurationValues(projectId: string) {
         `${BASE}/configurations/${id}/values`,
         { method: "PUT", json: { values } },
       ),
+    ({ id }) => [["configuration", id]],
   );
 }
 
 export function useDeleteConfiguration(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/configurations/${id}`, { method: "DELETE" }),
+  return useSimpleMutation(
+    projectId,
+    (id: string) =>
+      apiFetch<void>(`${BASE}/configurations/${id}`, { method: "DELETE" }),
+    (id) => [["configurations"], ["configuration", id], ["options"]],
   );
 }

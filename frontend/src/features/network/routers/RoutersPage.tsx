@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
@@ -22,6 +22,7 @@ import {
 } from "../status";
 import { useRouterActions } from "./RouterActions";
 import { CreateRouterDialog } from "./RouterDialogs";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
@@ -60,12 +61,12 @@ export function RoutersPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/network/routers/$routerId"
             params={{ routerId: row.id }}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,

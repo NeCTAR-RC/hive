@@ -5,11 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert } from "@ardc-ui/react";
+import { Alert, Loading } from "@ardc-ui/react";
 import { CodeBlock } from "../../components/CodeBlock/CodeBlock";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { SelectInput, TextAreaInput } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { Cluster } from "../../lib/api/types";
 import { downloadText } from "../../lib/download";
 import { notify } from "../../lib/notify";
@@ -61,14 +61,17 @@ export function UpgradeClusterDialog({
       submitLabel="Upgrade"
       onSubmit={submit}
       isPending={upgrade.isPending}
+      isSubmitDisabled={targets.length === 0}
       error={upgrade.error}
     >
       {options.isPending ? (
-        <SkeletonLines lines={3} />
+        <Loading>Loading upgrade targets...</Loading>
       ) : options.isError ? (
-        <Alert tone="danger" role="status">
-          The upgrade targets could not be loaded.
-        </Alert>
+        <ErrorState
+          error={options.error}
+          title="Could not load the upgrade targets"
+          onRetry={() => void options.refetch()}
+        />
       ) : targets.length === 0 ? (
         <Alert tone="info" role="status">
           This cluster is already on the latest Kubernetes version.

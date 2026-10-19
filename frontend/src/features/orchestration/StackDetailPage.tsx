@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Alert, Button, TabItem, Tabs } from "@ardc-ui/react";
+import type { Key } from "@ardc-ui/react";
 import { CodeBlock } from "../../components/CodeBlock/CodeBlock";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -16,6 +17,7 @@ import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { ApiError } from "../../lib/api/client";
 import type {
   StackDetail,
   StackEvent,
@@ -24,6 +26,7 @@ import type {
 import { formatDateTime, formatRelative } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { stackRoute } from "../../app/router";
 import {
@@ -35,7 +38,7 @@ import {
   useStackAction,
 } from "./api";
 import { UpdateStackDialog } from "./StackDialogs";
-import { ACTION_LABELS, statusLabel, statusTone } from "./status";
+import { ACTION_LABELS, actionVerb, statusLabel, statusTone } from "./status";
 import styles from "./Orchestration.module.scss";
 
 export function StackDetailPage() {
@@ -49,7 +52,7 @@ export function StackDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const tab = search.tab ?? "overview";
-  const selectTab = (key: React.Key) =>
+  const selectTab = (key: Key) =>
     void navigate({
       search: key === "overview" ? {} : { tab: String(key) },
       replace: true,
@@ -63,20 +66,38 @@ export function StackDetailPage() {
       {
         onSuccess: () =>
           notify.success(`${ACTION_LABELS[action] ?? action}: ${data.name}.`),
-        onError: () => notify.danger(`Could not ${action} stack ${data.name}.`),
+        onError: () =>
+          notify.danger(`Could not ${actionVerb(action)} stack ${data.name}.`),
       },
     );
   };
+
+  const crumbs = [
+    { label: "Project" },
+    { label: "Orchestration" },
+    { label: "Stacks", href: "/orchestration/stacks" },
+  ];
+  if (
+    stack.isError &&
+    stack.error instanceof ApiError &&
+    stack.error.status === 404
+  ) {
+    return (
+      <>
+        <PageHeader title="Stack not found" crumbs={crumbs} />
+        <p>
+          There is no stack <code>{stackId}</code> in this project.{" "}
+          <RouteLink to="/orchestration/stacks">Back to stacks</RouteLink>
+        </p>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         title={data?.name ?? "Stack"}
-        crumbs={[
-          { label: "Project" },
-          { label: "Orchestration" },
-          { label: "Stacks", href: "/orchestration/stacks" },
-        ]}
+        crumbs={crumbs}
         actions={
           data ? (
             <div className={styles.actions}>
@@ -88,6 +109,15 @@ export function StackDetailPage() {
               >
                 Change template
               </Button>
+              {data.actions.includes("cancel_update") && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => run("cancel_update")}
+                >
+                  Cancel update
+                </Button>
+              )}
               {data.actions.includes("resume") ? (
                 <Button
                   variant="secondary"

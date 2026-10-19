@@ -30,10 +30,18 @@ import styles from "./TrunkDialogs.module.scss";
 
 const NAME = z.string().trim().max(255, "At most 255 characters");
 
+const VLAN_MESSAGE = "Enter a VLAN id from 1 to 4094";
+
 const subportSchema = z.object({
   port_id: z.string().min(1, "Choose a port"),
   segmentation_type: z.enum(["vlan", "inherit"]),
-  segmentation_id: z.number().int().min(1).max(4094).nullable(),
+  // A cleared number field gives undefined; treat it as no VLAN id.
+  segmentation_id: z
+    .number(VLAN_MESSAGE)
+    .int(VLAN_MESSAGE)
+    .min(1, VLAN_MESSAGE)
+    .max(4094, VLAN_MESSAGE)
+    .nullish(),
 });
 
 type SubportValues = z.infer<typeof subportSchema>;
@@ -42,7 +50,7 @@ function subportsBody(values: SubportValues[]): TrunkSubportRequest[] {
   return values.map((s) => ({
     port_id: s.port_id,
     segmentation_type: s.segmentation_type,
-    ...(s.segmentation_type === "vlan" && s.segmentation_id !== null
+    ...(s.segmentation_type === "vlan" && typeof s.segmentation_id === "number"
       ? { segmentation_id: s.segmentation_id }
       : {}),
   }));
@@ -149,7 +157,10 @@ const createSchema = z
   })
   .superRefine((values, ctx) => {
     values.sub_ports.forEach((s, index) => {
-      if (s.segmentation_type === "vlan" && s.segmentation_id === null) {
+      if (
+        s.segmentation_type === "vlan" &&
+        (s.segmentation_id ?? null) === null
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["sub_ports", index, "segmentation_id"],
@@ -341,7 +352,10 @@ const addSubportsSchema = z
   })
   .superRefine((values, ctx) => {
     values.sub_ports.forEach((s, index) => {
-      if (s.segmentation_type === "vlan" && s.segmentation_id === null) {
+      if (
+        s.segmentation_type === "vlan" &&
+        (s.segmentation_id ?? null) === null
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["sub_ports", index, "segmentation_id"],

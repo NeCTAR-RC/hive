@@ -216,3 +216,25 @@ export function selectionFor(
   const days = Math.max(Math.min(eligible, remaining), 1);
   return { start, end: addDays(start, days - 1), days };
 }
+
+/** Gap between the pointer and the hover tip, in pixels. */
+const TIP_GAP = 16;
+
+/** Where a tip of `size` goes for a pointer at `pointer`: below and right
+ * of it, flipped above or left where it would leave the viewport, and
+ * never past the top or left edge. */
+export function tipPosition(
+  pointer: { x: number; y: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  let left = pointer.x + TIP_GAP;
+  if (left + size.width > viewport.width) {
+    left = pointer.x - TIP_GAP - size.width;
+  }
+  let top = pointer.y + TIP_GAP;
+  if (top + size.height > viewport.height) {
+    top = pointer.y - TIP_GAP - size.height;
+  }
+  return { left: Math.max(left, 0), top: Math.max(top, 0) };
+}

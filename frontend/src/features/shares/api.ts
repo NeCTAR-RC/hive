@@ -10,7 +10,8 @@ import type {
   ShareAccessRule,
   Items,
   SecurityService,
-  SecurityServiceRequest,
+  SecurityServiceCreateRequest,
+  SecurityServiceUpdateRequest,
   Share,
   ShareAccessResponse,
   ShareCreateRequest,
@@ -42,7 +43,8 @@ function pollWhile<T extends { is_transitional: boolean }>(
 export function shareOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "options"),
-    queryFn: () => apiFetch<ShareOptions>(`${BASE}/options`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareOptions>(`${BASE}/options`, { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -50,7 +52,8 @@ export function shareOptionsQuery(projectId: string) {
 export function sharesQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "shares"),
-    queryFn: () => apiFetch<SharesResponse>(`${BASE}/shares`),
+    queryFn: ({ signal }) =>
+      apiFetch<SharesResponse>(`${BASE}/shares`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) => pollWhile(query.state.data),
   });
@@ -59,7 +62,8 @@ export function sharesQuery(projectId: string) {
 export function shareQuery(projectId: string, shareId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "share", shareId),
-    queryFn: () => apiFetch<ShareDetail>(`${BASE}/shares/${shareId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareDetail>(`${BASE}/shares/${shareId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -69,8 +73,10 @@ export function shareQuery(projectId: string, shareId: string) {
 export function shareAccessQuery(projectId: string, shareId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "share", shareId, "access"),
-    queryFn: () =>
-      apiFetch<ShareAccessResponse>(`${BASE}/shares/${shareId}/access`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareAccessResponse>(`${BASE}/shares/${shareId}/access`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.items.some((r) =>
@@ -86,7 +92,8 @@ export function shareAccessQuery(projectId: string, shareId: string) {
 export function shareSnapshotsQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "snapshots"),
-    queryFn: () => apiFetch<ShareSnapshotsResponse>(`${BASE}/snapshots`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareSnapshotsResponse>(`${BASE}/snapshots`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) => pollWhile(query.state.data),
   });
@@ -95,8 +102,10 @@ export function shareSnapshotsQuery(projectId: string) {
 export function shareSnapshotQuery(projectId: string, snapshotId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "snapshot", snapshotId),
-    queryFn: () =>
-      apiFetch<ShareSnapshotDetail>(`${BASE}/snapshots/${snapshotId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareSnapshotDetail>(`${BASE}/snapshots/${snapshotId}`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -106,9 +115,10 @@ export function shareSnapshotQuery(projectId: string, snapshotId: string) {
 export function securityServicesQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "security-services"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<SecurityService> & { types: string[] }>(
         `${BASE}/security-services`,
+        { signal },
       ),
     staleTime: staleTimes.list,
   });
@@ -117,8 +127,10 @@ export function securityServicesQuery(projectId: string) {
 export function securityServiceQuery(projectId: string, serviceId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "security-service", serviceId),
-    queryFn: () =>
-      apiFetch<SecurityService>(`${BASE}/security-services/${serviceId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<SecurityService>(`${BASE}/security-services/${serviceId}`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
   });
 }
@@ -126,7 +138,8 @@ export function securityServiceQuery(projectId: string, serviceId: string) {
 export function shareGroupsQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "groups"),
-    queryFn: () => apiFetch<Items<ShareGroup>>(`${BASE}/groups`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ShareGroup>>(`${BASE}/groups`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) => pollWhile(query.state.data),
   });
@@ -135,7 +148,8 @@ export function shareGroupsQuery(projectId: string) {
 export function shareGroupQuery(projectId: string, groupId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "group", groupId),
-    queryFn: () => apiFetch<ShareGroupDetail>(`${BASE}/groups/${groupId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<ShareGroupDetail>(`${BASE}/groups/${groupId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data?.is_transitional ? POLL_MS : false,
@@ -145,8 +159,10 @@ export function shareGroupQuery(projectId: string, groupId: string) {
 export function shareGroupSnapshotsQuery(projectId: string) {
   return queryOptions({
     queryKey: manilaKey(projectId, "group-snapshots"),
-    queryFn: () =>
-      apiFetch<Items<ShareGroupSnapshot>>(`${BASE}/group-snapshots`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ShareGroupSnapshot>>(`${BASE}/group-snapshots`, {
+        signal,
+      }),
     staleTime: staleTimes.list,
     refetchInterval: (query) => pollWhile(query.state.data),
   });
@@ -271,7 +287,7 @@ export function useUpdateSnapshot(projectId: string) {
   return useSimpleMutation(
     projectId,
     ({ id, ...body }: { id: string; name?: string; description?: string }) =>
-      apiFetch<ShareSnapshot>(`${BASE}/snapshots/${id}`, {
+      apiFetch<ShareSnapshotDetail>(`${BASE}/snapshots/${id}`, {
         method: "PATCH",
         json: body,
       }),
@@ -313,7 +329,7 @@ export function useSnapshotDenyAccess(projectId: string) {
 }
 
 export function useCreateSecurityService(projectId: string) {
-  return useSimpleMutation(projectId, (body: SecurityServiceRequest) =>
+  return useSimpleMutation(projectId, (body: SecurityServiceCreateRequest) =>
     apiFetch<SecurityService>(`${BASE}/security-services`, {
       method: "POST",
       json: body,
@@ -324,7 +340,7 @@ export function useCreateSecurityService(projectId: string) {
 export function useUpdateSecurityService(projectId: string) {
   return useSimpleMutation(
     projectId,
-    ({ id, ...body }: SecurityServiceRequest & { id: string }) =>
+    ({ id, ...body }: SecurityServiceUpdateRequest & { id: string }) =>
       apiFetch<SecurityService>(`${BASE}/security-services/${id}`, {
         method: "PATCH",
         json: body,

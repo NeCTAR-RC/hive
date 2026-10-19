@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
@@ -18,6 +18,7 @@ import { backupsQuery } from "../api";
 import { availableBackupActions, statusLabel, statusTone } from "../status";
 import { useBackupActions } from "./BackupActions";
 import styles from "./BackupsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All statuses" },
@@ -54,12 +55,12 @@ export function BackupsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/storage/backups/$backupId"
             params={{ backupId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -100,12 +101,12 @@ export function BackupsPage() {
         cell: (row) =>
           row.volume_id ? (
             row.volume_name ? (
-              <RouterLink
+              <RouteLink
                 to="/storage/volumes/$volumeId"
                 params={{ volumeId: row.volume_id }}
               >
                 {row.volume_name}
-              </RouterLink>
+              </RouteLink>
             ) : (
               <span className={styles.muted}>Deleted ({row.volume_id})</span>
             )
@@ -122,12 +123,12 @@ export function BackupsPage() {
         cell: (row) =>
           row.snapshot_id ? (
             row.snapshot_name ? (
-              <RouterLink
+              <RouteLink
                 to="/storage/snapshots/$snapshotId"
                 params={{ snapshotId: row.snapshot_id }}
               >
                 {row.snapshot_name}
-              </RouterLink>
+              </RouteLink>
             ) : (
               <span className={styles.muted}>Deleted</span>
             )
@@ -207,9 +208,9 @@ export function BackupsPage() {
           backups.data && backups.data.items.length === 0 ? (
             <p>
               Create a backup from a volume's row menu on the{" "}
-              <RouterLink to="/storage/volumes" search={{}}>
+              <RouteLink to="/storage/volumes" search={{}}>
                 Volumes
-              </RouterLink>{" "}
+              </RouteLink>{" "}
               page. Backups are kept in the object store.
             </p>
           ) : null

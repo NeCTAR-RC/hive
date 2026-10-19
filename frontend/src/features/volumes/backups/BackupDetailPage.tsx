@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { RowActionsMenu } from "../../../components/DataTable/DataTable";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
@@ -14,6 +13,7 @@ import { backupRoute } from "../../../app/router";
 import { backupQuery } from "../api";
 import { availableBackupActions, statusLabel, statusTone } from "../status";
 import { useBackupActions } from "./BackupActions";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -39,9 +39,9 @@ export function BackupDetailPage() {
         {notFound ? (
           <p>
             There is no volume backup <code>{backupId}</code> in this project.{" "}
-            <RouterLink to="/storage/backups" search={{}}>
+            <RouteLink to="/storage/backups" search={{}}>
               Back to backups
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -99,12 +99,12 @@ export function BackupDetailPage() {
                 label: "Volume",
                 value: data.volume_id ? (
                   data.volume_name ? (
-                    <RouterLink
+                    <RouteLink
                       to="/storage/volumes/$volumeId"
                       params={{ volumeId: data.volume_id }}
                     >
                       {data.volume_name}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     `Deleted (${data.volume_id})`
                   )
@@ -114,12 +114,12 @@ export function BackupDetailPage() {
                 label: "Snapshot",
                 value: data.snapshot_id ? (
                   data.snapshot_name ? (
-                    <RouterLink
+                    <RouteLink
                       to="/storage/snapshots/$snapshotId"
                       params={{ snapshotId: data.snapshot_id }}
                     >
                       {data.snapshot_name}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     `Deleted (${data.snapshot_id})`
                   )

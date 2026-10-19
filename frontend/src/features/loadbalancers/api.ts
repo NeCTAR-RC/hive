@@ -6,7 +6,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { apiFetch } from "../../lib/api/client";
+import { ApiError, apiFetch } from "../../lib/api/client";
 import type {
   HealthMonitor,
   Items,
@@ -16,15 +16,18 @@ import type {
   L7RuleSpec,
   Listener,
   ListenerSpec,
+  ListenerUpdate,
   LoadBalancer,
   LoadBalancerCreateRequest,
   LoadBalancerOptions,
   LoadBalancerTree,
   Member,
   MemberSpec,
+  MemberUpdate,
   MonitorSpec,
   Pool,
   PoolSpec,
+  PoolUpdate,
 } from "../../lib/api/types";
 import { staleTimes } from "../../lib/queries";
 
@@ -39,10 +42,17 @@ function busy(status: string | null | undefined): boolean {
   return Boolean(status && status.startsWith("PENDING_"));
 }
 
+/** The backend's 409 for a change asked of a load balancer that is not
+ * ACTIVE (`load_balancer_busy`); the controls stay disabled while the
+ * load balancer is transitional, so this is a race the user can retry. */
+export function isLoadBalancerBusy(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "load_balancer_busy";
+}
+
 export function loadBalancersQuery(projectId: string) {
   return queryOptions({
     queryKey: lbKey(projectId, "list"),
-    queryFn: () => apiFetch<Items<LoadBalancer>>(BASE),
+    queryFn: ({ signal }) => apiFetch<Items<LoadBalancer>>(BASE, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((lb) => lb.is_transitional)
@@ -54,7 +64,8 @@ export function loadBalancersQuery(projectId: string) {
 export function loadBalancerTreeQuery(projectId: string, lbId: string) {
   return queryOptions({
     queryKey: lbKey(projectId, "tree", lbId),
-    queryFn: () => apiFetch<LoadBalancerTree>(`${BASE}/${lbId}/tree`),
+    queryFn: ({ signal }) =>
+      apiFetch<LoadBalancerTree>(`${BASE}/${lbId}/tree`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -66,7 +77,13 @@ export function loadBalancerTreeQuery(projectId: string, lbId: string) {
       const pending =
         busy(data.load_balancer.provisioning_status) ||
         data.listeners.some((l) => busy(l.provisioning_status)) ||
-        data.pools.some((p) => busy(p.provisioning_status));
+        data.pools.some(
+          (p) =>
+            busy(p.provisioning_status) ||
+            (p.member_rows ?? []).some((m) => busy(m.provisioning_status)),
+        ) ||
+        data.monitors.some((m) => busy(m.provisioning_status)) ||
+        data.l7policies.some((p) => busy(p.provisioning_status));
       return chainRunning || pending ? POLL_MS : false;
     },
   });
@@ -75,7 +92,8 @@ export function loadBalancerTreeQuery(projectId: string, lbId: string) {
 export function loadBalancerOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: lbKey(projectId, "options"),
-    queryFn: () => apiFetch<LoadBalancerOptions>(`${BASE}/options`),
+    queryFn: ({ signal }) =>
+      apiFetch<LoadBalancerOptions>(`${BASE}/options`, { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -83,8 +101,17 @@ export function loadBalancerOptionsQuery(projectId: string) {
 export function l7PolicyQuery(projectId: string, policyId: string) {
   return queryOptions({
     queryKey: lbKey(projectId, "l7policy", policyId),
-    queryFn: () => apiFetch<L7Policy>(`${BASE}/l7policies/${policyId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<L7Policy>(`${BASE}/l7policies/${policyId}`, { signal }),
     staleTime: staleTimes.detail,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data &&
+        (busy(data.provisioning_status) ||
+          (data.rule_rows ?? []).some((r) => busy(r.provisioning_status)))
+        ? POLL_MS
+        : false;
+    },
   });
 }
 
@@ -95,6 +122,15 @@ function useInvalidate(projectId: string) {
     void queryClient.invalidateQueries({
       queryKey: ["project", projectId, "network", "floating-ips"],
     });
+  };
+}
+
+/** On a `load_balancer_busy` refusal, refetch so the page shows the
+ * transitional status and disables the controls until it settles. */
+function useRefreshWhenBusy(projectId: string) {
+  const invalidate = useInvalidate(projectId);
+  return (error: unknown) => {
+    if (isLoadBalancerBusy(error)) invalidate();
   };
 }
 
@@ -150,6 +186,8 @@ export function useAssociateLbFloatingIp(projectId: string) {
         json: { floating_ip_id: floatingIpId ?? null, pool_id: poolId ?? null },
       }),
     onSuccess: invalidate,
+    // A failed allocate-then-associate may leave the new IP behind.
+    onError: invalidate,
   });
 }
 
@@ -164,6 +202,7 @@ export function useDisassociateLbFloatingIp(projectId: string) {
 
 export function useCreateListener(projectId: string) {
   const invalidate = useInvalidate(projectId);
+  const refreshWhenBusy = useRefreshWhenBusy(projectId);
   return useMutation({
     mutationFn: (
       body: ListenerSpec & {
@@ -175,13 +214,14 @@ export function useCreateListener(projectId: string) {
     ) =>
       apiFetch<Listener>(`${BASE}/listeners`, { method: "POST", json: body }),
     onSuccess: invalidate,
+    onError: refreshWhenBusy,
   });
 }
 
 export function useUpdateListener(projectId: string) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string } & Partial<ListenerSpec>) =>
+    mutationFn: ({ id, ...body }: { id: string } & ListenerUpdate) =>
       apiFetch<Listener>(`${BASE}/listeners/${id}`, {
         method: "PATCH",
         json: body,
@@ -201,6 +241,7 @@ export function useDeleteListener(projectId: string) {
 
 export function useCreatePool(projectId: string) {
   const invalidate = useInvalidate(projectId);
+  const refreshWhenBusy = useRefreshWhenBusy(projectId);
   return useMutation({
     mutationFn: (
       body: PoolSpec & {
@@ -211,13 +252,14 @@ export function useCreatePool(projectId: string) {
       },
     ) => apiFetch<Pool>(`${BASE}/pools`, { method: "POST", json: body }),
     onSuccess: invalidate,
+    onError: refreshWhenBusy,
   });
 }
 
 export function useUpdatePool(projectId: string) {
   const invalidate = useInvalidate(projectId);
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string } & Partial<PoolSpec>) =>
+    mutationFn: ({ id, ...body }: { id: string } & PoolUpdate) =>
       apiFetch<Pool>(`${BASE}/pools/${id}`, { method: "PATCH", json: body }),
     onSuccess: invalidate,
   });
@@ -234,6 +276,7 @@ export function useDeletePool(projectId: string) {
 
 export function useAddMember(projectId: string) {
   const invalidate = useInvalidate(projectId);
+  const refreshWhenBusy = useRefreshWhenBusy(projectId);
   return useMutation({
     mutationFn: ({
       lbId,
@@ -245,6 +288,7 @@ export function useAddMember(projectId: string) {
         json: body,
       }),
     onSuccess: invalidate,
+    onError: refreshWhenBusy,
   });
 }
 
@@ -255,7 +299,7 @@ export function useUpdateMember(projectId: string) {
       poolId,
       memberId,
       ...body
-    }: { poolId: string; memberId: string } & Partial<MemberSpec>) =>
+    }: { poolId: string; memberId: string } & MemberUpdate) =>
       apiFetch<Member>(`${BASE}/pools/${poolId}/members/${memberId}`, {
         method: "PATCH",
         json: body,

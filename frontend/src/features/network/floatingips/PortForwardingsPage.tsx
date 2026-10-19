@@ -107,22 +107,23 @@ export function PortForwardingsPage() {
     () => filterRows(rules.data?.items ?? [], q, columns),
     [rules.data, q, columns],
   );
-  const confirmRemove = (targets: PortForwarding[]) =>
-    remove.mutate(
-      targets
-        .filter((r) => r.floating_ip_id)
-        .map((r) => ({ floatingIpId: r.floating_ip_id!, ruleId: r.id })),
-      {
-        onSuccess: () => {
-          notify.success(
-            targets.length === 1
-              ? "Port forwarding rule deleted."
-              : `${targets.length} port forwarding rules deleted.`,
-          );
-          setRemoving(null);
-        },
-      },
+  const confirmRemove = (targets: PortForwarding[]) => {
+    const requests = targets.flatMap((r) =>
+      r.floating_ip_id
+        ? [{ floatingIpId: r.floating_ip_id, ruleId: r.id }]
+        : [],
     );
+    remove.mutate(requests, {
+      onSuccess: () => {
+        notify.success(
+          requests.length === 1
+            ? "Port forwarding rule deleted."
+            : `${requests.length} port forwarding rules deleted.`,
+        );
+        setRemoving(null);
+      },
+    });
+  };
 
   return (
     <>

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
@@ -24,6 +24,7 @@ import {
 import { useNetworkActions } from "./NetworkActions";
 import { CreateNetworkDialog } from "./NetworkDialogs";
 import styles from "./NetworksPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const SCOPES: { id: string; label: string }[] = [
   { id: "", label: "All networks" },
@@ -71,12 +72,12 @@ export function NetworksPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/network/networks/$networkId"
             params={{ networkId: row.id }}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,

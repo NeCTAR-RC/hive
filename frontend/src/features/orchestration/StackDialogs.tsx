@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button, Dialog, Modal } from "@ardc-ui/react";
+import { loadingProps } from "../../components/buttonState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { NumberInput, SwitchInput } from "../../components/Form/fields";
 import type {
@@ -14,9 +15,14 @@ import type {
 } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import { useUpdateStack, useValidateTemplate } from "./api";
-import { TemplateStep } from "./LaunchStackPage";
 import { ParameterFields } from "./ParameterFields";
-import { defaultValue, parameterValues, parametersSchema } from "./status";
+import { TemplateStep } from "./TemplateStep";
+import {
+  defaultValue,
+  parameterValues,
+  parametersSchema,
+  templateSourceValues,
+} from "./status";
 import styles from "./Orchestration.module.scss";
 
 export function UpdateStackDialog({
@@ -45,6 +51,7 @@ export function UpdateStackDialog({
             isPending={validate.isPending}
             error={validate.error}
             submitLabel="Next"
+            initial={source ? templateSourceValues(source) : undefined}
             onValidate={(body) =>
               validate.mutate(body, {
                 onSuccess: (result) => {
@@ -86,7 +93,11 @@ export function UpdateStackDialog({
 }
 
 const detailsSchema = z.object({
-  timeout_mins: z.number().int().min(1).max(10080),
+  timeout_mins: z
+    .number("Enter a number of minutes")
+    .int("Enter a whole number of minutes")
+    .min(1, "At least 1 minute")
+    .max(10080, "At most 10080 minutes (a week)"),
   rollback: z.boolean(),
 });
 
@@ -165,13 +176,13 @@ function UpdateDetails({
         <Button variant="secondary" onPress={onBack} isDisabled={isPending}>
           Back
         </Button>
-        {isPending ? (
-          <Button state="loading" loadingText="Updating..." isDisabled>
-            Update
-          </Button>
-        ) : (
-          <Button type="submit">Update</Button>
-        )}
+        <Button
+          type="submit"
+          isPending={isPending}
+          {...loadingProps(isPending, "Updating...")}
+        >
+          Update
+        </Button>
       </div>
     </form>
   );

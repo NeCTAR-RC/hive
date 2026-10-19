@@ -1,11 +1,10 @@
 // Share dialogs (manila-ui shares/forms.py): create, edit, metadata,
 // resize, revert, access rule and snapshot.
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert } from "@ardc-ui/react";
+import { Alert, Loading } from "@ardc-ui/react";
 import {
   NumberInput,
   SelectInput,
@@ -14,12 +13,10 @@ import {
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { Share } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import {
   shareOptionsQuery,
-  shareQuery,
   useAllowAccess,
   useCreateShare,
   useCreateSnapshot,
@@ -28,22 +25,21 @@ import {
   useSetShareMetadata,
   useUpdateShare,
 } from "./api";
-import { ACCESS_LEVELS, ACCESS_TYPES, formatMetadata } from "./status";
+import {
+  createDefaults,
+  createShareSchema,
+  newestSnapshot,
+  useSnapshotSizePin,
+  type CreateShareValues,
+} from "./shareForms";
+import {
+  accessLevelOptions,
+  accessTypeOptions,
+  defaultAccessType,
+  formatMetadata,
+} from "./status";
 
 const METADATA_HINT = "One key=value pair per line.";
-
-const createSchema = z.object({
-  name: z.string().trim().min(1, "Enter a share name").max(255),
-  description: z.string().trim().max(255),
-  protocol: z.string().min(1, "Choose a protocol"),
-  size: z.number().int().min(1, "At least 1 GiB"),
-  share_type: z.string().min(1, "Choose a share type"),
-  availability_zone: z.string(),
-  share_group_id: z.string(),
-  snapshot_id: z.string(),
-  metadata: z.string(),
-  is_public: z.boolean(),
-});
 
 export function CreateShareDialog({
   projectId,
@@ -56,50 +52,21 @@ export function CreateShareDialog({
 }) {
   const options = useQuery(shareOptionsQuery(projectId));
   const create = useCreateShare(projectId);
-  const form = useForm<z.infer<typeof createSchema>>({
-    resolver: zodResolver(createSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      protocol: "",
-      size: 1,
-      share_type: "",
-      availability_zone: "",
-      share_group_id: "",
-      snapshot_id: snapshotId ?? "",
-      metadata: "",
-      is_public: false,
-    },
-  });
   const data = options.data;
+  // Defaults follow the pickers once they arrive, without overwriting what
+  // the user has already chosen.
+  const form = useForm<CreateShareValues>({
+    resolver: zodResolver(createShareSchema),
+    values: createDefaults(data, snapshotId),
+    resetOptions: { keepDirtyValues: true },
+  });
   const chosenSnapshot = useWatch({
     control: form.control,
     name: "snapshot_id",
   });
   const snapshot = data?.snapshots.find((s) => s.id === chosenSnapshot);
 
-  // Defaults once the pickers arrive; a snapshot source pins the size
-  // (forms.py:88-110).
-  useEffect(() => {
-    if (!data) return;
-    if (!form.getValues("protocol") && data.protocols[0]) {
-      form.setValue("protocol", data.protocols[0]);
-    }
-    if (!form.getValues("share_type") && data.share_types.length === 1) {
-      form.setValue("share_type", data.share_types[0]?.name ?? "");
-    }
-    if (
-      !form.getValues("availability_zone") &&
-      data.availability_zones.length === 1
-    ) {
-      form.setValue("availability_zone", data.availability_zones[0] ?? "");
-    }
-  }, [data, form]);
-  useEffect(() => {
-    if (snapshot && form.getValues("size") < snapshot.size) {
-      form.setValue("size", snapshot.size);
-    }
-  }, [snapshot, form]);
+  useSnapshotSizePin(form, data);
 
   const submit = form.handleSubmit((values) => {
     create.mutate(
@@ -135,10 +102,11 @@ export function CreateShareDialog({
       submitLabel="Create share"
       onSubmit={submit}
       isPending={create.isPending}
+      isSubmitDisabled={!data?.can_create}
       error={create.error}
     >
       {options.isPending ? (
-        <SkeletonLines lines={6} />
+        <Loading>Loading share options...</Loading>
       ) : (
         <>
           {data && !data.can_create && (
@@ -435,10 +403,7 @@ export function RevertShareDialog({
 }) {
   const options = useQuery(shareOptionsQuery(projectId));
   const revert = useRevertShare(projectId);
-  const snapshots = (options.data?.snapshots ?? []).filter(
-    (s) => s.share_id === share.id,
-  );
-  const newest = snapshots[snapshots.length - 1];
+  const newest = newestSnapshot(share, options.data);
   const form = useForm<z.infer<typeof revertSchema>>({
     resolver: zodResolver(revertSchema),
     values: { snapshot_id: newest?.id ?? "" },
@@ -463,23 +428,27 @@ export function RevertShareDialog({
       submitTone="danger"
       onSubmit={submit}
       isPending={revert.isPending}
+      isSubmitDisabled={!newest}
       error={revert.error}
     >
       {options.isPending ? (
-        <SkeletonLines lines={2} />
+        <Loading>Loading snapshots...</Loading>
       ) : (
         <>
           <p>
             Only the newest snapshot can be reverted to. Changes since it are
             lost.
           </p>
+          {!newest && (
+            <Alert tone="warning" role="status">
+              The share has no available snapshot to revert to.
+            </Alert>
+          )}
           <SelectInput
             control={form.control}
             name="snapshot_id"
             label="Snapshot"
-            options={
-              newest ? [{ id: newest.id, label: newest.name || newest.id }] : []
-            }
+            options={newest ? [newest] : []}
             isRequired
           />
         </>
@@ -503,11 +472,12 @@ export function AccessRuleDialog({
   share: Share;
   onClose: () => void;
 }) {
+  const options = useQuery(shareOptionsQuery(projectId));
   const allow = useAllowAccess(projectId);
   const form = useForm<z.infer<typeof ruleSchema>>({
     resolver: zodResolver(ruleSchema),
     defaultValues: {
-      access_type: share.protocol?.toUpperCase() === "CEPHFS" ? "cephx" : "ip",
+      access_type: defaultAccessType(share.protocol),
       access_to: "",
       access_level: "rw",
     },
@@ -537,7 +507,9 @@ export function AccessRuleDialog({
         control={form.control}
         name="access_type"
         label="Access type"
-        options={ACCESS_TYPES}
+        options={accessTypeOptions(
+          options.data?.access_types ?? [defaultAccessType(share.protocol)],
+        )}
         isRequired
       />
       <TextInput
@@ -551,7 +523,7 @@ export function AccessRuleDialog({
         control={form.control}
         name="access_level"
         label="Access level"
-        options={ACCESS_LEVELS}
+        options={accessLevelOptions(options.data?.access_levels ?? ["rw"])}
         isRequired
       />
     </FormDialog>
@@ -573,7 +545,6 @@ export function CreateSnapshotDialog({
   onClose: () => void;
 }) {
   const options = useQuery(shareOptionsQuery(projectId));
-  const detail = useQuery(shareQuery(projectId, share.id));
   const create = useCreateSnapshot(projectId);
   const form = useForm<z.infer<typeof snapshotSchema>>({
     resolver: zodResolver(snapshotSchema),
@@ -606,6 +577,7 @@ export function CreateSnapshotDialog({
       submitLabel="Create snapshot"
       onSubmit={submit}
       isPending={create.isPending}
+      isSubmitDisabled={!options.data?.can_snapshot}
       error={create.error}
     >
       {blocked && (
@@ -613,10 +585,7 @@ export function CreateSnapshotDialog({
           {options.data?.snapshot_reason}
         </Alert>
       )}
-      <p>
-        The snapshot captures the share's {detail.data?.size ?? share.size} GiB
-        as they are now.
-      </p>
+      <p>The snapshot captures the share's {share.size} GiB as they are now.</p>
       <TextInput
         control={form.control}
         name="name"

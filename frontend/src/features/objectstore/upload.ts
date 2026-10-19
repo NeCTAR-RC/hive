@@ -2,7 +2,7 @@
 // each file (or its segments) straight to Swift, then asks the backend to
 // write the large-object manifest. In proxy mode the file streams through
 // the backend instead. Progress is reported per file for the dialog.
-import { readCookie } from "../../lib/api/client";
+import { ApiError, csrfToken, envelopeFrom } from "../../lib/api/client";
 import type { UploadPlan, UploadPlanObject } from "../../lib/api/types";
 import { completeUpload, objectPath, requestUploadPlan } from "./api";
 
@@ -45,6 +45,65 @@ export function sliceSegments(
   }));
 }
 
+/** How many segments of one large file go up at once. */
+export const SEGMENT_CONCURRENCY = 3;
+
+/**
+ * Run the tasks with at most `limit` in flight; the results keep the
+ * tasks' order. The first failure rejects, and no new task starts after it.
+ */
+export async function runPool<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+): Promise<T[]> {
+  const results = new Array<T>(tasks.length);
+  let next = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed && next < tasks.length) {
+      const index = next++;
+      const task = tasks[index];
+      try {
+        if (task) results[index] = await task();
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, tasks.length) }, worker),
+  );
+  return results;
+}
+
+/** The message for a failed upload: the backend's own wording for a
+ * proxied upload (411, 400 and 422 included), else the status. */
+export function uploadError(status: number, responseText: string): Error {
+  let body: unknown;
+  try {
+    body = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    body = null;
+  }
+  if (body && typeof body === "object" && "message" in body) {
+    const error = new ApiError(status, envelopeFrom(body));
+    const detail = Array.isArray(error.detail)
+      ? (error.detail as { msg?: unknown }[])
+          .map((entry) => (typeof entry.msg === "string" ? entry.msg : ""))
+          .filter(Boolean)
+      : [];
+    if (detail.length > 0) {
+      return new ApiError(status, {
+        ...envelopeFrom(body),
+        message: `${error.message}: ${detail.join("; ")}`,
+      });
+    }
+    return error;
+  }
+  return new Error(`upload failed with status ${status}`);
+}
+
 /** A PUT with upload progress, which fetch() cannot report. */
 export function putWithProgress(
   url: string,
@@ -67,21 +126,38 @@ export function putWithProgress(
     xhr.setRequestHeader("Content-Type", contentType);
     if (sameOrigin) {
       xhr.withCredentials = true;
-      xhr.setRequestHeader("X-CSRF-Token", readCookie("hive_csrf") ?? "");
+      xhr.setRequestHeader("X-CSRF-Token", csrfToken());
     }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded);
     };
+    const onAbort = () => xhr.abort();
+    const settle = () => signal?.removeEventListener("abort", onAbort);
     xhr.onload = () => {
+      settle();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve({ etag: xhr.getResponseHeader("ETag") });
       } else {
-        reject(new Error(`upload failed with status ${xhr.status}`));
+        reject(
+          sameOrigin
+            ? uploadError(xhr.status, xhr.responseText)
+            : new Error(`upload failed with status ${xhr.status}`),
+        );
       }
     };
-    xhr.onerror = () => reject(new Error("upload failed (network or CORS)"));
-    xhr.onabort = () => reject(new Error("upload cancelled"));
-    signal?.addEventListener("abort", () => xhr.abort());
+    xhr.onerror = () => {
+      settle();
+      reject(new Error("upload failed (network or CORS)"));
+    };
+    xhr.onabort = () => {
+      settle();
+      reject(new Error("upload cancelled"));
+    };
+    if (signal?.aborted) {
+      reject(new Error("upload cancelled"));
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
     xhr.send(body);
   });
 }
@@ -171,23 +247,31 @@ async function uploadOne(
     });
     return;
   }
+  // Segments go up a few at a time; progress is the sum over segments and
+  // the manifest keeps the plan's order.
   const segments = sliceSegments(item.file, entry);
-  const manifest: { path: string; size_bytes: number; etag?: string }[] = [];
-  let done = 0;
-  for (const segment of segments) {
-    const { etag } = await putWithProgress(segment.url, segment.blob, {
-      contentType: "application/octet-stream",
-      sameOrigin: false,
-      onProgress: (sent) => onProgress(done + sent),
-      signal,
-    });
-    done += segment.length;
-    onProgress(done);
-    manifest.push({
-      path: segment.path,
-      size_bytes: segment.length,
-      ...(etag ? { etag: etag.replace(/"/g, "") } : {}),
-    });
-  }
+  const sent = segments.map(() => 0);
+  const total = () => sent.reduce((sum, value) => sum + value, 0);
+  const manifest = await runPool(
+    segments.map((segment, index) => async () => {
+      const { etag } = await putWithProgress(segment.url, segment.blob, {
+        contentType: "application/octet-stream",
+        sameOrigin: false,
+        onProgress: (bytes) => {
+          sent[index] = bytes;
+          onProgress(total());
+        },
+        signal,
+      });
+      sent[index] = segment.length;
+      onProgress(total());
+      return {
+        path: segment.path,
+        size_bytes: segment.length,
+        ...(etag ? { etag: etag.replace(/"/g, "") } : {}),
+      };
+    }),
+    SEGMENT_CONCURRENCY,
+  );
   await completeUpload(container, item.name, manifest);
 }

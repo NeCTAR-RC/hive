@@ -2,7 +2,7 @@
 // name, three characters or more (nectar_dashboard/user_info/lookup).
 import { useMemo, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, SearchField } from "@ardc-ui/react";
 import {
   DataTable,
@@ -13,6 +13,7 @@ import { PageHeader } from "../../../shell/PageHeader/PageHeader";
 import { userLookupRoute } from "../../../app/router";
 import { userSearchQuery } from "../api";
 import styles from "./UserLookupPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const MIN = 3;
 
@@ -39,13 +40,9 @@ export function UserLookupPage() {
         label: "User ID",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/identity/users/$userId"
-            params={{ userId: row.id }}
-            className={styles.link}
-          >
+          <RouteLink to="/identity/users/$userId" params={{ userId: row.id }}>
             <code>{row.id}</code>
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.id,
       },

@@ -3,17 +3,15 @@
 // the stack name, timeout, rollback and the generated parameters.
 import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert, Button } from "@ardc-ui/react";
+import { Alert, Button, StepItem, Stepper } from "@ardc-ui/react";
+import { loadingProps } from "../../components/buttonState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
-import { FileInput } from "../../components/Form/FileInput";
 import {
   NumberInput,
-  RadioInput,
   SwitchInput,
-  TextAreaInput,
   TextInput,
 } from "../../components/Form/fields";
 import { Panel } from "../../components/Panel/Panel";
@@ -23,45 +21,30 @@ import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { useCreateStack, useValidateTemplate } from "./api";
 import { ParameterFields } from "./ParameterFields";
-import { defaultValue, parameterValues, parametersSchema } from "./status";
+import { TemplateStep } from "./TemplateStep";
+import {
+  defaultValue,
+  parameterValues,
+  parametersSchema,
+  templateSourceValues,
+} from "./status";
 import styles from "./Orchestration.module.scss";
-
-const sourceSchema = z
-  .object({
-    source: z.enum(["text", "url"]),
-    template: z.string(),
-    template_url: z.string().trim(),
-    environment: z.string(),
-  })
-  .superRefine((values, ctx) => {
-    if (values.source === "text" && !values.template.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["template"],
-        message: "Paste a template or choose a file",
-      });
-    }
-    if (values.source === "url" && !/^https?:\/\//.test(values.template_url)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["template_url"],
-        message: "Enter an http or https URL",
-      });
-    }
-  });
-type SourceValues = z.infer<typeof sourceSchema>;
 
 const detailsSchema = z.object({
   name: z
     .string()
     .trim()
     .min(1, "Enter a stack name")
-    .max(255)
+    .max(255, "At most 255 characters")
     .regex(
       /^[a-zA-Z][a-zA-Z0-9_.-]*$/,
       "Start with a letter; use letters, numbers, dots, dashes and underscores",
     ),
-  timeout_mins: z.number().int().min(1, "At least 1 minute").max(10080),
+  timeout_mins: z
+    .number("Enter a number of minutes")
+    .int("Enter a whole number of minutes")
+    .min(1, "At least 1 minute")
+    .max(10080, "At most 10080 minutes (a week)"),
   rollback: z.boolean(),
 });
 
@@ -73,6 +56,11 @@ export function LaunchStackPage() {
   const [source, setSource] = useState<TemplateSource | null>(null);
   const [specs, setSpecs] = useState<ParameterSpec[] | null>(null);
   const [description, setDescription] = useState<string | null>(null);
+  const onDetails = specs !== null && source !== null;
+  const back = () => {
+    setSpecs(null);
+    create.reset();
+  };
 
   return (
     <>
@@ -84,176 +72,62 @@ export function LaunchStackPage() {
           { label: "Stacks", href: "/orchestration/stacks" },
         ]}
       />
-      {specs === null || source === null ? (
-        <TemplateStep
-          isPending={validate.isPending}
-          error={validate.error}
-          onValidate={(body) =>
-            validate.mutate(body, {
-              onSuccess: (result) => {
-                setSource(body);
-                setSpecs(result.parameters);
-                setDescription(result.description);
-              },
-            })
-          }
-        />
-      ) : (
-        <DetailsStep
-          specs={specs}
-          description={description}
-          isPending={create.isPending}
-          error={create.error}
-          onBack={() => {
-            setSpecs(null);
-            create.reset();
-          }}
-          onLaunch={(values, parameters) =>
-            create.mutate(
-              {
-                ...source,
-                name: values.name,
-                parameters,
-                timeout_mins: values.timeout_mins,
-                rollback: values.rollback,
-              },
-              {
-                onSuccess: (created) => {
-                  notify.success(`Stack ${created.name} is being created.`);
-                  void navigate({ to: "/orchestration/stacks" });
+      <Stepper
+        activeStep={onDetails ? "details" : "template"}
+        onActiveStepChange={(key) => {
+          if (key === "template") back();
+        }}
+        allowsJumping
+        aria-label="Launch stack steps"
+      >
+        <StepItem id="template" title="Select template">
+          {/* The Stepper remounts a step on every visit, so the template
+              step starts from what was validated last. */}
+          <TemplateStep
+            initial={source ? templateSourceValues(source) : undefined}
+            isPending={validate.isPending}
+            error={validate.error}
+            onValidate={(body) =>
+              validate.mutate(body, {
+                onSuccess: (result) => {
+                  setSource(body);
+                  setSpecs(result.parameters);
+                  setDescription(result.description);
                 },
-              },
-            )
-          }
-        />
-      )}
-    </>
-  );
-}
-
-export function TemplateStep({
-  isPending,
-  error,
-  onValidate,
-  initial,
-  submitLabel = "Next",
-}: {
-  isPending: boolean;
-  error: unknown;
-  onValidate: (body: TemplateSource) => void;
-  initial?: Partial<SourceValues>;
-  submitLabel?: string;
-}) {
-  const form = useForm<SourceValues>({
-    resolver: zodResolver(sourceSchema),
-    mode: "onTouched",
-    defaultValues: {
-      source: "text",
-      template: "",
-      template_url: "",
-      environment: "",
-      ...initial,
-    },
-  });
-  const [templateFile, setTemplateFile] = useState<File | null>(null);
-  const [environmentFile, setEnvironmentFile] = useState<File | null>(null);
-  const source = useWatch({ control: form.control, name: "source" });
-
-  const readFile = (file: File | null, field: "template" | "environment") => {
-    if (!file) return;
-    void file.text().then((text) => {
-      form.setValue(field, text, { shouldValidate: true });
-    });
-  };
-
-  const submit = form.handleSubmit((values) => {
-    const body: TemplateSource = {};
-    if (values.source === "text") body.template = values.template;
-    else body.template_url = values.template_url;
-    if (values.environment.trim()) body.environment = values.environment;
-    onValidate(body);
-  });
-
-  return (
-    <form onSubmit={submit} noValidate className={styles.form}>
-      <Panel title="Template" headingLevel={2}>
-        <div className={styles.fields}>
-          <RadioInput
-            control={form.control}
-            name="source"
-            label="Template source"
-            options={[
-              { id: "text", label: "File or direct input" },
-              { id: "url", label: "URL" },
-            ]}
+              })
+            }
           />
-          {source === "text" ? (
-            <>
-              <FileInput
-                label="Template file"
-                value={templateFile}
-                onChange={(file) => {
-                  setTemplateFile(file);
-                  readFile(file, "template");
-                }}
-                description="A HOT template in YAML or JSON. Its contents are loaded into the box below."
-                accept={[".yaml", ".yml", ".json", ".template"]}
-              />
-              <TextAreaInput
-                control={form.control}
-                name="template"
-                label="Template"
-                rows={12}
-                monospace
-                isRequired
-              />
-            </>
-          ) : (
-            <TextInput
-              control={form.control}
-              name="template_url"
-              label="Template URL"
-              type="url"
-              isRequired
-              description="Heat fetches the template from this address."
+        </StepItem>
+        <StepItem id="details" title="Launch stack">
+          {onDetails && source && specs && (
+            <DetailsStep
+              specs={specs}
+              description={description}
+              isPending={create.isPending}
+              error={create.error}
+              onBack={back}
+              onLaunch={(values, parameters) =>
+                create.mutate(
+                  {
+                    ...source,
+                    name: values.name,
+                    parameters,
+                    timeout_mins: values.timeout_mins,
+                    rollback: values.rollback,
+                  },
+                  {
+                    onSuccess: (created) => {
+                      notify.success(`Stack ${created.name} is being created.`);
+                      void navigate({ to: "/orchestration/stacks" });
+                    },
+                  },
+                )
+              }
             />
           )}
-        </div>
-      </Panel>
-      <Panel title="Environment" headingLevel={2}>
-        <div className={styles.fields}>
-          <FileInput
-            label="Environment file"
-            value={environmentFile}
-            onChange={(file) => {
-              setEnvironmentFile(file);
-              readFile(file, "environment");
-            }}
-            description="Optional. Parameter values and resource registry overrides."
-            accept={[".yaml", ".yml", ".json", ".env"]}
-          />
-          <TextAreaInput
-            control={form.control}
-            name="environment"
-            label="Environment"
-            rows={6}
-            monospace
-          />
-        </div>
-      </Panel>
-      {error ? (
-        <ErrorState error={error} title="The template did not validate" />
-      ) : null}
-      <div className={styles.buttons}>
-        {isPending ? (
-          <Button state="loading" loadingText="Validating..." isDisabled>
-            {submitLabel}
-          </Button>
-        ) : (
-          <Button type="submit">{submitLabel}</Button>
-        )}
-      </div>
-    </form>
+        </StepItem>
+      </Stepper>
+    </>
   );
 }
 
@@ -341,13 +215,13 @@ function DetailsStep({
           <Button variant="secondary" onPress={onBack} isDisabled={isPending}>
             Back
           </Button>
-          {isPending ? (
-            <Button state="loading" loadingText="Launching..." isDisabled>
-              Launch
-            </Button>
-          ) : (
-            <Button type="submit">Launch</Button>
-          )}
+          <Button
+            type="submit"
+            isPending={isPending}
+            {...loadingProps(isPending, "Launching...")}
+          >
+            Launch
+          </Button>
         </div>
       </div>
       <Panel title="About" headingLevel={2} className={styles.summary}>

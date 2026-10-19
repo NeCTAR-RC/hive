@@ -19,12 +19,19 @@ import {
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
+import { loadingProps } from "../../components/buttonState";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { launchDbRoute } from "../../app/router";
 import { dbOptionsQuery, useLaunchInstance } from "./api";
-import { CIDR_WARNING, flavorLabel, hasOpenCidr, splitCidrs } from "./status";
+import {
+  CIDR_WARNING,
+  flavorLabel,
+  hasOpenCidr,
+  quotaLimit,
+  splitCidrs,
+} from "./status";
 import styles from "./Databases.module.scss";
 
 const schema = z
@@ -354,27 +361,24 @@ export function LaunchDbInstancePage() {
               />
             )}
             <div className={styles.buttons}>
-              {launch.isPending ? (
-                <Button state="loading" loadingText="Launching..." isDisabled>
-                  Launch
-                </Button>
-              ) : (
-                <Button type="submit">Launch</Button>
-              )}
+              <Button
+                type="submit"
+                {...loadingProps(launch.isPending, "Launching...")}
+                isPending={launch.isPending}
+              >
+                Launch
+              </Button>
             </div>
           </div>
           <Panel title="Quota" headingLevel={2} className={styles.summary}>
             <KeyValueList
               items={[
-                {
-                  label: "Instances",
-                  value: quota?.max_instances ?? "Unlimited",
-                },
-                { label: "Volumes", value: quota?.max_volumes ?? "Unlimited" },
-                { label: "Backups", value: quota?.max_backups ?? "Unlimited" },
+                { label: "Instances", value: quotaLimit(quota?.max_instances) },
+                { label: "Volumes", value: quotaLimit(quota?.max_volumes) },
+                { label: "Backups", value: quotaLimit(quota?.max_backups) },
                 {
                   label: "RAM",
-                  value: quota?.max_ram ? `${quota.max_ram} MB` : "Unlimited",
+                  value: quotaLimit(quota?.max_ram, (mb) => `${mb} MB`),
                 },
               ]}
             />

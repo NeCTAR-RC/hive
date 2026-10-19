@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -17,14 +17,30 @@ import {
   CreateSecurityGroupDialog,
   EditSecurityGroupDialog,
 } from "./SecurityGroupDialogs";
-import styles from "./SecurityGroupsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 export function SecurityGroupsPage() {
   const projectId = useProjectId();
   const groups = useQuery(securityGroupsQuery(projectId));
   const remove = useDeleteSecurityGroups(projectId);
-  const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
+  // Search and the create dialog live in the URL, as on the sibling lists.
+  const search = useSearch({ strict: false });
+  const navigate = useNavigate();
+  const query = typeof search.q === "string" ? search.q : "";
+  const creating = search.create === true;
+  const setSearch = (patch: { q?: string; create?: boolean }) =>
+    void navigate({
+      to: "/network/security-groups",
+      search: (previous) => {
+        const next: Record<string, unknown> = { ...previous, ...patch };
+        if (!next.q) delete next.q;
+        if (!next.create) delete next.create;
+        return next;
+      },
+      replace: true,
+    });
+  const setQuery = (q: string) => setSearch({ q });
+  const setCreating = (open: boolean) => setSearch({ create: open });
   const [editing, setEditing] = useState<SecurityGroup | null>(null);
   const [deleting, setDeleting] = useState<SecurityGroup[]>([]);
 
@@ -35,13 +51,12 @@ export function SecurityGroupsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/network/security-groups/$groupId"
             params={{ groupId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -120,9 +135,11 @@ export function SecurityGroupsPage() {
           {
             id: "rules",
             label: "Manage rules",
-            onAction: () => {
-              window.location.assign(`/network/security-groups/${row.id}`);
-            },
+            onAction: () =>
+              void navigate({
+                to: "/network/security-groups/$groupId",
+                params: { groupId: row.id },
+              }),
           },
           {
             id: "edit",

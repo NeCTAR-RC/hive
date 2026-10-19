@@ -32,7 +32,8 @@ const POLL_MS = 10_000;
 export function clustersQuery(projectId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "clusters"),
-    queryFn: () => apiFetch<ClustersResponse>(`${BASE}/clusters`),
+    queryFn: ({ signal }) =>
+      apiFetch<ClustersResponse>(`${BASE}/clusters`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((c) => isTransitional(c.status))
@@ -44,7 +45,8 @@ export function clustersQuery(projectId: string) {
 export function clusterQuery(projectId: string, clusterId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "cluster", clusterId),
-    queryFn: () => apiFetch<Cluster>(`${BASE}/clusters/${clusterId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Cluster>(`${BASE}/clusters/${clusterId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       isTransitional(query.state.data?.status) ? POLL_MS : false,
@@ -54,7 +56,8 @@ export function clusterQuery(projectId: string, clusterId: string) {
 export function clusterOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "options"),
-    queryFn: () => apiFetch<ClusterOptions>(`${BASE}/clusters/options`),
+    queryFn: ({ signal }) =>
+      apiFetch<ClusterOptions>(`${BASE}/clusters/options`, { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -62,8 +65,11 @@ export function clusterOptionsQuery(projectId: string) {
 export function upgradeOptionsQuery(projectId: string, clusterId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "upgrade", clusterId),
-    queryFn: () =>
-      apiFetch<UpgradeOptions>(`${BASE}/clusters/${clusterId}/upgrade-options`),
+    queryFn: ({ signal }) =>
+      apiFetch<UpgradeOptions>(
+        `${BASE}/clusters/${clusterId}/upgrade-options`,
+        { signal },
+      ),
     staleTime: 0,
   });
 }
@@ -71,8 +77,10 @@ export function upgradeOptionsQuery(projectId: string, clusterId: string) {
 export function nodeGroupsQuery(projectId: string, clusterId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "nodegroups", clusterId),
-    queryFn: () =>
-      apiFetch<NodeGroupsResponse>(`${BASE}/clusters/${clusterId}/nodegroups`),
+    queryFn: ({ signal }) =>
+      apiFetch<NodeGroupsResponse>(`${BASE}/clusters/${clusterId}/nodegroups`, {
+        signal,
+      }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       isTransitional(query.state.data?.cluster_status) ||
@@ -85,8 +93,8 @@ export function nodeGroupsQuery(projectId: string, clusterId: string) {
 export function templatesQuery(projectId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "templates"),
-    queryFn: () =>
-      apiFetch<Items<ClusterTemplate>>(`${BASE}/cluster-templates`),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ClusterTemplate>>(`${BASE}/cluster-templates`, { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -94,8 +102,10 @@ export function templatesQuery(projectId: string) {
 export function templateQuery(projectId: string, templateId: string) {
   return queryOptions({
     queryKey: k8sKey(projectId, "template", templateId),
-    queryFn: () =>
-      apiFetch<ClusterTemplate>(`${BASE}/cluster-templates/${templateId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<ClusterTemplate>(`${BASE}/cluster-templates/${templateId}`, {
+        signal,
+      }),
     staleTime: staleTimes.static,
   });
 }
@@ -106,7 +116,9 @@ export function fetchClusterConfig(clusterId: string) {
 
 function useInvalidate(projectId: string) {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: k8sKey(projectId) });
+  // Not awaited: the mutation settles without waiting for the refetches.
+  return () =>
+    void queryClient.invalidateQueries({ queryKey: k8sKey(projectId) });
 }
 
 export function useCreateCluster(projectId: string) {

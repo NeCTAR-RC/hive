@@ -1,5 +1,6 @@
 // Security service forms (manila-ui security_services/forms.py): name,
 // type, DNS IP, server, domain, OU, user, password and description.
+import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,15 +10,25 @@ import {
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import type { SecurityService } from "../../lib/api/types";
+import type {
+  SecurityService,
+  SecurityServiceCreateRequest,
+  SecurityServiceUpdateRequest,
+} from "../../lib/api/types";
 import { notify } from "../../lib/notify";
-import { useCreateSecurityService, useUpdateSecurityService } from "./api";
-import { SECURITY_SERVICE_TYPES } from "./status";
+import {
+  securityServicesQuery,
+  useCreateSecurityService,
+  useUpdateSecurityService,
+} from "./api";
+import { securityServiceTypeOptions } from "./status";
+
+const TYPES = ["active_directory", "ldap", "kerberos"] as const;
 
 const schema = z
   .object({
     name: z.string().trim().min(1, "Enter a name").max(255),
-    type: z.string().min(1, "Choose a type"),
+    type: z.enum(TYPES, { error: "Choose a type" }),
     dns_ip: z.string().trim().max(255),
     server: z.string().trim().max(255),
     domain: z.string().trim().max(255),
@@ -38,12 +49,28 @@ const schema = z
   });
 type Values = z.infer<typeof schema>;
 
+// Manila needs the DNS IP, server and domain to create a service (the
+// backend rejects empties); an edit may leave them as they are.
+const createSchema = schema.superRefine((values, ctx) => {
+  for (const field of ["dns_ip", "server", "domain"] as const) {
+    if (!values[field]) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message: "This field is required",
+      });
+    }
+  }
+});
+
 function Fields({
   control,
   withType,
+  types,
 }: {
   control: ReturnType<typeof useForm<Values>>["control"];
   withType: boolean;
+  types: string[];
 }) {
   return (
     <>
@@ -53,7 +80,7 @@ function Fields({
           control={control}
           name="type"
           label="Type"
-          options={SECURITY_SERVICE_TYPES}
+          options={securityServiceTypeOptions(types)}
           isRequired
         />
       )}
@@ -106,7 +133,7 @@ function Fields({
   );
 }
 
-function body(values: Values) {
+function body(values: Values): SecurityServiceUpdateRequest {
   return {
     name: values.name,
     ...(values.dns_ip ? { dns_ip: values.dns_ip } : {}),
@@ -127,20 +154,9 @@ export function CreateSecurityServiceDialog({
   onClose: () => void;
 }) {
   const create = useCreateSecurityService(projectId);
+  const services = useQuery(securityServicesQuery(projectId));
   const form = useForm<Values>({
-    resolver: zodResolver(
-      schema.superRefine((values, ctx) => {
-        for (const field of ["dns_ip", "server", "domain"] as const) {
-          if (!values[field]) {
-            ctx.addIssue({
-              code: "custom",
-              path: [field],
-              message: "This field is required",
-            });
-          }
-        }
-      }),
-    ),
+    resolver: zodResolver(createSchema),
     defaultValues: {
       name: "",
       type: "active_directory",
@@ -155,15 +171,20 @@ export function CreateSecurityServiceDialog({
     },
   });
   const submit = form.handleSubmit((values) => {
-    create.mutate(
-      { ...body(values), type: values.type },
-      {
-        onSuccess: () => {
-          notify.success(`Security service ${values.name} created.`);
-          onClose();
-        },
+    const request: SecurityServiceCreateRequest = {
+      ...body(values),
+      name: values.name,
+      type: values.type,
+      dns_ip: values.dns_ip,
+      server: values.server,
+      domain: values.domain,
+    };
+    create.mutate(request, {
+      onSuccess: () => {
+        notify.success(`Security service ${values.name} created.`);
+        onClose();
       },
-    );
+    });
   });
   return (
     <FormDialog
@@ -175,7 +196,11 @@ export function CreateSecurityServiceDialog({
       isPending={create.isPending}
       error={create.error}
     >
-      <Fields control={form.control} withType />
+      <Fields
+        control={form.control}
+        withType
+        types={services.data?.types ?? [...TYPES]}
+      />
     </FormDialog>
   );
 }
@@ -194,7 +219,7 @@ export function EditSecurityServiceDialog({
     resolver: zodResolver(schema),
     defaultValues: {
       name: service.name ?? "",
-      type: service.type ?? "ldap",
+      type: TYPES.find((t) => t === service.type) ?? "ldap",
       dns_ip: service.dns_ip ?? "",
       server: service.server ?? "",
       domain: service.domain ?? "",
@@ -226,7 +251,7 @@ export function EditSecurityServiceDialog({
       isPending={update.isPending}
       error={update.error}
     >
-      <Fields control={form.control} withType={false} />
+      <Fields control={form.control} withType={false} types={[]} />
     </FormDialog>
   );
 }

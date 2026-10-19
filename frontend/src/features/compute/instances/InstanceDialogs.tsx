@@ -668,18 +668,15 @@ export function DisassociateFloatingIpDialog({
       ),
     [ports.data],
   );
+  // `values` preselects the sole floating IP once the ports load, without
+  // writing to the form during render; keepDirtyValues keeps a user choice.
   const form = useForm<z.infer<typeof disassociateSchema>>({
     resolver: zodResolver(disassociateSchema),
-    defaultValues: { floating_ip_id: "" },
+    values: {
+      floating_ip_id: floating.length === 1 ? (floating[0]?.id ?? "") : "",
+    },
+    resetOptions: { keepDirtyValues: true },
   });
-  if (
-    floating.length === 1 &&
-    floating[0] &&
-    form.getValues("floating_ip_id") === "" &&
-    !form.formState.dirtyFields.floating_ip_id
-  ) {
-    form.setValue("floating_ip_id", floating[0].id);
-  }
   const submit = form.handleSubmit((values) => {
     const chosen = floating.find((f) => f.id === values.floating_ip_id);
     disassociate.mutate(values.floating_ip_id, {

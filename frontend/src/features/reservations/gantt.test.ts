@@ -9,6 +9,7 @@ import {
   monthSpans,
   selectionFor,
   spanDays,
+  tipPosition,
 } from "./gantt";
 
 const flavor: ReservationFlavor = {
@@ -157,5 +158,30 @@ describe("gantt rows", () => {
       end: "2026-10-21",
       days: 1,
     });
+  });
+});
+
+describe("tipPosition", () => {
+  const viewport = { width: 1000, height: 800 };
+  const size = { width: 200, height: 60 };
+
+  it("sits below and right of the pointer when it fits", () => {
+    expect(tipPosition({ x: 100, y: 100 }, size, viewport)).toEqual({
+      left: 116,
+      top: 116,
+    });
+  });
+
+  it("flips left and above near the right and bottom edges", () => {
+    expect(tipPosition({ x: 900, y: 780 }, size, viewport)).toEqual({
+      left: 684,
+      top: 704,
+    });
+  });
+
+  it("never goes past the top or left edge", () => {
+    expect(
+      tipPosition({ x: 50, y: 30 }, { width: 990, height: 790 }, viewport),
+    ).toEqual({ left: 0, top: 0 });
   });
 });

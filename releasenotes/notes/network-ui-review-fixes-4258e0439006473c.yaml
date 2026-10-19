@@ -1,0 +1,49 @@
+---
+fixes:
+  - |
+    A custom ICMP rule with a type and a blank code is sent with the type
+    only, so neutron accepts it. The add-rule dialog refuses a code
+    without a type, checks the CIDR and the protocol name before
+    submitting, and shows the ether type only for a remote security
+    group, since a CIDR decides it as in Horizon.
+  - |
+    Default name servers, the only floating IP pool, the only port to
+    associate and a new port's default security group are filled in once
+    their options load, without overwriting anything already typed and
+    without refilling a field the user cleared.
+  - |
+    Manage rules on the security groups list opens the group without
+    reloading the dashboard, and the list keeps its search and create
+    dialog in the address like the other network lists.
+  - |
+    Deleting several static routes from a router now asks for
+    confirmation first, like every other batch delete.
+  - |
+    A cleared VLAN id on a trunk subport, a non-numeric prefix length for
+    a pool subnet and an internal port range of a different size from the
+    external one each give a clear message, and a batch delete of port
+    forwarding rules counts only the rules it deleted.
+  - |
+    Clearing a record set's TTL restores the zone default.
+  - |
+    A missing zone or stack shows a not-found page with a link back to
+    the list instead of a generic error.
+  - |
+    A template parameter whose allowed pattern uses Python-only regex
+    syntax no longer stops the launch form from submitting; Heat checks
+    the pattern instead.
+  - |
+    A stack being updated offers Cancel update beside the other stack
+    actions. Launching a stack shows its two steps in a stepper, and
+    going back keeps the template that was entered.
+  - |
+    A folder with more than 500 entries now has a Load more button, so
+    every object can be reached, searched and deleted.
+  - |
+    The containers list says when the account holds more containers than
+    are listed, and a proxied upload or a folder delete the object store
+    refuses shows the reason instead of a status code. Names of "." or
+    ".." are refused before they are sent.
+  - |
+    Large uploads send a few segments at once, and cancelling an upload
+    no longer leaves listeners behind.

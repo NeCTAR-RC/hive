@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import { apiFetch } from "../../../lib/api/client";
 import type { Instance } from "../../../lib/api/types";
 import { notify } from "../../../lib/notify";
-import { useDeleteInstances, useInstanceAction } from "../api";
+import { useBatchInstanceAction, useDeleteInstances } from "../api";
 import { AssociateFloatingIpDialog } from "../../network/floatingips/FloatingIpDialogs";
 import {
   AttachInterfaceDialog,
@@ -25,7 +25,12 @@ import type { InstanceActionId } from "./status";
 import styles from "./InstanceActions.module.scss";
 
 type Dialog =
-  | { kind: "confirm"; action: InstanceActionId; instances: Instance[] }
+  | {
+      kind: "confirm";
+      action: InstanceActionId;
+      instances: Instance[];
+      skipped: Instance[];
+    }
   | { kind: "edit"; instance: Instance }
   | { kind: "resize"; instance: Instance }
   | { kind: "rebuild"; instance: Instance }
@@ -93,12 +98,20 @@ function describe(instances: Instance[]): string {
   return `${instances.length} instances`;
 }
 
+/** "Skipped a, b: Start does not apply to them in their current state." */
+function skippedNote(skipped: Instance[], title: string): string {
+  const names = skipped.map((i) => i.name || i.id).join(", ");
+  return `Skipped ${names}: ${title} does not apply to ${
+    skipped.length === 1 ? "it" : "them"
+  } in the current state.`;
+}
+
 export function useInstanceActions(projectId: string) {
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<Dialog>(null);
-  const action = useInstanceAction(projectId);
+  const action = useBatchInstanceAction(projectId);
   const remove = useDeleteInstances(projectId);
-  const console = useMutation({
+  const openConsole = useMutation({
     mutationFn: (instanceId: string) =>
       apiFetch<{ url: string | null; type: string | null }>(
         `/api/compute/instances/${instanceId}/console`,
@@ -120,15 +133,11 @@ export function useInstanceActions(projectId: string) {
       return;
     }
     const { name, body } = actionRequest(id);
-    const results = await Promise.allSettled(
-      instances.map((instance) =>
-        action.mutateAsync({
-          instanceId: instance.id,
-          action: name,
-          body: body ?? {},
-        }),
-      ),
-    );
+    const results = await action.mutateAsync({
+      instanceIds: instances.map((i) => i.id),
+      action: name,
+      body: body ?? {},
+    });
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length === 0) {
       notify.success(`${describe(instances)} ${verb.done}.`);
@@ -140,12 +149,25 @@ export function useInstanceActions(projectId: string) {
     }
   };
 
-  const run = (instances: Instance[], id: InstanceActionId) => {
-    if (instances.length === 0) return;
+  /**
+   * Run an action. `skipped` names selected rows the caller left out because
+   * the action does not apply to them (see batchTargets); they are reported
+   * so a batch never silently does less than the selection suggests.
+   */
+  const run = (
+    instances: Instance[],
+    id: InstanceActionId,
+    skipped: Instance[] = [],
+  ) => {
+    const title = (VERBS[id] ?? { title: id }).title;
+    if (instances.length === 0) {
+      if (skipped.length > 0) notify.warning(skippedNote(skipped, title));
+      return;
+    }
     const first = instances[0]!;
     switch (id) {
       case "console":
-        console.mutate(first.id, {
+        openConsole.mutate(first.id, {
           onSuccess: (data) => {
             if (data.url) {
               window.open(data.url, "_blank", "noopener");
@@ -178,8 +200,9 @@ export function useInstanceActions(projectId: string) {
         return;
       default:
         if (CONFIRMED.has(id)) {
-          setDialog({ kind: "confirm", action: id, instances });
+          setDialog({ kind: "confirm", action: id, instances, skipped });
         } else {
+          if (skipped.length > 0) notify.warning(skippedNote(skipped, title));
           void fire(instances, id);
         }
     }
@@ -215,6 +238,9 @@ export function useInstanceActions(projectId: string) {
               <li key={instance.id}>{instance.name}</li>
             ))}
           </ul>
+        )}
+        {dialog.skipped.length > 0 && (
+          <p>{skippedNote(dialog.skipped, verb.title)}</p>
         )}
       </ConfirmDialog>
     );

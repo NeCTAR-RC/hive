@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, TabItem, Tabs } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
@@ -36,6 +36,7 @@ import {
 } from "./NetworkActions";
 import { PortDialog, SubnetDialog } from "./NetworkDialogs";
 import styles from "./NetworkDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const TABS = ["overview", "subnets", "ports"] as const;
 type Tab = (typeof TABS)[number];
@@ -82,9 +83,9 @@ export function NetworkDetailPage() {
           <p>
             There is no network <code>{networkId}</code> visible to this
             project.{" "}
-            <RouterLink to="/network/networks" search={{}}>
+            <RouteLink to="/network/networks" search={{}}>
               Back to networks
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -228,12 +229,12 @@ function Subnets({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/network/subnets/$subnetId"
             params={{ subnetId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
       },
@@ -348,9 +349,9 @@ function Ports({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink to="/network/ports/$portId" params={{ portId: row.id }}>
+          <RouteLink to="/network/ports/$portId" params={{ portId: row.id }}>
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,

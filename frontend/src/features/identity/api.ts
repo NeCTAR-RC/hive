@@ -26,7 +26,8 @@ import { staleTimes } from "../../lib/queries";
 export function membersQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "identity", "members"],
-    queryFn: () => apiFetch<MembersResponse>("/api/identity/members"),
+    queryFn: ({ signal }) =>
+      apiFetch<MembersResponse>("/api/identity/members", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -64,8 +65,9 @@ export function useRemoveMember(projectId: string) {
 export function userSearchQuery(q: string) {
   return queryOptions({
     queryKey: ["identity", "users", "search", q],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<UserSearchResult>>("/api/identity/users/search", {
+        signal,
         query: { q },
       }),
     staleTime: staleTimes.list,
@@ -76,7 +78,8 @@ export function userSearchQuery(q: string) {
 export function userDetailsQuery(userId: string) {
   return queryOptions({
     queryKey: ["identity", "users", userId],
-    queryFn: () => apiFetch<Profile>(`/api/identity/users/${userId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Profile>(`/api/identity/users/${userId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -87,9 +90,10 @@ const APP_CREDS = ["me", "application-credentials"] as const;
 
 export const appCredentialsQuery = queryOptions({
   queryKey: APP_CREDS,
-  queryFn: () =>
+  queryFn: ({ signal }) =>
     apiFetch<Items<ApplicationCredential>>(
       "/api/identity/application-credentials",
+      { signal },
     ),
   staleTime: staleTimes.list,
 });
@@ -97,9 +101,10 @@ export const appCredentialsQuery = queryOptions({
 export function appCredentialQuery(credentialId: string) {
   return queryOptions({
     queryKey: [...APP_CREDS, credentialId],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<ApplicationCredential>(
         `/api/identity/application-credentials/${credentialId}`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -108,9 +113,10 @@ export function appCredentialQuery(credentialId: string) {
 export function appCredentialOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "identity", "app-cred-options"],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<ApplicationCredentialOptions>(
         "/api/identity/application-credentials/options",
+        { signal },
       ),
     staleTime: staleTimes.static,
   });
@@ -144,7 +150,8 @@ export function useDeleteAppCredential() {
 export function ec2Query(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "identity", "ec2"],
-    queryFn: () => apiFetch<Ec2Response>("/api/identity/ec2-credentials"),
+    queryFn: ({ signal }) =>
+      apiFetch<Ec2Response>("/api/identity/ec2-credentials", { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -153,7 +160,8 @@ const CREDENTIALS = ["me", "credentials"] as const;
 
 export const credentialsQuery = queryOptions({
   queryKey: CREDENTIALS,
-  queryFn: () => apiFetch<Items<Credential>>("/api/identity/credentials"),
+  queryFn: ({ signal }) =>
+    apiFetch<Items<Credential>>("/api/identity/credentials", { signal }),
   staleTime: staleTimes.list,
 });
 

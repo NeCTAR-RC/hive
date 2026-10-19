@@ -35,7 +35,12 @@ import {
   ResizeShareDialog,
   RevertShareDialog,
 } from "./ShareDialogs";
-import { ruleStateTone, statusLabel, statusTone } from "./status";
+import {
+  ruleStateTone,
+  shareDeleteConfirmText,
+  statusLabel,
+  statusTone,
+} from "./status";
 import styles from "./Shares.module.scss";
 
 type Dialog =
@@ -193,7 +198,7 @@ export function ShareDetailPage() {
         onOpenChange={setDeleting}
         title={`Delete share ${data?.name || data?.id}?`}
         confirmLabel="Delete"
-        confirmText={data?.name ?? ""}
+        confirmText={data ? shareDeleteConfirmText([data]) : ""}
         isPending={remove.isPending}
         error={remove.error}
         onConfirm={() =>
@@ -213,100 +218,102 @@ export function ShareDetailPage() {
 
 function Overview({ share }: { share: ShareDetail }) {
   return (
-    <div className={styles.grid}>
+    <div className={styles.stack}>
       {share.has_snapshot && (
         <Alert tone="info" role="status">
           This share has snapshots. Delete them before deleting the share.
         </Alert>
       )}
-      <Panel title="Details" headingLevel={3}>
-        <KeyValueList
-          items={[
-            {
-              label: "Status",
-              value: (
-                <StatusPill tone={statusTone(share.status)}>
-                  {statusLabel(share.status)}
-                </StatusPill>
-              ),
-            },
-            {
-              label: "Size",
-              value: share.size === null ? "-" : `${share.size} GiB`,
-            },
-            { label: "Protocol", value: share.protocol ?? "-" },
-            { label: "Share type", value: share.share_type ?? "-" },
-            {
-              label: "Availability zone",
-              value: share.availability_zone ?? "-",
-            },
-            {
-              label: "Visibility",
-              value: share.is_public ? "Public" : "Private",
-            },
-            { label: "Description", value: share.description || "-" },
-            {
-              label: "Created",
-              value: formatDateTime(share.created_at) || "-",
-            },
-            { label: "ID", value: <code>{share.id}</code> },
-          ]}
-        />
-      </Panel>
-      <Panel title="Export locations" headingLevel={3}>
-        {share.export_locations.length === 0 ? (
-          <p className={styles.muted}>
-            Not available until the share is ready.
-          </p>
-        ) : (
-          <ul className={styles.list}>
-            {share.export_locations.map((location) => (
-              <li key={location.id ?? location.path ?? ""}>
-                {location.path}
-                {location.preferred ? " (preferred)" : ""}{" "}
-                {location.path && <CopyButton text={location.path} />}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-      <Panel title="Capabilities" headingLevel={3}>
-        <KeyValueList
-          items={[
-            {
-              label: "Snapshots",
-              value: share.snapshot_support ? "Supported" : "Not supported",
-            },
-            {
-              label: "Revert to snapshot",
-              value: share.revert_to_snapshot_support
-                ? "Supported"
-                : "Not supported",
-            },
-            {
-              label: "Mountable snapshots",
-              value: share.mount_snapshot_support
-                ? "Supported"
-                : "Not supported",
-            },
-            { label: "Share group", value: share.share_group_id ?? "-" },
-            { label: "Source snapshot", value: share.snapshot_id ?? "-" },
-            { label: "Task state", value: share.task_state ?? "-" },
-          ]}
-        />
-      </Panel>
-      <Panel title="Metadata" headingLevel={3}>
-        {Object.keys(share.metadata).length === 0 ? (
-          <p className={styles.muted}>None</p>
-        ) : (
+      <div className={styles.grid}>
+        <Panel title="Details" headingLevel={3}>
           <KeyValueList
-            items={Object.entries(share.metadata).map(([key, value]) => ({
-              label: key,
-              value: <code>{value}</code>,
-            }))}
+            items={[
+              {
+                label: "Status",
+                value: (
+                  <StatusPill tone={statusTone(share.status)}>
+                    {statusLabel(share.status)}
+                  </StatusPill>
+                ),
+              },
+              {
+                label: "Size",
+                value: share.size === null ? "-" : `${share.size} GiB`,
+              },
+              { label: "Protocol", value: share.protocol ?? "-" },
+              { label: "Share type", value: share.share_type ?? "-" },
+              {
+                label: "Availability zone",
+                value: share.availability_zone ?? "-",
+              },
+              {
+                label: "Visibility",
+                value: share.is_public ? "Public" : "Private",
+              },
+              { label: "Description", value: share.description || "-" },
+              {
+                label: "Created",
+                value: formatDateTime(share.created_at) || "-",
+              },
+              { label: "ID", value: <code>{share.id}</code> },
+            ]}
           />
-        )}
-      </Panel>
+        </Panel>
+        <Panel title="Export locations" headingLevel={3}>
+          {share.export_locations.length === 0 ? (
+            <p className={styles.muted}>
+              Not available until the share is ready.
+            </p>
+          ) : (
+            <ul className={styles.list}>
+              {share.export_locations.map((location) => (
+                <li key={location.id ?? location.path ?? ""}>
+                  {location.path}
+                  {location.preferred ? " (preferred)" : ""}{" "}
+                  {location.path && <CopyButton text={location.path} />}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        <Panel title="Capabilities" headingLevel={3}>
+          <KeyValueList
+            items={[
+              {
+                label: "Snapshots",
+                value: share.snapshot_support ? "Supported" : "Not supported",
+              },
+              {
+                label: "Revert to snapshot",
+                value: share.revert_to_snapshot_support
+                  ? "Supported"
+                  : "Not supported",
+              },
+              {
+                label: "Mountable snapshots",
+                value: share.mount_snapshot_support
+                  ? "Supported"
+                  : "Not supported",
+              },
+              { label: "Share group", value: share.share_group_id ?? "-" },
+              { label: "Source snapshot", value: share.snapshot_id ?? "-" },
+              { label: "Task state", value: share.task_state ?? "-" },
+            ]}
+          />
+        </Panel>
+        <Panel title="Metadata" headingLevel={3}>
+          {Object.keys(share.metadata).length === 0 ? (
+            <p className={styles.muted}>None</p>
+          ) : (
+            <KeyValueList
+              items={Object.entries(share.metadata).map(([key, value]) => ({
+                label: key,
+                value: <code>{value}</code>,
+              }))}
+            />
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }

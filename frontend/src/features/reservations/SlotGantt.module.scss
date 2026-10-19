@@ -93,53 +93,21 @@
   border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
 }
 
-.toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--hive-space-2);
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
-  color: var(--hive-color-text-body);
-  text-align: left;
-  cursor: pointer;
-
-  &:focus-visible {
-    @include focus-ring;
-  }
-
-  &[aria-expanded="true"] .chevron {
-    transform: rotate(180deg);
-  }
-}
-
-.chevron {
+.chevron,
+.chevronOpen {
   flex: none;
   width: 1rem;
   height: 1rem;
   transition: transform var(--hive-transition-fast);
 }
 
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
 .details {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--hive-space-1) var(--hive-space-2);
   margin: var(--hive-space-2) 0 0;
-
-  dt {
-    font-weight: var(--hive-font-weight-semibold);
-    color: var(--hive-color-text-body);
-  }
-
-  dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
+  font-size: var(--hive-font-size-sm);
 }
 
 .track {
@@ -153,6 +121,13 @@
   > * {
     grid-row: 1;
   }
+}
+
+.noSlots {
+  grid-column: 1 / -1;
+  padding: 0 var(--hive-space-2);
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
 }
 
 .trackAlt {

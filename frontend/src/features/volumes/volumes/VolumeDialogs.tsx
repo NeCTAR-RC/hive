@@ -6,6 +6,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Alert, Button, Dialog, Modal } from "@ardc-ui/react";
+import { loadingProps } from "../../../components/buttonState";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { FormDialog } from "../../../components/FormDialog/FormDialog";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../../../components/Form/fields";
 import { QuotaMeter } from "../../../components/QuotaMeter/QuotaMeter";
 import type {
+  Instance,
   Volume,
   VolumeCreateRequest,
   VolumeSourceType,
@@ -522,6 +524,13 @@ export function ManageAttachmentsDialog({
   const candidates = (instances.data?.items ?? []).filter(
     (i) => ATTACH_READY.has(i.status) && !attached.has(i.id),
   );
+  // Cinder attaches only within the volume's availability zone: instances
+  // elsewhere are listed but cannot be chosen.
+  const sameZone = (i: Instance) =>
+    !volume.availability_zone ||
+    !i.availability_zone ||
+    i.availability_zone === volume.availability_zone;
+  const attachable = candidates.filter(sameZone);
   const canAttach = volume.attachments.length === 0 || volume.multiattach;
   const busy = attach.isPending || detach.isPending;
 
@@ -572,21 +581,16 @@ export function ManageAttachmentsDialog({
             <Button variant="secondary" slot="close" isDisabled={busy}>
               Close
             </Button>
-            {canAttach && attach.isPending ? (
-              <Button
-                variant="primary"
-                state="loading"
-                loadingText="Attaching..."
-                isDisabled
-              >
-                Attach volume
-              </Button>
-            ) : canAttach ? (
+            {canAttach ? (
               <Button
                 variant="primary"
                 type="submit"
                 form={formId}
-                isDisabled={busy || candidates.length === 0}
+                isPending={attach.isPending}
+                {...loadingProps(attach.isPending, "Attaching...")}
+                isDisabled={
+                  !attach.isPending && (busy || attachable.length === 0)
+                }
               >
                 Attach volume
               </Button>
@@ -668,15 +672,18 @@ export function ManageAttachmentsDialog({
                 label="Instance"
                 options={candidates.map((i) => ({
                   id: i.id,
-                  label: `${i.name} (${i.status.toLowerCase()})`,
+                  label: sameZone(i)
+                    ? `${i.name} (${i.status.toLowerCase()})`
+                    : `${i.name} (in ${i.availability_zone}, another zone)`,
+                  isDisabled: !sameZone(i),
                 }))}
                 isRequired
-                isDisabled={instances.isPending || candidates.length === 0}
+                isDisabled={instances.isPending || attachable.length === 0}
                 placeholder={
                   instances.isPending
                     ? "Loading instances..."
-                    : candidates.length === 0
-                      ? "No running or shut off instances to attach to"
+                    : attachable.length === 0
+                      ? "No running or shut off instances in this zone"
                       : "Choose an instance"
                 }
                 description="Only active or shut off instances in the volume's zone can take a volume."

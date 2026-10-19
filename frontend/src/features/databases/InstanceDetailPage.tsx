@@ -3,7 +3,7 @@
 // tabs, Nectar layout).
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Alert, Button, TabItem, Tabs } from "@ardc-ui/react";
 import { CodeBlock } from "../../components/CodeBlock/CodeBlock";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
@@ -15,6 +15,7 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { DbBackup, DbInstanceDetail, DbUser } from "../../lib/api/types";
@@ -325,13 +326,13 @@ function Overview({
               label: "Configuration group",
               value: configuration ? (
                 <span>
-                  <RouterLink
+                  <RouteLink
                     to="/databases/configuration-groups/$configurationId"
                     params={{ configurationId: configuration.id }}
                   >
                     {("name" in configuration && configuration.name) ||
                       configuration.id}
-                  </RouterLink>{" "}
+                  </RouteLink>{" "}
                   <Button
                     variant="link"
                     size="xs"
@@ -643,13 +644,12 @@ function Backups({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/databases/backups/$backupId"
             params={{ backupId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
       },

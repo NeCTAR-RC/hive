@@ -1,5 +1,5 @@
 // One listener: overview, edit, and its L7 policies with their rules.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
@@ -31,10 +31,7 @@ import { provisioningLabel, provisioningTone } from "./status";
 import styles from "./LoadBalancers.module.scss";
 
 type Dialog =
-  | { kind: "edit" }
-  | { kind: "policy"; policy: L7Policy | null }
-  | { kind: "rules"; policy: L7Policy }
-  | null;
+  { kind: "edit" } | { kind: "policy"; policy: L7Policy | null } | null;
 
 export function ListenerDetailPage() {
   const projectId = useProjectId();
@@ -46,6 +43,7 @@ export function ListenerDetailPage() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [deleting, setDeleting] = useState(false);
   const [deletingPolicy, setDeletingPolicy] = useState<L7Policy | null>(null);
+  const [rulesOf, setRulesOf] = useState<string | null>(null);
   const listener = tree.data?.listeners.find((l) => l.id === listenerId);
   const policies = useMemo(
     () =>
@@ -53,6 +51,7 @@ export function ListenerDetailPage() {
     [tree.data, listenerId],
   );
   const lbName = tree.data?.load_balancer.name || lbId;
+  const rulesPolicy = policies.find((p) => p.id === rulesOf) ?? null;
 
   const columns = useMemo<ColumnDef<L7Policy>[]>(
     () => [
@@ -258,7 +257,7 @@ export function ListenerDetailPage() {
               {
                 id: "rules",
                 label: "Manage rules",
-                onAction: () => setDialog({ kind: "rules", policy: row }),
+                onAction: () => setRulesOf(row.id),
               },
               {
                 id: "edit",
@@ -273,6 +272,14 @@ export function ListenerDetailPage() {
               },
             ]}
           />
+          {rulesPolicy && (
+            <RulesPanel
+              key={rulesPolicy.id}
+              projectId={projectId}
+              policy={rulesPolicy}
+              onClose={() => setRulesOf(null)}
+            />
+          )}
         </div>
       )}
       {dialog?.kind === "edit" && listener && tree.data && (
@@ -288,13 +295,6 @@ export function ListenerDetailPage() {
           projectId={projectId}
           tree={tree.data}
           listenerId={listenerId}
-          policy={dialog.policy}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      {dialog?.kind === "rules" && (
-        <RulesDialog
-          projectId={projectId}
           policy={dialog.policy}
           onClose={() => setDialog(null)}
         />
@@ -344,7 +344,12 @@ export function ListenerDetailPage() {
   );
 }
 
-function RulesDialog({
+/**
+ * One policy's rules, in a panel on the listener page (not a dialog), so
+ * adding a rule opens a single modal and focus comes back to the panel's
+ * own Add rule button when it closes.
+ */
+function RulesPanel({
   projectId,
   policy,
   onClose,
@@ -357,6 +362,10 @@ function RulesDialog({
   const remove = useDeleteL7Rule(projectId);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<L7Rule | null>(null);
+  const region = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    region.current?.focus();
+  }, [policy.id]);
   const columns = useMemo<ColumnDef<L7Rule>[]>(
     () => [
       {
@@ -377,39 +386,48 @@ function RulesDialog({
         label: "Inverted",
         cell: (row) => (row.invert ? "Yes" : "No"),
       },
+      {
+        id: "status",
+        label: "Status",
+        cell: (row) => (
+          <StatusPill tone={provisioningTone(row.provisioning_status)}>
+            {provisioningLabel(row.provisioning_status)}
+          </StatusPill>
+        ),
+      },
     ],
     [],
   );
-  if (adding) {
-    return (
-      <L7RuleDialog
-        projectId={projectId}
-        policy={policy}
-        onClose={() => setAdding(false)}
-      />
-    );
-  }
+  const title = `Rules of ${policy.name || policy.id}`;
   return (
-    <ConfirmDialog
-      isOpen
-      onOpenChange={(open) => !open && onClose()}
-      title={`Rules of ${policy.name || policy.id}`}
-      confirmLabel="Add rule"
-      tone="primary"
-      onConfirm={() => setAdding(true)}
-    >
-      {detail.isPending ? (
-        <SkeletonLines lines={3} />
-      ) : (
+    <div ref={region} tabIndex={-1} className={styles.rulesPanel}>
+      <Panel
+        title={title}
+        headingLevel={2}
+        actions={
+          <div className={styles.actions}>
+            <Button size="xs" onPress={() => setAdding(true)}>
+              Add rule
+            </Button>
+            <Button variant="secondary" size="xs" onPress={onClose}>
+              Close rules
+            </Button>
+          </div>
+        }
+      >
         <DataTable
           id="l7rules"
-          label="L7 rules"
+          label={title}
           columns={columns}
           rows={detail.data?.rule_rows ?? []}
           getRowId={(row) => row.id}
           isLoading={detail.isPending}
+          isFetching={detail.isFetching}
           error={detail.error}
+          onRetry={() => void detail.refetch()}
+          onRefresh={() => void detail.refetch()}
           emptyTitle="No rules yet"
+          emptyBody={<p>A policy with no rules matches no requests.</p>}
           rowActions={(row) => [
             {
               id: "delete",
@@ -419,28 +437,34 @@ function RulesDialog({
             },
           ]}
         />
-      )}
-      {deleting && (
-        <ConfirmDialog
-          isOpen
-          onOpenChange={(open) => !open && setDeleting(null)}
-          title="Delete this rule?"
-          confirmLabel="Delete"
-          isPending={remove.isPending}
-          error={remove.error}
-          onConfirm={() =>
-            remove.mutate(
-              { policyId: policy.id, ruleId: deleting.id },
-              {
-                onSuccess: () => {
-                  notify.success("Deleting the rule.");
-                  setDeleting(null);
-                },
-              },
-            )
-          }
+      </Panel>
+      {adding && (
+        <L7RuleDialog
+          projectId={projectId}
+          policy={policy}
+          onClose={() => setAdding(false)}
         />
       )}
-    </ConfirmDialog>
+      <ConfirmDialog
+        isOpen={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Delete this rule?"
+        confirmLabel="Delete"
+        isPending={remove.isPending}
+        error={remove.error}
+        onConfirm={() => {
+          if (!deleting) return;
+          remove.mutate(
+            { policyId: policy.id, ruleId: deleting.id },
+            {
+              onSuccess: () => {
+                notify.success("Deleting the rule.");
+                setDeleting(null);
+              },
+            },
+          );
+        }}
+      />
+    </div>
   );
 }

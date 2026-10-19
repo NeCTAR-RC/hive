@@ -3,7 +3,7 @@
 // secret once, delete.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -23,6 +23,7 @@ import {
   SecretDialog,
 } from "./ApplicationCredentialDialogs";
 import styles from "./ApplicationCredentialsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 export function ApplicationCredentialsPage() {
   const projectId = useProjectId();
@@ -52,13 +53,12 @@ export function ApplicationCredentialsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/identity/application-credentials/$credentialId"
             params={{ credentialId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,

@@ -6,9 +6,13 @@
   gap: var(--hive-space-4);
 }
 
-.nameLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
+.truncated {
+  display: inline-block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .muted {

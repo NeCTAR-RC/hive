@@ -1,5 +1,6 @@
 // Share snapshot dialogs: edit name and description, and add a snapshot
 // access rule (manila-ui share_snapshots/forms.py).
+import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,8 +12,12 @@ import {
 import { FormDialog } from "../../components/FormDialog/FormDialog";
 import type { ShareSnapshot } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
-import { useSnapshotAllowAccess, useUpdateSnapshot } from "./api";
-import { ACCESS_TYPES } from "./status";
+import {
+  shareOptionsQuery,
+  useSnapshotAllowAccess,
+  useUpdateSnapshot,
+} from "./api";
+import { accessTypeOptions, defaultAccessType } from "./status";
 
 const editSchema = z.object({
   name: z.string().trim().min(1, "Enter a snapshot name").max(255),
@@ -87,10 +92,13 @@ export function SnapshotAccessDialog({
   snapshot: ShareSnapshot;
   onClose: () => void;
 }) {
+  const options = useQuery(shareOptionsQuery(projectId));
   const allow = useSnapshotAllowAccess(projectId);
+  // CephFS snapshots take CephX users, as share rules do.
+  const accessType = defaultAccessType(snapshot.share_proto);
   const form = useForm<z.infer<typeof ruleSchema>>({
     resolver: zodResolver(ruleSchema),
-    defaultValues: { access_type: "ip", access_to: "" },
+    defaultValues: { access_type: accessType, access_to: "" },
   });
   const submit = form.handleSubmit((values) => {
     allow.mutate(
@@ -117,7 +125,7 @@ export function SnapshotAccessDialog({
         control={form.control}
         name="access_type"
         label="Access type"
-        options={ACCESS_TYPES}
+        options={accessTypeOptions(options.data?.access_types ?? [accessType])}
         isRequired
       />
       <TextInput

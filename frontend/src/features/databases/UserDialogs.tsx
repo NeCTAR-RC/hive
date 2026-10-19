@@ -5,11 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Button } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
+import { Button, Dialog, Loading, Modal, Switch } from "@ardc-ui/react";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { CheckboxesInput, TextInput } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { DbUser } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import {
@@ -93,7 +92,7 @@ export function CreateUserDialog({
         description="Leave blank to allow the user from any host."
       />
       {databases.isPending ? (
-        <SkeletonLines lines={2} />
+        <Loading>Loading databases...</Loading>
       ) : (databases.data?.items.length ?? 0) > 0 ? (
         <CheckboxesInput
           control={form.control}
@@ -109,6 +108,9 @@ export function CreateUserDialog({
   );
 }
 
+/** Grant and revoke, one switch per database, as trove-dashboard's
+ * access table (databases/tables.py GrantDatabaseAccess and
+ * RevokeDatabaseAccess); each change applies at once. */
 export function UserAccessDialog({
   projectId,
   instanceId,
@@ -127,64 +129,70 @@ export function UserAccessDialog({
   const grant = useGrantAccess(projectId);
   const revoke = useRevokeAccess(projectId);
   const pending = grant.isPending || revoke.isPending;
+  const error = grant.error ?? revoke.error;
+  const items = access.data?.items ?? [];
+  const toggle = (database: string, granted: boolean) => {
+    grant.reset();
+    revoke.reset();
+    if (granted) {
+      grant.mutate(
+        { instanceId, name, host: user.host, databases: [database] },
+        { onSuccess: () => notify.success(`Granted ${database} to ${name}.`) },
+      );
+    } else {
+      revoke.mutate(
+        { instanceId, name, host: user.host, database },
+        {
+          onSuccess: () => notify.success(`Revoked ${database} from ${name}.`),
+        },
+      );
+    }
+  };
   return (
-    <ConfirmDialog
+    <Modal
       isOpen
-      onOpenChange={(open) => !open && onClose()}
-      title={`Access for ${name}`}
-      confirmLabel="Done"
-      tone="primary"
-      onConfirm={onClose}
-      error={grant.error ?? revoke.error}
+      onOpenChange={(open) => !open && !pending && onClose()}
+      size="sm"
+      isDismissable
     >
-      {access.isPending ? (
-        <SkeletonLines lines={3} />
-      ) : (access.data?.items.length ?? 0) === 0 ? (
-        <p>The instance has no databases yet.</p>
-      ) : (
-        <ul className={styles.list}>
-          {(access.data?.items ?? []).map((db) => (
-            <li key={db.name ?? ""}>
-              {db.name}: {db.granted ? "accessible" : "no access"}{" "}
-              <Button
-                variant="link"
-                size="xs"
+      <Dialog
+        title={`Access for ${name}`}
+        closeLabel="Close"
+        actions={
+          <Button slot="close" isDisabled={pending}>
+            Done
+          </Button>
+        }
+      >
+        <div className={styles.stack}>
+          {error ? (
+            <ErrorState error={error} title="Could not change access" />
+          ) : null}
+          {access.isPending ? (
+            <Loading>Loading access...</Loading>
+          ) : access.isError ? (
+            <ErrorState
+              error={access.error}
+              title="Could not load access"
+              onRetry={() => void access.refetch()}
+            />
+          ) : items.length === 0 ? (
+            <p>The instance has no databases yet.</p>
+          ) : (
+            items.map((db) => (
+              <Switch
+                key={db.name ?? ""}
+                isSelected={db.granted}
                 isDisabled={pending}
-                onPress={() =>
-                  db.granted
-                    ? revoke.mutate(
-                        {
-                          instanceId,
-                          name,
-                          host: user.host,
-                          database: db.name ?? "",
-                        },
-                        {
-                          onSuccess: () =>
-                            notify.success(`Revoked ${db.name} from ${name}.`),
-                        },
-                      )
-                    : grant.mutate(
-                        {
-                          instanceId,
-                          name,
-                          host: user.host,
-                          databases: [db.name ?? ""],
-                        },
-                        {
-                          onSuccess: () =>
-                            notify.success(`Granted ${db.name} to ${name}.`),
-                        },
-                      )
-                }
+                onChange={(on) => toggle(db.name ?? "", on)}
               >
-                {db.granted ? "Revoke" : "Grant"}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </ConfirmDialog>
+                {db.name ?? ""}
+              </Switch>
+            ))
+          )}
+        </div>
+      </Dialog>
+    </Modal>
   );
 }
 

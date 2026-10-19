@@ -15,10 +15,12 @@ import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { ApiError } from "../../lib/api/client";
 import type { RecordSet } from "../../lib/api/types";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { zoneRoute } from "../../app/router";
 import { recordSetsQuery, useDeleteRecordSet, useDeleteZone } from "./api";
@@ -119,15 +121,34 @@ export function ZoneDetailPage() {
     setDeleting([]);
   };
 
+  const crumbs = [
+    { label: "Project" },
+    { label: "DNS" },
+    { label: "Zones", href: "/dns/zones" },
+  ];
+  if (
+    recordsets.isError &&
+    recordsets.error instanceof ApiError &&
+    recordsets.error.status === 404
+  ) {
+    return (
+      <>
+        <PageHeader title="Zone not found" crumbs={crumbs} />
+        <p>
+          There is no zone <code>{zoneId}</code> in this project.{" "}
+          <RouteLink to="/dns/zones" search={{}}>
+            Back to zones
+          </RouteLink>
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
         title={zone?.name ?? "Zone"}
-        crumbs={[
-          { label: "Project" },
-          { label: "DNS" },
-          { label: "Zones", href: "/dns/zones" },
-        ]}
+        crumbs={crumbs}
         actions={
           zone ? (
             <div className={styles.actions}>

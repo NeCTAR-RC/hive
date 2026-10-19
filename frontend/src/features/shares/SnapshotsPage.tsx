@@ -2,7 +2,7 @@
 // detail with its access rules when the share supports mounting them.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -16,6 +16,7 @@ import { Panel } from "../../components/Panel/Panel";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import type { ShareSnapshot } from "../../lib/api/types";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
@@ -30,6 +31,7 @@ import {
 } from "./api";
 import { EditSnapshotDialog, SnapshotAccessDialog } from "./SnapshotDialogs";
 import { ruleStateTone, statusLabel, statusTone } from "./status";
+import { TruncatedText } from "./TruncatedText";
 import styles from "./Shares.module.scss";
 
 export function SnapshotsPage() {
@@ -48,13 +50,12 @@ export function SnapshotsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/shares/snapshots/$snapshotId"
             params={{ snapshotId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -63,7 +64,7 @@ export function SnapshotsPage() {
       {
         id: "description",
         label: "Description",
-        cell: (row) => (row.description ?? "").slice(0, 40),
+        cell: (row) => <TruncatedText text={row.description} />,
         hideBelow: "lg",
       },
       {
@@ -87,12 +88,12 @@ export function SnapshotsPage() {
         label: "Source share",
         cell: (row) =>
           row.share_id ? (
-            <RouterLink
+            <RouteLink
               to="/shares/shares/$shareId"
               params={{ shareId: row.share_id }}
             >
               {row.share_name || row.share_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),
@@ -346,12 +347,12 @@ export function SnapshotDetailPage() {
                   {
                     label: "Source share",
                     value: data.share_id ? (
-                      <RouterLink
+                      <RouteLink
                         to="/shares/shares/$shareId"
                         params={{ shareId: data.share_id }}
                       >
                         {data.share_name || data.share_id}
-                      </RouterLink>
+                      </RouteLink>
                     ) : (
                       "-"
                     ),

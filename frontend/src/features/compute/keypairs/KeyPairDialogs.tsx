@@ -65,9 +65,12 @@ export function CreateKeyPairDialog({
           } else {
             notify.success(`Key pair ${keyPair.name} created.`);
           }
+          // Hand the private key to the download only: drop it from the
+          // mutation state and from what the caller receives.
+          create.reset();
           form.reset();
           onOpenChange(false);
-          onCreated?.(keyPair);
+          onCreated?.({ ...keyPair, private_key: null });
         },
       },
     );
@@ -76,7 +79,10 @@ export function CreateKeyPairDialog({
     <FormDialog
       isOpen={isOpen}
       onOpenChange={(open) => {
-        if (!open) form.reset();
+        if (!open) {
+          form.reset();
+          create.reset();
+        }
         onOpenChange(open);
       }}
       title="Create key pair"

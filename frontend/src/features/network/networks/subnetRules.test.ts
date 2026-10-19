@@ -79,6 +79,25 @@ describe("checkSubnetForm", () => {
         .dns_nameservers,
     ).toMatch(/Invalid IP/);
   });
+
+  it("needs a numeric pool prefix length", () => {
+    const values = {
+      ...emptySubnetForm(DNS),
+      address_source: "pool" as const,
+      subnetpool_id: "pool-1",
+    };
+    expect(checkSubnetForm(values, create)).toEqual({});
+    expect(checkSubnetForm({ ...values, prefixlen: "26" }, create)).toEqual({});
+    expect(
+      checkSubnetForm({ ...values, prefixlen: "x" }, create).prefixlen,
+    ).toMatch(/from 1 to 32/);
+    expect(
+      checkSubnetForm({ ...values, prefixlen: "33" }, create).prefixlen,
+    ).toMatch(/from 1 to 32/);
+    expect(subnetFieldsFromForm({ ...values, prefixlen: "26" }).prefixlen).toBe(
+      26,
+    );
+  });
 });
 
 describe("subnetFieldsFromForm", () => {

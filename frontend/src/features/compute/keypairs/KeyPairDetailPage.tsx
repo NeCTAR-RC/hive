@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { CodeBlock } from "../../../components/CodeBlock/CodeBlock";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
@@ -12,6 +11,7 @@ import { PageHeader } from "../../../shell/PageHeader/PageHeader";
 import { keyPairRoute } from "../../../app/router";
 import { keyPairQuery } from "../api";
 import styles from "./KeyPairDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -36,7 +36,7 @@ export function KeyPairDetailPage() {
         {notFound ? (
           <p>
             There is no key pair called <code>{name}</code> in this project.{" "}
-            <RouterLink to="/compute/key-pairs">Back to key pairs</RouterLink>
+            <RouteLink to="/compute/key-pairs">Back to key pairs</RouteLink>
           </p>
         ) : (
           <ErrorState

@@ -3,24 +3,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Alert,
-  Button,
-  ChevronDown,
-  Link,
-  Menu,
-  MenuItem,
-  MenuTrigger,
-} from "@ardc-ui/react";
+import { Alert, Button, Menu, MenuItem, MenuTrigger } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { Reservation } from "../../lib/api/types";
-import { downloadUrl } from "../../lib/download";
 import { formatDateTime, formatMb, formatNumber } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
@@ -80,71 +72,7 @@ export function ReservationDetailPage() {
           onRetry={() => reservation.refetch()}
         />
       ) : (
-        <div className={styles.stack}>
-          <StatusNotice reservation={data!} />
-          <div className={styles.grid}>
-            <Panel title="Overview">
-              <KeyValueList
-                items={[
-                  { label: "ID", value: <code>{data!.id}</code> },
-                  {
-                    label: "Status",
-                    value: (
-                      <StatusPill tone={statusTone(data!.status)}>
-                        {statusLabel(data!.status)}
-                      </StatusPill>
-                    ),
-                  },
-                  { label: "Start", value: formatDateTime(data!.start) },
-                  { label: "End", value: formatDateTime(data!.end) },
-                  { label: "Created", value: formatDateTime(data!.created_at) },
-                  {
-                    label: "Compute flavour",
-                    value: data!.compute_flavor ? (
-                      <code>reservation:{data!.compute_flavor}</code>
-                    ) : (
-                      "-"
-                    ),
-                  },
-                ]}
-              />
-            </Panel>
-            <Panel title="Flavour">
-              <KeyValueList
-                items={[
-                  { label: "Name", value: data!.flavor.name ?? "-" },
-                  { label: "Class", value: data!.flavor.category ?? "-" },
-                  {
-                    label: "Description",
-                    value: data!.flavor.description || "-",
-                  },
-                  {
-                    label: "Zone",
-                    value: data!.flavor.availability_zone ?? "-",
-                  },
-                  {
-                    label: "VCPUs",
-                    value: formatNumber(data!.flavor.vcpu) || "-",
-                  },
-                  {
-                    label: "RAM",
-                    value: formatMb(data!.flavor.memory_mb) || "-",
-                  },
-                  { label: "Disk", value: flavorDisk(data!.flavor) || "-" },
-                  {
-                    label: "Maximum length",
-                    value: `${data!.flavor.max_days} ${data!.flavor.max_days === 1 ? "day" : "days"}`,
-                  },
-                  { label: "Usage rate", value: flavorRate(data!.flavor) },
-                  {
-                    label: "Public",
-                    value: data!.flavor.is_public ? "Yes" : "No",
-                  },
-                ]}
-              />
-            </Panel>
-          </div>
-        </div>
+        <Details reservation={reservation.data} />
       )}
       {data && (
         <ExtendDialog
@@ -173,6 +101,79 @@ export function ReservationDetailPage() {
         <p>Deleted reservations are not recoverable.</p>
       </ConfirmDialog>
     </>
+  );
+}
+
+function Details({ reservation }: { reservation: Reservation }) {
+  return (
+    <div className={styles.stack}>
+      <StatusNotice reservation={reservation} />
+      <div className={styles.grid}>
+        <Panel title="Overview">
+          <KeyValueList
+            items={[
+              { label: "ID", value: <code>{reservation.id}</code> },
+              {
+                label: "Status",
+                value: (
+                  <StatusPill tone={statusTone(reservation.status)}>
+                    {statusLabel(reservation.status)}
+                  </StatusPill>
+                ),
+              },
+              { label: "Start", value: formatDateTime(reservation.start) },
+              { label: "End", value: formatDateTime(reservation.end) },
+              {
+                label: "Created",
+                value: formatDateTime(reservation.created_at),
+              },
+              {
+                label: "Compute flavour",
+                value: reservation.compute_flavor ? (
+                  <code>reservation:{reservation.compute_flavor}</code>
+                ) : (
+                  "-"
+                ),
+              },
+            ]}
+          />
+        </Panel>
+        <Panel title="Flavour">
+          <KeyValueList
+            items={[
+              { label: "Name", value: reservation.flavor.name ?? "-" },
+              { label: "Class", value: reservation.flavor.category ?? "-" },
+              {
+                label: "Description",
+                value: reservation.flavor.description || "-",
+              },
+              {
+                label: "Zone",
+                value: reservation.flavor.availability_zone ?? "-",
+              },
+              {
+                label: "VCPUs",
+                value: formatNumber(reservation.flavor.vcpu) || "-",
+              },
+              {
+                label: "RAM",
+                value: formatMb(reservation.flavor.memory_mb) || "-",
+              },
+              { label: "Disk", value: flavorDisk(reservation.flavor) || "-" },
+              {
+                label: "Maximum length",
+                value: `${reservation.flavor.max_days} ${reservation.flavor.max_days === 1 ? "day" : "days"}`,
+              },
+              { label: "Usage rate", value: flavorRate(reservation.flavor) },
+              {
+                label: "Public",
+                value: reservation.flavor.is_public ? "Yes" : "No",
+              },
+            ]}
+          />
+        </Panel>
+      </div>
+    </div>
   );
 }
 
@@ -229,13 +230,14 @@ function Actions({
   return (
     <div className={styles.actions}>
       {can("launch") && (
-        <Link
+        <RouteLink
           variant="primary"
           size="sm"
-          href={`/compute/instances/launch?flavor=${encodeURIComponent(reservation.compute_flavor ?? "")}`}
+          to="/compute/instances/launch"
+          search={{ flavor: reservation.compute_flavor ?? "" }}
         >
           Launch instance
-        </Link>
+        </RouteLink>
       )}
       {can("extend") && (
         <Button variant="secondary" size="sm" onPress={onExtend}>
@@ -244,32 +246,42 @@ function Actions({
       )}
       {can("calendar") && calendar && (
         <MenuTrigger>
-          <Button variant="secondary" size="sm">
+          <Button variant="secondary" size="sm" chevronRight>
             Add to calendar
-            <ChevronDown aria-hidden="true" />
           </Button>
-          <Menu
-            aria-label="Add to calendar"
-            placement="bottom end"
-            onAction={(key) => {
-              if (key === "ics") {
-                downloadUrl(
-                  `/api/reservations/${reservation.id}/calendar.ics`,
-                  `nectar-reservation-${reservation.id}.ics`,
-                );
-              } else if (key === "google") {
-                window.open(calendar.google, "_blank", "noopener");
-              } else if (key === "outlook") {
-                window.open(calendar.outlook, "_blank", "noopener");
-              } else if (key === "outlook_personal") {
-                window.open(calendar.outlook_personal, "_blank", "noopener");
-              }
-            }}
-          >
-            <MenuItem id="ics">Download .ics file</MenuItem>
-            <MenuItem id="google">Google Calendar</MenuItem>
-            <MenuItem id="outlook">Outlook (work or school)</MenuItem>
-            <MenuItem id="outlook_personal">Outlook.com</MenuItem>
+          {/* Link rows, so each is announced and opened as a link. */}
+          <Menu aria-label="Add to calendar" placement="bottom end">
+            <MenuItem
+              id="ics"
+              href={`/api/reservations/${reservation.id}/calendar.ics`}
+              download={`nectar-reservation-${reservation.id}.ics`}
+            >
+              Download .ics file
+            </MenuItem>
+            <MenuItem
+              id="google"
+              href={calendar.google}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google Calendar (opens in a new tab)
+            </MenuItem>
+            <MenuItem
+              id="outlook"
+              href={calendar.outlook}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Outlook, work or school (opens in a new tab)
+            </MenuItem>
+            <MenuItem
+              id="outlook_personal"
+              href={calendar.outlook_personal}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Outlook.com (opens in a new tab)
+            </MenuItem>
           </Menu>
         </MenuTrigger>
       )}

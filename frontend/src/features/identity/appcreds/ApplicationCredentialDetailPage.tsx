@@ -1,5 +1,13 @@
 // One application credential (Horizon _detail_overview.html).
 import { useQuery } from "@tanstack/react-query";
+import {
+  Cell,
+  Column,
+  Row,
+  Table,
+  TableBody,
+  TableHeader,
+} from "@ardc-ui/react";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
@@ -86,26 +94,31 @@ export function ApplicationCredentialDetailPage() {
                   allow.
                 </p>
               ) : (
-                <table className={styles.rules}>
-                  <thead>
-                    <tr>
-                      <th scope="col">Service</th>
-                      <th scope="col">Method</th>
-                      <th scope="col">Path</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {credential.data.access_rules.map((rule, index) => (
-                      <tr key={index}>
-                        <td>{rule.service ?? ""}</td>
-                        <td>{rule.method ?? ""}</td>
-                        <td>
+                <Table aria-label="Access rules">
+                  <TableHeader>
+                    <Column id="service" isRowHeader>
+                      Service
+                    </Column>
+                    <Column id="method">Method</Column>
+                    <Column id="path">Path</Column>
+                  </TableHeader>
+                  <TableBody
+                    items={credential.data.access_rules.map((rule, index) => ({
+                      ...rule,
+                      key: String(index),
+                    }))}
+                  >
+                    {(rule) => (
+                      <Row id={rule.key}>
+                        <Cell>{rule.service ?? ""}</Cell>
+                        <Cell>{rule.method ?? ""}</Cell>
+                        <Cell>
                           <code>{rule.path ?? ""}</code>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </Cell>
+                      </Row>
+                    )}
+                  </TableBody>
+                </Table>
               )}
             </Panel>
           </>

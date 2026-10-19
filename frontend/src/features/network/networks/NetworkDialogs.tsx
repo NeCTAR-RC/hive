@@ -274,31 +274,25 @@ export function CreateNetworkDialog({
     [enableIpv6],
   );
   type Values = z.infer<typeof schema>;
-  const form = useForm<Values>({
-    resolver: zodResolver(schema),
-    defaultValues: {
+  // The default name servers arrive with the options; `values` fills them
+  // in then without overwriting anything the user has already typed.
+  const defaults = options.data?.default_dns_nameservers;
+  const initial = useMemo<Values>(
+    () => ({
       name: "",
       admin_state_up: true,
       with_subnet: true,
       availability_zone_hints: [],
       mtu: "",
-      subnet: emptySubnetForm(options.data?.default_dns_nameservers ?? []),
-    },
+      subnet: emptySubnetForm(defaults ?? []),
+    }),
+    [defaults],
+  );
+  const form = useForm<Values>({
+    resolver: zodResolver(schema),
+    values: initial,
+    resetOptions: { keepDirtyValues: true },
   });
-  // The default name servers arrive with the options; fill them in once.
-  const dns = useWatch({
-    control: form.control,
-    name: "subnet.dns_nameservers",
-  });
-  const defaults = options.data?.default_dns_nameservers;
-  if (
-    defaults &&
-    defaults.length > 0 &&
-    dns === "" &&
-    !form.formState.isDirty
-  ) {
-    form.setValue("subnet.dns_nameservers", defaults.join("\n"));
-  }
   const withSubnet = useWatch({ control: form.control, name: "with_subnet" });
   const addressSource = useWatch({
     control: form.control,
@@ -490,22 +484,17 @@ export function SubnetDialog({
     () => (subnet ? subnetFormFromDetail(subnet) : undefined),
     [subnet],
   );
+  // A new subnet takes the default name servers once the options load.
+  const defaults = options.data?.default_dns_nameservers;
+  const initial = useMemo(
+    () => previous ?? emptySubnetForm(defaults ?? []),
+    [previous, defaults],
+  );
   const form = useForm<SubnetFormValues>({
     resolver: zodResolver(schema),
-    defaultValues:
-      previous ?? emptySubnetForm(options.data?.default_dns_nameservers ?? []),
+    values: initial,
+    resetOptions: { keepDirtyValues: true },
   });
-  const dns = useWatch({ control: form.control, name: "dns_nameservers" });
-  const defaults = options.data?.default_dns_nameservers;
-  if (
-    isCreate &&
-    defaults &&
-    defaults.length > 0 &&
-    dns === "" &&
-    !form.formState.isDirty
-  ) {
-    form.setValue("dns_nameservers", defaults.join("\n"));
-  }
   const addressSource = useWatch({
     control: form.control,
     name: "address_source",
@@ -646,9 +635,9 @@ export function PortDialog({
         .map((g) => g.id),
     [groups.data],
   );
-  const form = useForm<z.infer<typeof portSchema>>({
-    resolver: zodResolver(portSchema),
-    defaultValues: {
+  // A new port starts with the default group, once the list is known.
+  const initial = useMemo<z.infer<typeof portSchema>>(
+    () => ({
       name: port?.name ?? "",
       admin_state_up: port?.admin_state_up ?? true,
       device_id: "",
@@ -658,19 +647,15 @@ export function PortDialog({
       fixed_ip: "",
       mac_address: "",
       port_security_enabled: port?.port_security_enabled ?? true,
-      security_groups: port?.security_groups ?? [],
-    },
+      security_groups: port ? port.security_groups : defaultGroups,
+    }),
+    [port, defaultGroups],
+  );
+  const form = useForm<z.infer<typeof portSchema>>({
+    resolver: zodResolver(portSchema),
+    values: initial,
+    resetOptions: { keepDirtyValues: true },
   });
-  // A new port starts with the default group, once the list is known.
-  const chosen = useWatch({ control: form.control, name: "security_groups" });
-  if (
-    isCreate &&
-    defaultGroups.length > 0 &&
-    chosen.length === 0 &&
-    !form.formState.dirtyFields.security_groups
-  ) {
-    form.setValue("security_groups", defaultGroups);
-  }
   const specifyIp = useWatch({ control: form.control, name: "specify_ip" });
   const securityOn = useWatch({
     control: form.control,

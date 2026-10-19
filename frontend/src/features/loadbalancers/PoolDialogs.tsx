@@ -1,6 +1,6 @@
 // Pool, member and health monitor dialogs (octavia-dashboard
 // workflow/pool, members and monitor steps).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,9 +31,10 @@ import {
   useUpdatePool,
 } from "./api";
 import {
-  defaultPort,
   EXPECTED_CODES,
-  IP,
+  isIp,
+  memberDefaultPort,
+  persistenceTypesFor,
   poolProtocolFor,
   URL_PATH,
 } from "./status";
@@ -97,6 +98,21 @@ export function CreatePoolDialog({
     name: ["listener_id", "persistence"],
   });
   const listener = tree.listeners.find((l) => l.id === listenerId);
+  const chosenProtocol = useWatch({ control: form.control, name: "protocol" });
+  const protocol = listener
+    ? poolProtocolFor(listener.protocol)
+    : chosenProtocol;
+  const persistenceTypes = persistenceTypesFor(
+    protocol,
+    options.data?.persistence_types ?? [],
+  );
+  // A persistence type the new protocol cannot use goes back to None.
+  const persistenceKey = persistenceTypes.join(",");
+  useEffect(() => {
+    const current = form.getValues("persistence");
+    if (current && options.data && !persistenceKey.split(",").includes(current))
+      form.setValue("persistence", "");
+  }, [persistenceKey, options.data, form]);
   const submit = form.handleSubmit((v) => {
     create.mutate(
       {
@@ -191,7 +207,7 @@ export function CreatePoolDialog({
         label="Session persistence"
         options={[
           { id: "", label: "None" },
-          ...(options.data?.persistence_types ?? []).map((t) => ({
+          ...persistenceTypes.map((t) => ({
             id: t,
             label: t.replace(/_/g, " "),
           })),
@@ -221,6 +237,7 @@ const editPoolSchema = z
     lb_algorithm: z.string().min(1),
     persistence: z.string(),
     cookie_name: z.string().trim(),
+    tls_enabled: z.boolean(),
     admin_state_up: z.boolean(),
   })
   .refine((v) => v.persistence !== "APP_COOKIE" || v.cookie_name, {
@@ -247,6 +264,7 @@ export function EditPoolDialog({
       lb_algorithm: pool.lb_algorithm ?? "ROUND_ROBIN",
       persistence: pool.session_persistence?.type ?? "",
       cookie_name: pool.session_persistence?.cookie_name ?? "",
+      tls_enabled: pool.tls_enabled ?? false,
       admin_state_up: pool.admin_state_up ?? true,
     },
   });
@@ -259,6 +277,8 @@ export function EditPoolDialog({
         description: v.description,
         lb_algorithm: v.lb_algorithm,
         admin_state_up: v.admin_state_up,
+        tls_enabled: v.tls_enabled,
+        // null turns persistence off; the backend forwards it.
         session_persistence: v.persistence
           ? {
               type: v.persistence,
@@ -312,7 +332,10 @@ export function EditPoolDialog({
         label="Session persistence"
         options={[
           { id: "", label: "None" },
-          ...(options.data?.persistence_types ?? []).map((t) => ({
+          ...persistenceTypesFor(
+            pool.protocol,
+            options.data?.persistence_types ?? [],
+          ).map((t) => ({
             id: t,
             label: t.replace(/_/g, " "),
           })),
@@ -328,6 +351,11 @@ export function EditPoolDialog({
       )}
       <SwitchInput
         control={form.control}
+        name="tls_enabled"
+        label="Re-encrypt traffic to the members with TLS"
+      />
+      <SwitchInput
+        control={form.control}
         name="admin_state_up"
         label="Admin state up"
       />
@@ -341,14 +369,18 @@ const memberSchema = z.object({
     .string()
     .trim()
     .min(1, "Enter an IP address")
-    .regex(IP, "Enter a valid IP address"),
+    .refine(isIp, "Enter a valid IP address"),
   subnet_id: z.string(),
-  protocol_port: z.number().int().min(1).max(65535),
+  protocol_port: z
+    .number({ error: "Enter a port" })
+    .int()
+    .min(1, "Ports run from 1 to 65535")
+    .max(65535, "Ports run from 1 to 65535"),
   weight: z.number().int().min(0).max(256),
   monitor_address: z
     .string()
     .trim()
-    .refine((v) => !v || IP.test(v), "Enter a valid IP address"),
+    .refine((v) => !v || isIp(v), "Enter a valid IP address"),
   monitor_port: z.number().int().min(1).max(65535).optional(),
   backup: z.boolean(),
   admin_state_up: z.boolean(),
@@ -374,7 +406,8 @@ export function AddMemberDialog({
       name: "",
       address: "",
       subnet_id: "",
-      protocol_port: defaultPort(pool.protocol ?? "HTTP", []),
+      // Empty, for the user to fill, unless the pool is HTTP.
+      protocol_port: memberDefaultPort(pool.protocol ?? ""),
       weight: 1,
       monitor_address: "",
       backup: false,
@@ -511,7 +544,7 @@ const editMemberSchema = z.object({
   monitor_address: z
     .string()
     .trim()
-    .refine((v) => !v || IP.test(v), "Enter a valid IP address"),
+    .refine((v) => !v || isIp(v), "Enter a valid IP address"),
   monitor_port: z.number().int().min(1).max(65535).optional(),
   backup: z.boolean(),
   admin_state_up: z.boolean(),
@@ -549,8 +582,9 @@ export function EditMemberDialog({
         weight: v.weight,
         backup: v.backup,
         admin_state_up: v.admin_state_up,
-        ...(v.monitor_address ? { monitor_address: v.monitor_address } : {}),
-        ...(v.monitor_port ? { monitor_port: v.monitor_port } : {}),
+        // Explicit nulls clear the alternate monitor address and port.
+        monitor_address: v.monitor_address || null,
+        monitor_port: v.monitor_port ?? null,
       },
       {
         onSuccess: () => {

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -15,6 +14,7 @@ import { PageHeader } from "../../../shell/PageHeader/PageHeader";
 import { keyPairsQuery, useDeleteKeyPair } from "../api";
 import { CreateKeyPairDialog, ImportKeyPairDialog } from "./KeyPairDialogs";
 import styles from "./KeyPairsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 export function KeyPairsPage() {
   const projectId = useProjectId();
@@ -31,13 +31,9 @@ export function KeyPairsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/compute/key-pairs/$name"
-            params={{ name: row.name }}
-            className={styles.nameLink}
-          >
+          <RouteLink to="/compute/key-pairs/$name" params={{ name: row.name }}>
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => row.name,

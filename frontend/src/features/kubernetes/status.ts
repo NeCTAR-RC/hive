@@ -1,7 +1,7 @@
 // Cluster and node group status wording (Heat-style states as magnum-ui
 // shows them) and the node label and taint text formats.
 import type { StatusTone } from "../../components/StatusPill/StatusPill";
-import type { Cluster, NodeTaint } from "../../lib/api/types";
+import type { Cluster, ClusterOptions, NodeTaint } from "../../lib/api/types";
 
 export function isTransitional(status: string | null | undefined): boolean {
   return Boolean(status && status.endsWith("_IN_PROGRESS"));
@@ -83,3 +83,54 @@ export const LABELS_PATTERN =
   /^([^,=:\s]+=[^,=:\s]*)(\s*,\s*[^,=:\s]+=[^,=:\s]*)*$/;
 export const TAINTS_PATTERN =
   /^([^,=:\s]+(=[^,=:\s]*)?:(NoSchedule|PreferNoSchedule|NoExecute))(\s*,\s*[^,=:\s]+(=[^,=:\s]*)?:(NoSchedule|PreferNoSchedule|NoExecute))*$/;
+
+// The create-cluster cascade (magnum-ui Nectar workflow.service.js): the
+// Kubernetes version narrows the availability zones, the two narrow the
+// network drivers, and the three name exactly one template.
+
+export function zonesFor(
+  options: ClusterOptions | undefined,
+  version: string,
+): string[] {
+  return [
+    ...new Set(
+      (options?.combinations ?? [])
+        .filter((c) => c.kubernetes_version === version)
+        .map((c) => c.availability_zone),
+    ),
+  ].sort();
+}
+
+export function driversFor(
+  options: ClusterOptions | undefined,
+  version: string,
+  zone: string,
+): string[] {
+  return [
+    ...new Set(
+      (options?.combinations ?? [])
+        .filter(
+          (c) =>
+            c.kubernetes_version === version && c.availability_zone === zone,
+        )
+        .map((c) => c.network_driver),
+    ),
+  ].sort();
+}
+
+export function templateFor(
+  options: ClusterOptions | undefined,
+  version: string,
+  zone: string,
+  driver: string,
+) {
+  const combination = options?.combinations.find(
+    (c) =>
+      c.kubernetes_version === version &&
+      c.availability_zone === zone &&
+      c.network_driver === driver,
+  );
+  return combination
+    ? options?.templates.find((t) => t.id === combination.template_id)
+    : undefined;
+}

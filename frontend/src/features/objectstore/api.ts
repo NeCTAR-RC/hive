@@ -1,18 +1,18 @@
 // Queries and mutations for the Object Store panel, keyed under
 // `['project', pid, 'swift', ...]`. Uploads go through upload.ts.
 import {
+  infiniteQueryOptions,
   queryOptions,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
 import type {
-  Container,
   ContainerCreateRequest,
   ContainerDetail,
+  ContainersResponse,
   CopyObjectRequest,
   DeleteObjectsResult,
-  Items,
   ObjectDetail,
   ObjectListing,
   StoreInfo,
@@ -41,7 +41,7 @@ export function objectPath(container: string, name: string): string {
 export function storeInfoQuery(projectId: string) {
   return queryOptions({
     queryKey: swiftKey(projectId, "info"),
-    queryFn: () => apiFetch<StoreInfo>(`${BASE}/info`),
+    queryFn: ({ signal }) => apiFetch<StoreInfo>(`${BASE}/info`, { signal }),
     staleTime: staleTimes.quota,
   });
 }
@@ -49,7 +49,8 @@ export function storeInfoQuery(projectId: string) {
 export function containersQuery(projectId: string) {
   return queryOptions({
     queryKey: swiftKey(projectId, "containers"),
-    queryFn: () => apiFetch<Items<Container>>(`${BASE}/containers`),
+    queryFn: ({ signal }) =>
+      apiFetch<ContainersResponse>(`${BASE}/containers`, { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -57,22 +58,31 @@ export function containersQuery(projectId: string) {
 export function containerQuery(projectId: string, container: string) {
   return queryOptions({
     queryKey: swiftKey(projectId, "container", container),
-    queryFn: () => apiFetch<ContainerDetail>(containerPath(container)),
+    queryFn: ({ signal }) =>
+      apiFetch<ContainerDetail>(containerPath(container), { signal }),
     staleTime: staleTimes.detail,
   });
 }
 
+/**
+ * One folder's listing, a page (the backend's 500 entries) at a time:
+ * each page names the marker for the next, as Horizon pages with markers.
+ */
 export function objectsQuery(
   projectId: string,
   container: string,
   path: string,
 ) {
-  return queryOptions({
+  return infiniteQueryOptions({
     queryKey: swiftKey(projectId, "objects", container, path),
-    queryFn: () =>
+    queryFn: ({ signal, pageParam }) =>
       apiFetch<ObjectListing>(`${containerPath(container)}/objects`, {
-        query: { path },
+        signal,
+        query: { path, marker: pageParam },
       }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last: ObjectListing) =>
+      last.has_more && last.next_marker ? last.next_marker : null,
     staleTime: staleTimes.list,
   });
 }
@@ -84,8 +94,10 @@ export function objectQuery(
 ) {
   return queryOptions({
     queryKey: swiftKey(projectId, "object", container, name),
-    queryFn: () =>
-      apiFetch<ObjectDetail>(`${objectPath(container, name)}/metadata`),
+    queryFn: ({ signal }) =>
+      apiFetch<ObjectDetail>(`${objectPath(container, name)}/metadata`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
   });
 }

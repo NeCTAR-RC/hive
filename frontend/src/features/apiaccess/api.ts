@@ -24,8 +24,8 @@ export interface ApiCredentials {
 export function endpointsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "api-access", "endpoints"],
-    queryFn: () =>
-      apiFetch<Items<ServiceEndpoint>>("/api/api-access/endpoints"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<ServiceEndpoint>>("/api/api-access/endpoints", { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -33,7 +33,8 @@ export function endpointsQuery(projectId: string) {
 export function credentialsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "api-access", "credentials"],
-    queryFn: () => apiFetch<ApiCredentials>("/api/api-access/credentials"),
+    queryFn: ({ signal }) =>
+      apiFetch<ApiCredentials>("/api/api-access/credentials", { signal }),
     staleTime: staleTimes.static,
   });
 }

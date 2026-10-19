@@ -1,9 +1,8 @@
 // Create and edit listeners (octavia-dashboard workflow/listener).
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { Accordion, AccordionItem } from "@ardc-ui/react";
 import {
   NumberInput,
   SelectInput,
@@ -19,44 +18,16 @@ import {
   useCreateListener,
   useUpdateListener,
 } from "./api";
-import { CIDR, defaultPort, poolProtocolFor } from "./status";
-
-const schema = z
-  .object({
-    name: z.string().trim().max(255),
-    description: z.string().trim().max(255),
-    protocol: z.string().min(1, "Choose a protocol"),
-    protocol_port: z.number().int().min(1).max(65535),
-    connection_limit: z.number().int().min(-1),
-    allowed_cidrs: z.string().trim(),
-    xff: z.boolean(),
-    xfp: z.boolean(),
-    xfproto: z.boolean(),
-    tls_ref: z.string().trim(),
-    default_pool_id: z.string(),
-    admin_state_up: z.boolean(),
-  })
-  .superRefine((v, ctx) => {
-    if (v.protocol === "TERMINATED_HTTPS" && !v.tls_ref) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["tls_ref"],
-        message: "Enter the certificate reference",
-      });
-    }
-    for (const cidr of v.allowed_cidrs.split(/\s+/).filter(Boolean)) {
-      if (!CIDR.test(cidr)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["allowed_cidrs"],
-          message: `"${cidr}" is not a CIDR`,
-        });
-        break;
-      }
-    }
-  });
-
-type FormValues = z.infer<typeof schema>;
+import {
+  createListenerSchema,
+  editListenerBody,
+  editListenerSchema,
+  useProtocolDefaults,
+  type CreateListenerValues,
+  type EditListenerValues,
+} from "./listenerForm";
+import { defaultPort, poolProtocolFor, TLS_REF_HELP } from "./status";
+import styles from "./LoadBalancers.module.scss";
 
 function poolsFor(tree: LoadBalancerTree, protocol: string) {
   const wanted = poolProtocolFor(protocol);
@@ -75,13 +46,14 @@ export function CreateListenerDialog({
   const options = useQuery(loadBalancerOptionsQuery(projectId));
   const create = useCreateListener(projectId);
   const used = tree.listeners.map((l) => l.protocol_port);
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+  const form = useForm<CreateListenerValues>({
+    resolver: zodResolver(createListenerSchema),
     defaultValues: {
       name: "",
       description: "",
       protocol: "HTTP",
-      protocol_port: defaultPort("HTTP", used),
+      // HTTP always has a default port.
+      protocol_port: defaultPort("HTTP", used) as number,
       connection_limit: -1,
       allowed_cidrs: "",
       xff: false,
@@ -93,11 +65,7 @@ export function CreateListenerDialog({
     },
   });
   const protocol = useWatch({ control: form.control, name: "protocol" });
-  useEffect(() => {
-    form.setValue("protocol_port", defaultPort(protocol, used));
-    form.setValue("default_pool_id", "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [protocol]);
+  useProtocolDefaults(form, used);
   const submit = form.handleSubmit((v) => {
     const cidrs = v.allowed_cidrs.split(/\s+/).filter(Boolean);
     create.mutate(
@@ -179,7 +147,7 @@ export function CreateListenerDialog({
           control={form.control}
           name="tls_ref"
           label="TLS certificate reference"
-          description="The Barbican container or PKCS12 secret reference."
+          description={TLS_REF_HELP}
           isRequired
         />
       )}
@@ -237,28 +205,6 @@ export function CreateListenerDialog({
   );
 }
 
-const editSchema = z.object({
-  name: z.string().trim().max(255),
-  description: z.string().trim().max(255),
-  connection_limit: z.number().int().min(-1),
-  allowed_cidrs: z
-    .string()
-    .trim()
-    .refine(
-      (v) =>
-        v
-          .split(/\s+/)
-          .filter(Boolean)
-          .every((c) => CIDR.test(c)),
-      "Enter one CIDR per line",
-    ),
-  xff: z.boolean(),
-  xfp: z.boolean(),
-  xfproto: z.boolean(),
-  default_pool_id: z.string(),
-  admin_state_up: z.boolean(),
-});
-
 export function EditListenerDialog({
   projectId,
   tree,
@@ -271,8 +217,11 @@ export function EditListenerDialog({
   onClose: () => void;
 }) {
   const update = useUpdateListener(projectId);
-  const form = useForm<z.infer<typeof editSchema>>({
-    resolver: zodResolver(editSchema),
+  const http = ["HTTP", "TERMINATED_HTTPS"].includes(listener.protocol);
+  const tls = listener.protocol === "TERMINATED_HTTPS";
+  const timeouts = !["UDP", "SCTP"].includes(listener.protocol);
+  const form = useForm<EditListenerValues>({
+    resolver: zodResolver(editListenerSchema),
     defaultValues: {
       name: listener.name ?? "",
       description: listener.description ?? "",
@@ -282,29 +231,27 @@ export function EditListenerDialog({
       xfp: listener.insert_headers["X-Forwarded-Port"] === "true",
       xfproto: listener.insert_headers["X-Forwarded-Proto"] === "true",
       default_pool_id: listener.default_pool_id ?? "",
+      ...(listener.timeout_client_data !== null
+        ? { timeout_client_data: listener.timeout_client_data }
+        : {}),
+      ...(listener.timeout_member_connect !== null
+        ? { timeout_member_connect: listener.timeout_member_connect }
+        : {}),
+      ...(listener.timeout_member_data !== null
+        ? { timeout_member_data: listener.timeout_member_data }
+        : {}),
+      ...(listener.timeout_tcp_inspect !== null
+        ? { timeout_tcp_inspect: listener.timeout_tcp_inspect }
+        : {}),
+      tls_ref: listener.default_tls_container_ref ?? "",
+      sni_refs: listener.sni_container_refs.join("\n"),
+      tls_ciphers: listener.tls_ciphers ?? "",
       admin_state_up: listener.admin_state_up ?? true,
     },
   });
   const submit = form.handleSubmit((v) => {
     update.mutate(
-      {
-        id: listener.id,
-        name: v.name,
-        description: v.description,
-        connection_limit: v.connection_limit,
-        allowed_cidrs: v.allowed_cidrs.split(/\s+/).filter(Boolean),
-        admin_state_up: v.admin_state_up,
-        ...(["HTTP", "TERMINATED_HTTPS"].includes(listener.protocol)
-          ? {
-              insert_headers: {
-                "X-Forwarded-For": v.xff,
-                "X-Forwarded-Port": v.xfp,
-                "X-Forwarded-Proto": v.xfproto,
-              },
-            }
-          : {}),
-        ...(v.default_pool_id ? { default_pool_id: v.default_pool_id } : {}),
-      },
+      { id: listener.id, ...editListenerBody(listener, v) },
       {
         onSuccess: () => {
           notify.success("The listener has been updated.");
@@ -335,7 +282,7 @@ export function EditListenerDialog({
         label="Description"
         rows={2}
       />
-      {["HTTP", "TERMINATED_HTTPS"].includes(listener.protocol) && (
+      {http && (
         <>
           <SwitchInput
             control={form.control}
@@ -370,14 +317,72 @@ export function EditListenerDialog({
         control={form.control}
         name="connection_limit"
         label="Connection limit"
+        description="-1 for no limit."
         minValue={-1}
       />
       <TextAreaInput
         control={form.control}
         name="allowed_cidrs"
         label="Allowed CIDRs"
+        description="One per line; empty allows all sources."
         rows={2}
       />
+      {tls && (
+        <>
+          <TextInput
+            control={form.control}
+            name="tls_ref"
+            label="TLS certificate reference"
+            description={TLS_REF_HELP}
+          />
+          <TextAreaInput
+            control={form.control}
+            name="sni_refs"
+            label="SNI certificate references"
+            description="Barbican references of extra certificates, one per line, chosen by the client's server name."
+            rows={2}
+            monospace
+          />
+          <TextInput
+            control={form.control}
+            name="tls_ciphers"
+            label="TLS ciphers"
+            description="An OpenSSL cipher string; empty uses the Octavia default."
+          />
+        </>
+      )}
+      {timeouts && (
+        <Accordion>
+          <AccordionItem id="timeouts" title="Timeouts (milliseconds)">
+            <div className={styles.fields}>
+              <NumberInput
+                control={form.control}
+                name="timeout_client_data"
+                label="Client data timeout"
+                minValue={0}
+              />
+              <NumberInput
+                control={form.control}
+                name="timeout_member_connect"
+                label="Member connect timeout"
+                minValue={0}
+              />
+              <NumberInput
+                control={form.control}
+                name="timeout_member_data"
+                label="Member data timeout"
+                minValue={0}
+              />
+              <NumberInput
+                control={form.control}
+                name="timeout_tcp_inspect"
+                label="TCP inspect timeout"
+                minValue={0}
+              />
+            </div>
+          </AccordionItem>
+        </Accordion>
+      )}
       <SwitchInput
         control={form.control}
         name="admin_state_up"

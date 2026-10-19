@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activePreset,
   dailyGuide,
   daysAgo,
   mostUsedItems,
@@ -58,5 +59,35 @@ describe("usage trend transforms", () => {
     } as never;
     expect(dailyGuide(allocation)).toEqual({ value: 10, label: "Daily guide" });
     expect(dailyGuide(undefined)).toBeUndefined();
+  });
+});
+
+describe("activePreset", () => {
+  const today = new Date("2026-10-13T00:00:00Z");
+
+  it("names the preset a range matches", () => {
+    expect(activePreset("2026-09-13", "2026-10-13", "2020-01-01", today)).toBe(
+      "30d",
+    );
+    expect(activePreset("2025-10-13", "2026-10-13", "2020-01-01", today)).toBe(
+      "1y",
+    );
+  });
+
+  it("matches a preset clamped to the first day of data", () => {
+    // 6 months and a year both start at the first day of data here; the
+    // shorter one is the one shown as active.
+    expect(activePreset("2026-06-01", "2026-10-13", "2026-06-01", today)).toBe(
+      "6m",
+    );
+  });
+
+  it("returns null for a custom range", () => {
+    expect(
+      activePreset("2026-09-01", "2026-10-13", "2020-01-01", today),
+    ).toBeNull();
+    expect(
+      activePreset("2026-09-13", "2026-10-12", "2020-01-01", today),
+    ).toBeNull();
   });
 });

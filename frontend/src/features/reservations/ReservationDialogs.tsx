@@ -13,12 +13,15 @@ import {
   DateRangePicker,
   FieldError,
   Label,
+  Loading,
   Text,
 } from "@ardc-ui/react";
+import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
+import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { StackedMeter } from "../../components/StackedMeter/StackedMeter";
 import type { Reservation, ReservationOptions } from "../../lib/api/types";
+import { ApiError } from "../../lib/api/client";
 import { formatCalendarDate, formatNumber } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import {
@@ -27,13 +30,8 @@ import {
   useExtendReservation,
 } from "./api";
 import type { PickedSlot } from "./SlotGantt";
-import {
-  daysBetween,
-  eligibility,
-  flavorDisk,
-  flavorRate,
-  flavorSize,
-} from "./status";
+import { spanDays } from "./gantt";
+import { eligibility, flavorFacts } from "./status";
 import styles from "./CreateReservationPage.module.scss";
 
 type Range = { start: CalendarDate; end: CalendarDate } | null;
@@ -67,7 +65,7 @@ export function ReserveDialog({
     return start && end ? { start, end } : null;
   });
   const days = range
-    ? daysBetween(range.start.toString(), range.end.toString())
+    ? spanDays(range.start.toString(), range.end.toString())
     : 0;
   const check = eligibility(
     days,
@@ -120,38 +118,7 @@ export function ReserveDialog({
     >
       <div className={styles.reserveHead}>
         <h3 className={styles.reserveFlavor}>{flavor.name ?? flavor.id}</h3>
-        <dl className={styles.reserveDetails}>
-          <div>
-            <dt>Class</dt>
-            <dd>{flavor.category ?? "-"}</dd>
-          </div>
-          <div>
-            <dt>Description</dt>
-            <dd>{flavor.description || "-"}</dd>
-          </div>
-          <div>
-            <dt>Availability zone</dt>
-            <dd>{flavor.availability_zone ?? "-"}</dd>
-          </div>
-          <div>
-            <dt>Size</dt>
-            <dd>{flavorSize(flavor) || "-"}</dd>
-          </div>
-          <div>
-            <dt>Disk</dt>
-            <dd>{flavorDisk(flavor) || "-"}</dd>
-          </div>
-          <div>
-            <dt>Max duration</dt>
-            <dd>
-              {flavor.max_days} {flavor.max_days === 1 ? "day" : "days"}
-            </dd>
-          </div>
-          <div>
-            <dt>Usage rate</dt>
-            <dd>{flavorRate(flavor)}</dd>
-          </div>
-        </dl>
+        <KeyValueList items={flavorFacts(flavor)} />
       </div>
       <div className={styles.reserveColumns}>
         <div>
@@ -262,42 +229,72 @@ export function ExtendDialog({
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const window = useQuery({
+  const extendWindow = useQuery({
     ...extendOptionsQuery(projectId, reservation.id),
     enabled: isOpen,
   });
   const extend = useExtendReservation(projectId);
   const [end, setEnd] = useState<CalendarDate | null>(null);
-  const minValue = safeDate(window.data?.min_end);
-  const maxValue = safeDate(window.data?.max_end);
+  const minValue = safeDate(extendWindow.data?.min_end);
+  const maxValue = safeDate(extendWindow.data?.max_end);
   const chosen = end ?? minValue;
+  const outOfRange = Boolean(
+    chosen &&
+    ((minValue && chosen.compare(minValue) < 0) ||
+      (maxValue && chosen.compare(maxValue) > 0)),
+  );
+  // A cancelled date or error never carries over to the next opening.
+  const close = (open: boolean) => {
+    if (!open) {
+      setEnd(null);
+      extend.reset();
+    }
+    onOpenChange(open);
+  };
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!chosen) return;
+    if (!chosen || outOfRange) return;
     extend.mutate(
       { id: reservation.id, end: chosen.toString() },
       {
         onSuccess: () => {
           notify.success(`Extended reservation ${reservation.id}.`);
-          onOpenChange(false);
+          close(false);
+        },
+        onError: (error) => {
+          // 400: the date is past the free window; 409: the slot after the
+          // reservation has gone. Either way the window changed: reload it.
+          if (
+            error instanceof ApiError &&
+            (error.status === 400 || error.status === 409)
+          ) {
+            void extendWindow.refetch();
+          }
         },
       },
     );
   };
-  const available = window.data?.available ?? false;
+  const available = extendWindow.data?.available ?? false;
   return (
     <FormDialog
       isOpen={isOpen}
-      onOpenChange={onOpenChange}
+      onOpenChange={close}
       title="Extend reservation"
       submitLabel="Extend"
       onSubmit={submit}
       isPending={extend.isPending}
+      isSubmitDisabled={!available || !chosen || outOfRange}
       error={extend.error}
     >
-      {window.isPending ? (
-        <SkeletonLines lines={3} />
-      ) : window.isError || !available ? (
+      {extendWindow.isPending ? (
+        <Loading>Loading the free window...</Loading>
+      ) : extendWindow.isError ? (
+        <ErrorState
+          error={extendWindow.error}
+          title="Could not check for free time after the reservation"
+          onRetry={() => void extendWindow.refetch()}
+        />
+      ) : !available ? (
         <Alert tone="warning" role="status">
           This flavour is not available after the current end
           {reservation.end ? ` (${formatCalendarDate(reservation.end)})` : ""}.
@@ -307,14 +304,15 @@ export function ExtendDialog({
         <>
           <p>
             The reservation can be extended by up to{" "}
-            <strong>{window.data.eligible_days}</strong>{" "}
-            {window.data.eligible_days === 1 ? "day" : "days"}, to{" "}
-            {formatCalendarDate(window.data.max_end)}.
+            <strong>{extendWindow.data.eligible_days}</strong>{" "}
+            {extendWindow.data.eligible_days === 1 ? "day" : "days"}, to{" "}
+            {formatCalendarDate(extendWindow.data.max_end)}.
           </p>
           <DatePicker
             value={chosen}
             onChange={setEnd}
             isRequired
+            isInvalid={outOfRange}
             granularity="day"
             {...(minValue ? { minValue } : {})}
             {...(maxValue ? { maxValue } : {})}
@@ -323,6 +321,11 @@ export function ExtendDialog({
             <Text slot="description">
               The reservation ends at the end of this day (UTC).
             </Text>
+            <FieldError>
+              {outOfRange
+                ? `Choose a date from ${formatCalendarDate(minValue?.toString())} to ${formatCalendarDate(maxValue?.toString())}.`
+                : null}
+            </FieldError>
           </DatePicker>
         </>
       )}

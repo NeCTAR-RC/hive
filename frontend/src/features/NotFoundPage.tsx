@@ -1,4 +1,4 @@
-import { Link } from "@ardc-ui/react";
+import { RouteLink } from "../components/RouteLink/RouteLink";
 import { useDocumentTitle } from "../lib/useDocumentTitle";
 import styles from "./NotFoundPage.module.scss";
 
@@ -12,9 +12,9 @@ export function NotFoundPage({ gone = false }: { gone?: boolean }) {
           ? "The application catalogue is no longer part of the Nectar Research Cloud."
           : "There is nothing at this address. It may have moved, or the link may be out of date."}
       </p>
-      <Link variant="primary" href="/">
+      <RouteLink variant="primary" to="/">
         Go to the dashboard home
-      </Link>
+      </RouteLink>
     </div>
   );
 }

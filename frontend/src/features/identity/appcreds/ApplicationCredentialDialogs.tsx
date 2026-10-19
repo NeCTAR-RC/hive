@@ -102,6 +102,9 @@ export function CreateApplicationCredentialDialog({
       {
         onSuccess: (credential) => {
           notify.success(`Application credential ${credential.name} created.`);
+          // The secret goes to the one-time dialog only; clear it from the
+          // mutation state (and the form's typed secret) straight away.
+          create.reset();
           form.reset(defaults);
           onOpenChange(false);
           onCreated(credential);
@@ -113,7 +116,10 @@ export function CreateApplicationCredentialDialog({
     <FormDialog
       isOpen={isOpen}
       onOpenChange={(open) => {
-        if (!open) form.reset(defaults);
+        if (!open) {
+          form.reset(defaults);
+          create.reset();
+        }
         onOpenChange(open);
       }}
       title="Create application credential"

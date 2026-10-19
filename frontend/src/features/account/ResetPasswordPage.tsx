@@ -9,6 +9,8 @@ import { Panel } from "../../components/Panel/Panel";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { useResetPassword } from "./api";
 import styles from "./ResetPasswordPage.module.scss";
+import { loadingProps } from "../../components/buttonState";
+import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 
 export function ResetPasswordPage() {
   const reset = useResetPassword();
@@ -37,28 +39,33 @@ export function ResetPasswordPage() {
                 Your password has been reset. Copy it now: it is not shown
                 again.
               </Alert>
-              <dl className={styles.credentials}>
-                <dt>Username</dt>
-                <dd>
-                  <code>{reset.data.username}</code>
-                </dd>
-                <dt>New password</dt>
-                <dd>
-                  <CodeBlock text={reset.data.password} label="New password" />
-                </dd>
-              </dl>
+              <KeyValueList
+                items={[
+                  {
+                    label: "Username",
+                    value: <code>{reset.data.username}</code>,
+                  },
+                  {
+                    label: "New password",
+                    value: (
+                      <CodeBlock
+                        text={reset.data.password}
+                        label="New password"
+                      />
+                    ),
+                  },
+                ]}
+              />
             </div>
           ) : null}
           <div className={styles.actions}>
-            {reset.isPending ? (
-              <Button state="loading" loadingText="Resetting..." isDisabled>
-                Reset password
-              </Button>
-            ) : (
-              <Button onPress={() => setConfirming(true)}>
-                Reset password
-              </Button>
-            )}
+            <Button
+              isPending={reset.isPending}
+              {...loadingProps(reset.isPending, "Resetting...")}
+              onPress={() => setConfirming(true)}
+            >
+              Reset password
+            </Button>
           </div>
         </Panel>
       </div>

@@ -1,5 +1,6 @@
 // Reservation status wording and tones (warre-dashboard tables.py:200-240
 // and the detail template's status boxes).
+import type { KeyValue } from "../../components/KeyValueList/KeyValueList";
 import type { StatusTone } from "../../components/StatusPill/StatusPill";
 import type { Reservation, ReservationFlavor } from "../../lib/api/types";
 import { formatMb, formatNumber } from "../../lib/format";
@@ -69,6 +70,23 @@ export function flavorRate(flavor: ReservationFlavor): string {
   return `${formatNumber(flavor.rate)} SU/hour`;
 }
 
+/** The flavour facts the chart row and the reserve dialog list
+ * (nectar_reservations.js buildFlavorDetails). */
+export function flavorFacts(flavor: ReservationFlavor): KeyValue[] {
+  return [
+    { label: "Class", value: flavor.category },
+    { label: "Description", value: flavor.description },
+    { label: "Availability zone", value: flavor.availability_zone },
+    { label: "Size", value: flavorSize(flavor) },
+    { label: "Disk", value: flavorDisk(flavor) },
+    {
+      label: "Max duration",
+      value: `${flavor.max_days} ${flavor.max_days === 1 ? "day" : "days"}`,
+    },
+    { label: "Usage rate", value: flavorRate(flavor) },
+  ];
+}
+
 /** The last day a maintenance window covers: a window ending at midnight
  * ends on the previous day. (Free slots come from the backend with the
  * days they can be reserved for already worked out.) */
@@ -84,21 +102,6 @@ export function slotLastDay(end: string | null): string | null {
     date.setUTCDate(date.getUTCDate() - 1);
   }
   return date.toISOString().slice(0, 10);
-}
-
-/** Inclusive days between two ISO dates. */
-export function daysBetween(start: string, end: string): number {
-  const a = Date.UTC(
-    Number(start.slice(0, 4)),
-    Number(start.slice(5, 7)) - 1,
-    Number(start.slice(8, 10)),
-  );
-  const b = Date.UTC(
-    Number(end.slice(0, 4)),
-    Number(end.slice(5, 7)) - 1,
-    Number(end.slice(8, 10)),
-  );
-  return Math.round((b - a) / 86_400_000) + 1;
 }
 
 export interface Eligibility {

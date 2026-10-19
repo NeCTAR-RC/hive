@@ -6,17 +6,6 @@
   gap: var(--hive-space-4);
 }
 
-.nameLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
-}
-
-.muted {
-  margin: 0;
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
 .mono {
   font-family: var(--hive-font-mono);
   font-size: var(--hive-font-size-xs);

@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Link } from "@ardc-ui/react";
 import { useState } from "react";
 import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
+import { EMPTY_VALUE } from "../../components/KeyValueList/KeyValueList";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { Panel } from "../../components/Panel/Panel";
 import { Skeleton, SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { Me, Outage, PublicConfig } from "../../lib/api/types";
@@ -35,7 +37,7 @@ export function HomePage() {
   return (
     <div className={styles.home}>
       <Greeting />
-      <OutageAlerts config={config} />
+      <OutageAlerts />
       {me && <RiskAlert me={me} />}
       <WelcomePanel config={config} />
       <Banner config={config} />
@@ -66,7 +68,7 @@ function outageTone(outage: Outage): "warning" | "danger" | null {
   return null;
 }
 
-function OutageAlerts({ config }: { config: PublicConfig | undefined }) {
+function OutageAlerts() {
   const { data } = useQuery(outagesQuery);
   const alerts = (data?.items ?? []).flatMap((outage) => {
     const tone = outageTone(outage);
@@ -80,8 +82,7 @@ function OutageAlerts({ config }: { config: PublicConfig | undefined }) {
           <strong>{outage.scheduled ? "Scheduled outage" : "Outage"}:</strong>{" "}
           {outage.title}
           {outage.status_display ? ` (${outage.status_display})` : ""}.{" "}
-          <a href={outage.url}>Details</a>
-          {config?.outage_base_url ? "" : null}
+          <ExternalLink href={outage.url}>Details</ExternalLink>
         </Alert>
       ))}
     </div>
@@ -96,7 +97,7 @@ function RiskAlert({ me }: { me: Me }) {
     <Alert tone="danger" role="status">
       <strong>Security risks detected:</strong> {count}{" "}
       {count === 1 ? "resource needs" : "resources need"} attention.{" "}
-      <a href="/security/risks">Review security risks</a>
+      <RouteLink to="/security/risks">Review security risks</RouteLink>
     </Alert>
   );
 }
@@ -156,7 +157,8 @@ function WelcomePanel({ config }: { config: PublicConfig | undefined }) {
           </div>
           <p>
             To get started with the Nectar Cloud, we recommend following the{" "}
-            <a href={STARTER}>Cloud Starter Series</a> of tutorials.
+            <ExternalLink href={STARTER}>Cloud Starter Series</ExternalLink> of
+            tutorials.
           </p>
         </div>
       </div>
@@ -214,22 +216,24 @@ function QuickLinks({
           <h4>Learn</h4>
           <ul>
             <li>
-              <a href={STARTER}>Tutorial: Cloud Starter Series</a>
+              <ExternalLink href={STARTER}>
+                Tutorial: Cloud Starter Series
+              </ExternalLink>
             </li>
             <li>
-              <a href="https://support.ehelp.edu.au/support/solutions/articles/6000171494">
+              <ExternalLink href="https://support.ehelp.edu.au/support/solutions/articles/6000171494">
                 Learn about allocations
-              </a>
+              </ExternalLink>
             </li>
             <li>
-              <a href="https://support.ehelp.edu.au/support/solutions/articles/6000156761">
+              <ExternalLink href="https://support.ehelp.edu.au/support/solutions/articles/6000156761">
                 Register for live training
-              </a>
+              </ExternalLink>
             </li>
             <li>
-              <a href="https://tutorials.rc.nectar.org.au/security_nectar_cloud/01-overview">
+              <ExternalLink href="https://tutorials.rc.nectar.org.au/security_nectar_cloud/01-overview">
                 Tutorial: Security Practices on the Nectar Cloud
-              </a>
+              </ExternalLink>
             </li>
           </ul>
         </div>
@@ -237,15 +241,19 @@ function QuickLinks({
           <h4>Actions</h4>
           <ul>
             <li>
-              <a href="/compute/instances/launch">Launch an instance</a>
+              <RouteLink to="/compute/instances/launch" search={{}}>
+                Launch an instance
+              </RouteLink>
             </li>
             <li>
-              <a href="/reservations/new">Create a reservation</a>
+              <RouteLink to="/reservations/new" search={{}}>
+                Create a reservation
+              </RouteLink>
             </li>
             <li>
-              <a href={`${horizon}/allocation/user_requests/`}>
+              <ExternalLink href={`${horizon}/allocation/user_requests/`}>
                 Request an allocation
-              </a>
+              </ExternalLink>
             </li>
           </ul>
         </div>
@@ -253,18 +261,22 @@ function QuickLinks({
           <h4>View</h4>
           <ul>
             <li>
-              <a href="/compute/overview">Compute Overview</a>
+              <RouteLink to="/compute/overview">Compute Overview</RouteLink>
             </li>
             <li>
-              <a href="/usage/trend">Usage Trend</a>
+              <RouteLink to="/usage/trend" search={{}}>
+                Usage Trend
+              </RouteLink>
             </li>
             {!isTrial && (
               <li>
-                <a href="/usage/allocation">Allocation Usage</a>
+                <RouteLink to="/usage/allocation">Allocation Usage</RouteLink>
               </li>
             )}
             <li>
-              <a href="/members">Project Members</a>
+              <RouteLink to="/members" search={{}}>
+                Project Members
+              </RouteLink>
             </li>
           </ul>
         </div>
@@ -272,15 +284,21 @@ function QuickLinks({
           <h4>Support</h4>
           <ul>
             <li>
-              <a href={config?.help_url ?? SUPPORT_LINKS.supportCentre}>
+              <ExternalLink
+                href={config?.help_url ?? SUPPORT_LINKS.supportCentre}
+              >
                 Nectar Support Centre
-              </a>
+              </ExternalLink>
             </li>
             <li>
-              <a href={SUPPORT_LINKS.tutorials}>Browse Tutorials</a>
+              <ExternalLink href={SUPPORT_LINKS.tutorials}>
+                Browse Tutorials
+              </ExternalLink>
             </li>
             <li>
-              <a href={SUPPORT_LINKS.status}>Nectar System Status</a>
+              <ExternalLink href={SUPPORT_LINKS.status}>
+                Nectar System Status
+              </ExternalLink>
             </li>
             <li>
               <Button
@@ -308,14 +326,14 @@ function UsageTile({ me }: { me: Me }) {
           <Skeleton width="6rem" height="2.5rem" />
         ) : (
           <p className={styles.usageValue}>
-            {usage.isError ? "—" : formatSu(usage.data.sum)}
+            {usage.isError ? EMPTY_VALUE : formatSu(usage.data.sum)}
           </p>
         )}
         <p className={styles.usageLabel}>Service Units in the past 3 months.</p>
         <p>To view more usage data, visit the Usage Trend page.</p>
-        <Link variant="primary" size="sm" href="/usage/trend">
+        <RouteLink variant="primary" size="sm" to="/usage/trend" search={{}}>
           Usage Trend
-        </Link>
+        </RouteLink>
       </div>
     </Panel>
   );
@@ -341,7 +359,7 @@ function Announcements() {
         <ul className={styles.announcementList}>
           {items.map((outage) => (
             <li key={outage.id}>
-              <a href={outage.url}>{outage.title}</a>
+              <ExternalLink href={outage.url}>{outage.title}</ExternalLink>
               <span className={styles.meta}>
                 {[
                   outage.scheduled_display,
@@ -386,9 +404,7 @@ function News() {
                 <p className={styles.meta}>
                   {formatDate(item.published) || item.published}
                 </p>
-                <a href={item.link} className={styles.newsTitle}>
-                  {item.title}
-                </a>
+                <ExternalLink href={item.link}>{item.title}</ExternalLink>
                 {item.summary && (
                   <p className={styles.newsSummary}>{item.summary}</p>
                 )}

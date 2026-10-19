@@ -70,25 +70,24 @@ export function AllocateFloatingIpDialog({
   });
   const allocate = useAllocateFloatingIp(projectId);
   const pools = options.data?.floating_networks ?? [];
-  const form = useForm<z.infer<typeof allocateSchema>>({
-    resolver: zodResolver(allocateSchema),
-    defaultValues: {
-      floating_network_id: "",
+  // With a single pool there is nothing to choose; pick it once the
+  // options load, keeping anything the user has already chosen.
+  const onlyPool = pools.length === 1 ? (pools[0]?.id ?? "") : "";
+  const initial = useMemo(
+    () => ({
+      floating_network_id: onlyPool,
       floating_ip_address: "",
       description: "",
       dns_domain: "",
       dns_name: "",
-    },
+    }),
+    [onlyPool],
+  );
+  const form = useForm<z.infer<typeof allocateSchema>>({
+    resolver: zodResolver(allocateSchema),
+    values: initial,
+    resetOptions: { keepDirtyValues: true },
   });
-  // With a single pool there is nothing to choose; pick it.
-  if (
-    pools.length === 1 &&
-    pools[0] &&
-    form.getValues("floating_network_id") === "" &&
-    !form.formState.dirtyFields.floating_network_id
-  ) {
-    form.setValue("floating_network_id", pools[0].id);
-  }
   const dns = options.data?.extensions?.dns_integration ?? false;
   const quotaFull = !quotaLeft(options.data?.quota, "floatingip");
   const reset = () => {
@@ -202,10 +201,6 @@ export function AssociateFloatingIpDialog({
   });
   const targets = useQuery(floatingIpTargetsQuery(projectId, instance?.id));
   const associate = useAssociateFloatingIp(projectId);
-  const form = useForm<z.infer<typeof associateSchema>>({
-    resolver: zodResolver(associateSchema),
-    defaultValues: { floating_ip_id: floatingIp?.id ?? "", target_id: "" },
-  });
   const freeIps = useMemo(
     () =>
       (fips.data?.items ?? [])
@@ -219,16 +214,18 @@ export function AssociateFloatingIpDialog({
         ),
     [fips.data],
   );
-  const items = targets.data?.items ?? [];
-  // One instance port and one IP need no choosing; preselect them.
-  if (
-    items.length === 1 &&
-    items[0] &&
-    form.getValues("target_id") === "" &&
-    !form.formState.dirtyFields.target_id
-  ) {
-    form.setValue("target_id", items[0].id);
-  }
+  const items = useMemo(() => targets.data?.items ?? [], [targets.data]);
+  // One port needs no choosing; preselect it once the targets load.
+  const onlyTarget = items.length === 1 ? (items[0]?.id ?? "") : "";
+  const initial = useMemo(
+    () => ({ floating_ip_id: floatingIp?.id ?? "", target_id: onlyTarget }),
+    [floatingIp?.id, onlyTarget],
+  );
+  const form = useForm<z.infer<typeof associateSchema>>({
+    resolver: zodResolver(associateSchema),
+    values: initial,
+    resetOptions: { keepDirtyValues: true },
+  });
   const submit = form.handleSubmit((values) => {
     const target = items.find((t) => t.id === values.target_id);
     if (!target) return;
@@ -312,6 +309,16 @@ export function AssociateFloatingIpDialog({
 
 const PORT_RANGE = /^(\d{1,5})(:(\d{1,5}))?$/;
 
+/** The number of ports in "80" or "2200:2210", or null when it does not
+ * parse. */
+function portCount(value: string): number | null {
+  const match = PORT_RANGE.exec(value.trim());
+  if (!match) return null;
+  const low = Number(match[1]);
+  const high = match[3] === undefined ? low : Number(match[3]);
+  return high - low + 1;
+}
+
 function checkPorts(value: string): string | null {
   const match = PORT_RANGE.exec(value.trim());
   if (!match) return "Enter a port, or a range as start:end";
@@ -331,10 +338,24 @@ const ruleSchema = z
     description: NAME,
   })
   .superRefine((values, ctx) => {
+    let valid = true;
     for (const key of ["internal_port", "external_port"] as const) {
       const problem = checkPorts(values[key]);
-      if (problem)
+      if (problem) {
+        valid = false;
         ctx.addIssue({ code: "custom", path: [key], message: problem });
+      }
+    }
+    // Neutron maps a range to a single internal port, or a range to a
+    // range of the same size; nothing else.
+    const internal = portCount(values.internal_port);
+    const external = portCount(values.external_port);
+    if (valid && internal !== null && internal > 1 && internal !== external) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["internal_port"],
+        message: `A range here must hold the same number of ports as the external one (${external ?? 0})`,
+      });
     }
   });
 

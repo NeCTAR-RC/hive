@@ -132,5 +132,10 @@ describe("availableSnapshotActions", () => {
     expect(
       enabled(availableSnapshotActions({ ...snapshot, status: "backing-up" })),
     ).toEqual([]);
+    const orphan = availableSnapshotActions({ ...snapshot, volume_id: null });
+    expect(enabled(orphan)).not.toContain("backup");
+    expect(orphan.find((a) => a.id === "backup")?.disabledReason).toMatch(
+      /no longer exists/,
+    );
   });
 });

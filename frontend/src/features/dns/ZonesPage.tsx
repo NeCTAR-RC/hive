@@ -2,7 +2,7 @@
 // create, edit and delete and the zone quota.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -21,6 +21,7 @@ import { useDeleteZone, zonesQuery } from "./api";
 import { statusLabel, statusTone } from "./status";
 import { CreateZoneDialog, EditZoneDialog } from "./ZoneDialogs";
 import styles from "./Dns.module.scss";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function ZonesPage() {
   const projectId = useProjectId();
@@ -42,13 +43,9 @@ export function ZonesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/dns/zones/$zoneId"
-            params={{ zoneId: row.id }}
-            className={styles.nameLink}
-          >
+          <RouteLink to="/dns/zones/$zoneId" params={{ zoneId: row.id }}>
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) =>

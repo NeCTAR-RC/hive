@@ -9,9 +9,7 @@ import {
 import { apiFetch } from "../../lib/api/client";
 import type {
   BackupCreateRequest,
-  Instance,
   Items,
-  Paginated,
   RestoreRequest,
   RestoreResult,
   SnapshotCreateRequest,
@@ -24,6 +22,7 @@ import type {
   VolumeUpdateRequest,
 } from "../../lib/api/types";
 import { staleTimes } from "../../lib/queries";
+import { instancesQuery } from "../compute/api";
 import { isTransitional } from "./status";
 
 export function volumesKey(projectId: string, ...rest: unknown[]) {
@@ -35,7 +34,8 @@ const POLL_MS = 5000;
 export function volumesQuery(projectId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "list"),
-    queryFn: () => apiFetch<Items<Volume>>("/api/volumes"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<Volume>>("/api/volumes", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
     refetchInterval: (query) =>
@@ -46,7 +46,8 @@ export function volumesQuery(projectId: string) {
 export function volumeQuery(projectId: string, volumeId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "list", volumeId),
-    queryFn: () => apiFetch<Volume>(`/api/volumes/${volumeId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Volume>(`/api/volumes/${volumeId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
@@ -56,7 +57,8 @@ export function volumeQuery(projectId: string, volumeId: string) {
 export function snapshotsQuery(projectId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "snapshots"),
-    queryFn: () => apiFetch<Items<VolumeSnapshot>>("/api/volumes/snapshots"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<VolumeSnapshot>>("/api/volumes/snapshots", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
     refetchInterval: (query) =>
@@ -67,8 +69,10 @@ export function snapshotsQuery(projectId: string) {
 export function snapshotQuery(projectId: string, snapshotId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "snapshots", snapshotId),
-    queryFn: () =>
-      apiFetch<VolumeSnapshot>(`/api/volumes/snapshots/${snapshotId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<VolumeSnapshot>(`/api/volumes/snapshots/${snapshotId}`, {
+        signal,
+      }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
@@ -78,7 +82,8 @@ export function snapshotQuery(projectId: string, snapshotId: string) {
 export function backupsQuery(projectId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "backups"),
-    queryFn: () => apiFetch<Items<VolumeBackup>>("/api/volumes/backups"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<VolumeBackup>>("/api/volumes/backups", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
     refetchInterval: (query) =>
@@ -89,7 +94,8 @@ export function backupsQuery(projectId: string) {
 export function backupQuery(projectId: string, backupId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "backups", backupId),
-    queryFn: () => apiFetch<VolumeBackup>(`/api/volumes/backups/${backupId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<VolumeBackup>(`/api/volumes/backups/${backupId}`, { signal }),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
       query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
@@ -99,7 +105,8 @@ export function backupQuery(projectId: string, backupId: string) {
 export function volumeOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "options"),
-    queryFn: () => apiFetch<VolumeOptions>("/api/volumes/options"),
+    queryFn: ({ signal }) =>
+      apiFetch<VolumeOptions>("/api/volumes/options", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -107,22 +114,17 @@ export function volumeOptionsQuery(projectId: string) {
 export function volumeLimitsQuery(projectId: string) {
   return queryOptions({
     queryKey: volumesKey(projectId, "limits"),
-    queryFn: () => apiFetch<VolumeLimits>("/api/volumes/limits"),
+    queryFn: ({ signal }) =>
+      apiFetch<VolumeLimits>("/api/volumes/limits", { signal }),
     staleTime: staleTimes.quota,
   });
 }
 
 /** The project's instances, for the Attached To column and the attach
- * picker; kept under the volumes key so this feature owns its cache. */
+ * picker: the Instances panel's own query, so the 1,000-row list is fetched
+ * and cached once and attach/detach (which invalidate it) refresh both. */
 export function attachableInstancesQuery(projectId: string) {
-  return queryOptions({
-    queryKey: volumesKey(projectId, "instances"),
-    queryFn: () =>
-      apiFetch<Paginated<Instance>>("/api/compute/instances", {
-        query: { limit: 1000 },
-      }),
-    staleTime: staleTimes.list,
-  });
+  return instancesQuery(projectId);
 }
 
 function useInvalidate(projectId: string) {

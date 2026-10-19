@@ -2,7 +2,7 @@
 // backup's detail.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -14,6 +14,7 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { DbBackup } from "../../lib/api/types";
@@ -24,7 +25,7 @@ import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { dbBackupRoute, dbBackupsRoute } from "../../app/router";
 import { dbBackupQuery, dbBackupsQuery, useDeleteBackup } from "./api";
 import { CreateBackupDialog } from "./BackupDialogs";
-import { statusLabel, statusTone } from "./status";
+import { quotaLimit, statusLabel, statusTone } from "./status";
 import styles from "./Databases.module.scss";
 
 export function DbBackupsPage() {
@@ -54,13 +55,12 @@ export function DbBackupsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/databases/backups/$backupId"
             params={{ backupId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -90,12 +90,12 @@ export function DbBackupsPage() {
         label: "Database",
         cell: (row) =>
           row.instance_id ? (
-            <RouterLink
+            <RouteLink
               to="/databases/instances/$instanceId"
               params={{ instanceId: row.instance_id }}
             >
               {row.instance_name || row.instance_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),
@@ -167,7 +167,7 @@ export function DbBackupsPage() {
               label="Backups"
               value={count}
               max={quota.max_backups}
-              valueText={`${count} of ${quota.max_backups < 0 ? "unlimited" : quota.max_backups} backups`}
+              valueText={`${count} of ${quotaLimit(quota.max_backups).toLowerCase()} backups`}
             />
           </div>
         )}
@@ -363,12 +363,12 @@ export function DbBackupDetailPage() {
                 {
                   label: "Instance",
                   value: data.instance_id ? (
-                    <RouterLink
+                    <RouteLink
                       to="/databases/instances/$instanceId"
                       params={{ instanceId: data.instance_id }}
                     >
                       {data.instance_name || data.instance_id}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     "-"
                   ),
@@ -382,12 +382,12 @@ export function DbBackupDetailPage() {
                 {
                   label: "Parent backup",
                   value: data.parent_id ? (
-                    <RouterLink
+                    <RouteLink
                       to="/databases/backups/$backupId"
                       params={{ backupId: data.parent_id }}
                     >
                       {data.parent_name || data.parent_id}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     "None (full backup)"
                   ),

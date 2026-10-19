@@ -2,7 +2,7 @@
 // loadbalancer details).
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Alert, Button, TabItem, Tabs } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -12,15 +12,22 @@ import {
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
-import type { Listener, LoadBalancerTree, Pool } from "../../lib/api/types";
+import type {
+  Listener,
+  LoadBalancerOptions,
+  LoadBalancerTree,
+  Pool,
+} from "../../lib/api/types";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { loadBalancerRoute } from "../../app/router";
 import {
+  loadBalancerOptionsQuery,
   loadBalancerTreeQuery,
   useDeleteListener,
   useDeleteLoadBalancer,
@@ -34,6 +41,7 @@ import {
 } from "./LoadBalancerDialogs";
 import { CreatePoolDialog } from "./PoolDialogs";
 import {
+  chainStepLabel,
   operatingLabel,
   operatingTone,
   provisioningLabel,
@@ -49,10 +57,12 @@ export function LoadBalancerDetailPage() {
   const search = loadBalancerRoute.useSearch();
   const navigate = useNavigate({ from: loadBalancerRoute.fullPath });
   const tree = useQuery(loadBalancerTreeQuery(projectId, lbId));
+  const options = useQuery(loadBalancerOptionsQuery(projectId));
   const remove = useDeleteLoadBalancer(projectId);
   const disassociate = useDisassociateLbFloatingIp(projectId);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [deleting, setDeleting] = useState(false);
+  const [disassociating, setDisassociating] = useState(false);
   const tab = search.tab ?? "overview";
   const selectTab = (key: React.Key) =>
     void navigate({
@@ -84,12 +94,8 @@ export function LoadBalancerDetailPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onPress={() =>
-                    disassociate.mutate(lb.id, {
-                      onSuccess: () =>
-                        notify.success("Floating IP disassociated."),
-                    })
-                  }
+                  onPress={() => setDisassociating(true)}
+                  isDisabled={disassociate.isPending}
                 >
                   Disassociate floating IP
                 </Button>
@@ -136,6 +142,14 @@ export function LoadBalancerDetailPage() {
       ) : (
         <>
           {tree.data?.chain && <ChainNotice chain={tree.data.chain} />}
+          {lb?.is_transitional && !tree.data?.chain && (
+            <Alert tone="info" role="status">
+              The load balancer is{" "}
+              {provisioningLabel(lb.provisioning_status).toLowerCase()}.
+              Listeners and pools can be added once it is active; this page
+              updates on its own.
+            </Alert>
+          )}
           <Tabs
             selectedKey={tab}
             onSelectionChange={selectTab}
@@ -143,7 +157,7 @@ export function LoadBalancerDetailPage() {
           >
             <TabItem id="overview" title="Overview">
               {tree.data ? (
-                <Overview tree={tree.data} />
+                <Overview tree={tree.data} options={options.data} />
               ) : (
                 <SkeletonLines lines={8} />
               )}
@@ -154,6 +168,7 @@ export function LoadBalancerDetailPage() {
                   projectId={projectId}
                   tree={tree.data}
                   onCreate={() => setDialog("listener")}
+                  isBusy={tree.data.load_balancer.is_transitional}
                 />
               ) : (
                 <SkeletonLines lines={4} />
@@ -165,6 +180,7 @@ export function LoadBalancerDetailPage() {
                   projectId={projectId}
                   tree={tree.data}
                   onCreate={() => setDialog("pool")}
+                  isBusy={tree.data.load_balancer.is_transitional}
                 />
               ) : (
                 <SkeletonLines lines={4} />
@@ -202,6 +218,28 @@ export function LoadBalancerDetailPage() {
         />
       )}
       <ConfirmDialog
+        isOpen={disassociating}
+        onOpenChange={setDisassociating}
+        title={`Disassociate floating IP ${lb?.floating_ip?.address ?? ""}?`}
+        confirmLabel="Disassociate"
+        isPending={disassociate.isPending}
+        onConfirm={() =>
+          disassociate.mutate(lbId, {
+            onSuccess: () => {
+              notify.success("Floating IP disassociated.");
+              setDisassociating(false);
+            },
+            onError: () =>
+              notify.danger("Could not disassociate the floating IP."),
+          })
+        }
+      >
+        <p>
+          The load balancer is no longer reachable at this address. The floating
+          IP stays in your project.
+        </p>
+      </ConfirmDialog>
+      <ConfirmDialog
         isOpen={deleting}
         onOpenChange={setDeleting}
         title={`Delete load balancer ${lb?.name || lbId}?`}
@@ -232,25 +270,37 @@ function ChainNotice({ chain }: { chain: LoadBalancerTree["chain"] }) {
   if (chain.error) {
     return (
       <Alert tone="danger" role="status">
-        Creating the rest of the load balancer stopped after {chain.done.length}{" "}
-        of {chain.steps.length} steps: {chain.error}. Add the missing listener,
-        pool, members or monitor by hand.
+        The remaining changes stopped after {chain.done.length} of{" "}
+        {chain.steps.length} steps, while{" "}
+        {chainStepLabel(chain.steps[chain.done.length])}: {chain.error}. Make
+        the missing listener, pool, member or monitor changes by hand.
       </Alert>
     );
   }
   if (remaining > 0) {
     return (
       <Alert tone="info" role="status">
-        Creating {chain.steps[chain.done.length]} ({chain.done.length} of{" "}
-        {chain.steps.length} steps done). This page updates on its own.
+        Still {chainStepLabel(chain.steps[chain.done.length])} (
+        {chain.done.length} of {chain.steps.length} steps done). This page
+        updates on its own.
       </Alert>
     );
   }
   return null;
 }
 
-function Overview({ tree }: { tree: LoadBalancerTree }) {
+function Overview({
+  tree,
+  options,
+}: {
+  tree: LoadBalancerTree;
+  options: LoadBalancerOptions | undefined;
+}) {
   const lb = tree.load_balancer;
+  const flavour = lb.flavor_id
+    ? (options?.flavors.find((f) => f.id === lb.flavor_id)?.name ??
+      lb.flavor_id)
+    : "Default";
   return (
     <div className={styles.grid}>
       <Panel title="Load balancer" headingLevel={3}>
@@ -261,7 +311,7 @@ function Overview({ tree }: { tree: LoadBalancerTree }) {
             { label: "Description", value: lb.description || "-" },
             { label: "Admin state", value: lb.admin_state_up ? "Up" : "Down" },
             { label: "Provider", value: lb.provider ?? "-" },
-            { label: "Flavour", value: lb.flavor_id ?? "Default" },
+            { label: "Flavour", value: flavour },
             { label: "Availability zone", value: lb.availability_zone ?? "-" },
             { label: "Created", value: formatDateTime(lb.created_at) || "-" },
             { label: "Updated", value: formatDateTime(lb.updated_at) || "-" },
@@ -277,12 +327,12 @@ function Overview({ tree }: { tree: LoadBalancerTree }) {
             {
               label: "VIP subnet",
               value: lb.vip_subnet_id ? (
-                <RouterLink
+                <RouteLink
                   to="/network/subnets/$subnetId"
                   params={{ subnetId: lb.vip_subnet_id }}
                 >
                   {lb.vip_subnet_id}
-                </RouterLink>
+                </RouteLink>
               ) : (
                 "-"
               ),
@@ -290,12 +340,12 @@ function Overview({ tree }: { tree: LoadBalancerTree }) {
             {
               label: "VIP network",
               value: lb.vip_network_id ? (
-                <RouterLink
+                <RouteLink
                   to="/network/networks/$networkId"
                   params={{ networkId: lb.vip_network_id }}
                 >
                   {lb.vip_network_id}
-                </RouterLink>
+                </RouteLink>
               ) : (
                 "-"
               ),
@@ -311,10 +361,12 @@ function Listeners({
   projectId,
   tree,
   onCreate,
+  isBusy,
 }: {
   projectId: string;
   tree: LoadBalancerTree;
   onCreate: () => void;
+  isBusy: boolean;
 }) {
   const remove = useDeleteListener(projectId);
   const [deleting, setDeleting] = useState<Listener | null>(null);
@@ -326,13 +378,12 @@ function Listeners({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/load-balancers/$lbId/listeners/$listenerId"
             params={{ lbId, listenerId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
       },
@@ -382,7 +433,7 @@ function Listeners({
           <p>A listener accepts traffic on a port and sends it to a pool.</p>
         }
         toolbarActions={
-          <Button size="xs" onPress={onCreate}>
+          <Button size="xs" onPress={onCreate} isDisabled={isBusy}>
             Create listener
           </Button>
         }
@@ -424,10 +475,12 @@ function Pools({
   projectId,
   tree,
   onCreate,
+  isBusy,
 }: {
   projectId: string;
   tree: LoadBalancerTree;
   onCreate: () => void;
+  isBusy: boolean;
 }) {
   const remove = useDeletePool(projectId);
   const [deleting, setDeleting] = useState<Pool | null>(null);
@@ -439,13 +492,12 @@ function Pools({
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/load-balancers/$lbId/pools/$poolId"
             params={{ lbId, poolId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
       },
@@ -502,7 +554,7 @@ function Pools({
           <p>A pool groups the members that answer a listener's traffic.</p>
         }
         toolbarActions={
-          <Button size="xs" onPress={onCreate}>
+          <Button size="xs" onPress={onCreate} isDisabled={isBusy}>
             Create pool
           </Button>
         }

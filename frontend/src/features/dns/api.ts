@@ -26,7 +26,8 @@ const POLL_MS = 5000;
 export function zonesQuery(projectId: string) {
   return queryOptions({
     queryKey: dnsKey(projectId, "zones"),
-    queryFn: () => apiFetch<ZonesResponse>(`${BASE}/zones`),
+    queryFn: ({ signal }) =>
+      apiFetch<ZonesResponse>(`${BASE}/zones`, { signal }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((z) => z.is_transitional) ? POLL_MS : false,
@@ -36,8 +37,10 @@ export function zonesQuery(projectId: string) {
 export function recordSetsQuery(projectId: string, zoneId: string) {
   return queryOptions({
     queryKey: dnsKey(projectId, "recordsets", zoneId),
-    queryFn: () =>
-      apiFetch<RecordSetsResponse>(`${BASE}/zones/${zoneId}/recordsets`),
+    queryFn: ({ signal }) =>
+      apiFetch<RecordSetsResponse>(`${BASE}/zones/${zoneId}/recordsets`, {
+        signal,
+      }),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
       query.state.data?.items.some((r) => r.is_transitional) ||
@@ -114,7 +117,8 @@ export function useUpdateRecordSet(projectId: string) {
       zoneId: string;
       id: string;
       records: string[];
-      ttl?: number;
+      /** null restores the zone default; leaving it out keeps the TTL. */
+      ttl?: number | null;
       description?: string;
     }) =>
       apiFetch<RecordSet>(`${BASE}/zones/${zoneId}/recordsets/${id}`, {

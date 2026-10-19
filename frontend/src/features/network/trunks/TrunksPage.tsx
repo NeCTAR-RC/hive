@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
@@ -21,6 +21,7 @@ import {
 } from "../status";
 import { useTrunkActions } from "./TrunkActions";
 import { CreateTrunkDialog } from "./TrunkDialogs";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
@@ -58,12 +59,9 @@ export function TrunksPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/network/trunks/$trunkId"
-            params={{ trunkId: row.id }}
-          >
+          <RouteLink to="/network/trunks/$trunkId" params={{ trunkId: row.id }}>
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -73,12 +71,12 @@ export function TrunksPage() {
         label: "Parent port",
         cell: (row) =>
           row.port_id ? (
-            <RouterLink
+            <RouteLink
               to="/network/ports/$portId"
               params={{ portId: row.port_id }}
             >
               {row.port_name || row.port_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),

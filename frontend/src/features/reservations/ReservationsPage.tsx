@@ -2,8 +2,8 @@
 // reservations with the limits shown as days and reservations used.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
-import { Link, Tooltip, TooltipTrigger } from "@ardc-ui/react";
+import { useNavigate } from "@tanstack/react-router";
+import { Tooltip, TooltipTrigger } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
   DataTable,
@@ -11,10 +11,10 @@ import {
 } from "../../components/DataTable/DataTable";
 import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { Panel } from "../../components/Panel/Panel";
-import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
-import type { Reservation, ReservationLimits } from "../../lib/api/types";
+import type { Reservation } from "../../lib/api/types";
 import { downloadUrl } from "../../lib/download";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
@@ -27,6 +27,7 @@ import {
   statusLabel,
   statusTone,
 } from "./status";
+import { ReservationLimits } from "./ReservationLimits";
 import styles from "./ReservationsPage.module.scss";
 
 export function ReservationsPage() {
@@ -45,13 +46,12 @@ export function ReservationsPage() {
         label: "ID",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/reservations/$reservationId"
             params={{ reservationId: row.id }}
-            className={styles.idLink}
           >
             <code>{row.id}</code>
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.id,
         textValue: (row) => row.id,
@@ -121,14 +121,14 @@ export function ReservationsPage() {
         crumbs={[{ label: "Project" }, { label: "Compute" }]}
         actions={
           canCreate ? (
-            <Link variant="primary" size="sm" href="/reservations/new">
+            <RouteLink variant="primary" size="sm" to="/reservations/new">
               Create reservation
-            </Link>
+            </RouteLink>
           ) : (
             <TooltipTrigger>
-              <Link variant="primary" size="sm" href="/reservations/new">
+              <RouteLink variant="primary" size="sm" to="/reservations/new">
                 Create reservation (quota exceeded)
-              </Link>
+              </RouteLink>
               <Tooltip>
                 Your project has no reservation days or reservations left.
               </Tooltip>
@@ -151,7 +151,7 @@ export function ReservationsPage() {
           {reservations.isPending ? (
             <SkeletonLines lines={2} />
           ) : limits ? (
-            <Limits limits={limits} />
+            <ReservationLimits limits={limits} />
           ) : null}
         </Panel>
         <DataTable
@@ -247,32 +247,5 @@ export function ReservationsPage() {
         <p>Deleted reservations are not recoverable.</p>
       </ConfirmDialog>
     </>
-  );
-}
-
-function Limits({ limits }: { limits: ReservationLimits }) {
-  return (
-    <div className={styles.limits}>
-      <QuotaMeter
-        label="Days reserved"
-        value={limits.days_used}
-        max={limits.max_days}
-        valueText={
-          limits.max_days === null
-            ? `${limits.days_used} days (no limit)`
-            : `${limits.days_used} of ${limits.max_days} days`
-        }
-      />
-      <QuotaMeter
-        label="Reservations used"
-        value={limits.reservations_used}
-        max={limits.max_reservations}
-        valueText={
-          limits.max_reservations === null
-            ? `${limits.reservations_used} (no limit)`
-            : `${limits.reservations_used} of ${limits.max_reservations}`
-        }
-      />
-    </div>
   );
 }

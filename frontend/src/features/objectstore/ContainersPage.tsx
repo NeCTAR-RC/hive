@@ -2,8 +2,8 @@
 // create and delete, and the account usage.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
-import { Button } from "@ardc-ui/react";
+import { useNavigate } from "@tanstack/react-router";
+import { Alert, Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
   DataTable,
@@ -18,6 +18,7 @@ import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { containersRoute } from "../../app/router";
 import { containersQuery, storeInfoQuery, useDeleteContainer } from "./api";
 import { CreateContainerDialog } from "./ObjectStoreDialogs";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import styles from "./ObjectStore.module.scss";
 
 export function ContainersPage() {
@@ -48,13 +49,12 @@ export function ContainersPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/object-store/containers/$container"
             params={{ container: row.name }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => row.name,
@@ -106,6 +106,12 @@ export function ContainersPage() {
           </p>
         )}
       </PageHeader>
+      {containers.data?.truncated === true && (
+        <Alert tone="info" role="status">
+          Only the first {formatNumber(containers.data.items.length)} containers
+          are listed. Use the OpenStack command line tools to reach the rest.
+        </Alert>
+      )}
       <DataTable
         id="containers"
         label="Containers"

@@ -6,11 +6,6 @@
   gap: var(--hive-space-4);
 }
 
-.nameLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
-}
-
 .muted {
   margin: 0;
   color: var(--hive-color-text-muted);
@@ -66,14 +61,6 @@
   border-top: var(--hive-border-width) solid var(--hive-color-rule);
 }
 
-.advanced {
-  summary {
-    cursor: pointer;
-    font-weight: var(--hive-font-weight-semibold);
-    margin-bottom: var(--hive-space-2);
-  }
-}
-
 .addRow {
   display: flex;
   flex-wrap: wrap;
@@ -106,4 +93,8 @@
   @include up($bp-md) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.rulesPanel:focus {
+  outline: none;
 }

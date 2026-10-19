@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
@@ -34,6 +34,7 @@ import {
 } from "../status";
 import { useVolumeActions } from "./VolumeActions";
 import styles from "./VolumeDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -70,12 +71,12 @@ export function VolumeDetailPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/storage/snapshots/$snapshotId"
             params={{ snapshotId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
       },
@@ -117,9 +118,9 @@ export function VolumeDetailPage() {
         {notFound ? (
           <p>
             There is no volume <code>{volumeId}</code> in this project.{" "}
-            <RouterLink to="/storage/volumes" search={{}}>
+            <RouteLink to="/storage/volumes" search={{}}>
               Back to volumes
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -188,32 +189,32 @@ export function VolumeDetailPage() {
                   value: data.image ? (
                     <>
                       Image{" "}
-                      <RouterLink
+                      <RouteLink
                         to="/compute/images/$imageId"
                         params={{ imageId: data.image.id }}
                       >
                         {data.image.name ?? data.image.id}
-                      </RouterLink>
+                      </RouteLink>
                     </>
                   ) : data.snapshot_id ? (
                     <>
                       Snapshot{" "}
-                      <RouterLink
+                      <RouteLink
                         to="/storage/snapshots/$snapshotId"
                         params={{ snapshotId: data.snapshot_id }}
                       >
                         {data.snapshot_id}
-                      </RouterLink>
+                      </RouteLink>
                     </>
                   ) : data.source_volume_id ? (
                     <>
                       Volume{" "}
-                      <RouterLink
+                      <RouteLink
                         to="/storage/volumes/$volumeId"
                         params={{ volumeId: data.source_volume_id }}
                       >
                         {data.source_volume_id}
-                      </RouterLink>
+                      </RouteLink>
                     </>
                   ) : (
                     "Empty volume"
@@ -261,7 +262,7 @@ export function VolumeDetailPage() {
               {data.attachments.map((attachment) => (
                 <li key={attachment.id ?? attachment.server_id ?? ""}>
                   {attachment.server_id ? (
-                    <RouterLink
+                    <RouteLink
                       to="/compute/instances/$instanceId"
                       params={{ instanceId: attachment.server_id }}
                     >
@@ -269,7 +270,7 @@ export function VolumeDetailPage() {
                         attachment,
                         instanceNames.get(attachment.server_id),
                       )}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     attachmentLabel(attachment, undefined)
                   )}
@@ -300,7 +301,7 @@ export function VolumeDetailPage() {
           }
         >
           <DataTable
-            id="volume-snapshots"
+            id="volume-detail-snapshots"
             label="Snapshots of this volume"
             columns={snapshotColumns}
             rows={snapshots.data ? ownSnapshots : undefined}

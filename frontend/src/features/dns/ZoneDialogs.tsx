@@ -15,17 +15,28 @@ import { notify } from "../../lib/notify";
 import { useCreateZone, useUpdateZone } from "./api";
 import { ZONE_TYPES } from "./status";
 
+const EMAIL = z
+  .string()
+  .trim()
+  .pipe(z.email("Enter a valid contact email address"));
+const TTL_MESSAGE = "Enter a whole number of seconds";
+const TTL = z
+  .number(TTL_MESSAGE)
+  .int(TTL_MESSAGE)
+  .min(0, TTL_MESSAGE)
+  .optional();
+
 const createSchema = z
   .object({
     name: z
       .string()
       .trim()
       .min(3, "Enter the zone name")
-      .max(255)
+      .max(255, "At most 255 characters")
       .regex(/\.$/, "The zone name must end with a dot, such as example.com."),
-    email: z.string().trim().email("Enter a valid contact email address"),
-    ttl: z.number().int().min(0).optional(),
-    description: z.string().trim().max(160),
+    email: EMAIL,
+    ttl: TTL,
+    description: z.string().trim().max(160, "At most 160 characters"),
     type: z.enum(["PRIMARY", "SECONDARY"]),
     masters: z.string().trim(),
   })
@@ -144,9 +155,9 @@ export function CreateZoneDialog({
 }
 
 const editSchema = z.object({
-  email: z.string().trim().email("Enter a valid contact email address"),
-  ttl: z.number().int().min(0).optional(),
-  description: z.string().trim().max(160),
+  email: EMAIL,
+  ttl: TTL,
+  description: z.string().trim().max(160, "At most 160 characters"),
 });
 
 export function EditZoneDialog({

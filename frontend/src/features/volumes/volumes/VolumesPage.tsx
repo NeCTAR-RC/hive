@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
@@ -28,6 +28,7 @@ import {
 import { useVolumeActions } from "./VolumeActions";
 import { CreateVolumeDialog } from "./VolumeDialogs";
 import styles from "./VolumesPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All statuses" },
@@ -97,12 +98,12 @@ export function VolumesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/storage/volumes/$volumeId"
             params={{ volumeId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -148,7 +149,7 @@ export function VolumesPage() {
               {row.attachments.map((attachment) => (
                 <li key={attachment.id ?? attachment.server_id ?? ""}>
                   {attachment.server_id ? (
-                    <RouterLink
+                    <RouteLink
                       to="/compute/instances/$instanceId"
                       params={{ instanceId: attachment.server_id }}
                     >
@@ -156,7 +157,7 @@ export function VolumesPage() {
                         attachment,
                         instanceNames.get(attachment.server_id),
                       )}
-                    </RouterLink>
+                    </RouteLink>
                   ) : (
                     attachmentLabel(attachment, undefined)
                   )}

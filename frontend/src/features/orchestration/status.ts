@@ -2,7 +2,7 @@
 // the parameter form helpers for the launch and update steps.
 import { z } from "zod";
 import type { StatusTone } from "../../components/StatusPill/StatusPill";
-import type { ParameterSpec } from "../../lib/api/types";
+import type { ParameterSpec, TemplateSource } from "../../lib/api/types";
 
 export function statusTone(status: string | null | undefined): StatusTone {
   if (!status) return "neutral";
@@ -27,8 +27,27 @@ export const ACTION_LABELS: Record<string, string> = {
   resume: "Resume stack",
   check: "Check stack",
   update: "Change stack template",
+  cancel_update: "Cancel stack update",
   delete: "Delete stack",
 };
+
+/** The verb for "Could not <verb> stack <name>". */
+export function actionVerb(action: string): string {
+  return action === "cancel_update" ? "cancel the update of" : action;
+}
+
+/**
+ * A template's `allowed_pattern` as a JavaScript regex anchored at both
+ * ends, or null when it does not compile here (Heat takes Python regex
+ * syntax, which JavaScript does not fully share); Heat checks it anyway.
+ */
+export function compilePattern(pattern: string): RegExp | null {
+  try {
+    return new RegExp(`^(?:${pattern})$`);
+  } catch {
+    return null;
+  }
+}
 
 /** The form's string value for a parameter's default. */
 export function defaultValue(spec: ParameterSpec): string {
@@ -64,11 +83,14 @@ export function parametersSchema(specs: ParameterSpec[]) {
         }
       }, `${spec.label} must be valid JSON`);
     }
-    if (spec.allowed_pattern) {
-      const pattern = spec.allowed_pattern;
+    const pattern = spec.allowed_pattern
+      ? compilePattern(spec.allowed_pattern)
+      : null;
+    if (pattern) {
       field = field.refine(
-        (v) => v === "" || new RegExp(`^(?:${pattern})$`).test(v),
-        spec.constraint_description ?? `${spec.label} must match ${pattern}`,
+        (v) => v === "" || pattern.test(v),
+        spec.constraint_description ??
+          `${spec.label} must match ${spec.allowed_pattern}`,
       );
     }
     shape[spec.name] = field;
@@ -106,4 +128,20 @@ export function groupParameters(
     group.specs.push(spec);
   }
   return [...groups.filter((g) => g.label), ...groups.filter((g) => !g.label)];
+}
+
+/** The template step's form values for a source that validated, so going
+ * back to that step shows what was used. */
+export function templateSourceValues(body: TemplateSource): {
+  source: "text" | "url";
+  template: string;
+  template_url: string;
+  environment: string;
+} {
+  return {
+    source: body.template_url ? "url" : "text",
+    template: body.template ?? "",
+    template_url: body.template_url ?? "",
+    environment: body.environment ?? "",
+  };
 }

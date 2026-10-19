@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -30,6 +30,7 @@ import {
 import { useTrunkActions } from "./TrunkActions";
 import { AddSubportsDialog } from "./TrunkDialogs";
 import styles from "./TrunkDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -57,12 +58,12 @@ export function TrunkDetailPage() {
         isRowHeader: true,
         cell: (row) =>
           row.port_id ? (
-            <RouterLink
+            <RouteLink
               to="/network/ports/$portId"
               params={{ portId: row.port_id }}
             >
               {row.port_name || row.port_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),
@@ -95,9 +96,9 @@ export function TrunkDetailPage() {
         {notFound ? (
           <p>
             There is no trunk <code>{trunkId}</code> in this project.{" "}
-            <RouterLink to="/network/trunks" search={{}}>
+            <RouteLink to="/network/trunks" search={{}}>
               Back to trunks
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -175,12 +176,12 @@ export function TrunkDetailPage() {
                 {
                   label: "Parent port",
                   value: data.port_id ? (
-                    <RouterLink
+                    <RouteLink
                       to="/network/ports/$portId"
                       params={{ portId: data.port_id }}
                     >
                       {data.port_name || data.port_id}
-                    </RouterLink>
+                    </RouteLink>
                   ) : null,
                 },
                 { label: "Created", value: formatDateTime(data.created_at) },

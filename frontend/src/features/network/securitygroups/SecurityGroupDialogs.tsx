@@ -12,7 +12,7 @@ import {
   SelectInput,
   TextInput,
 } from "../../../components/Form/fields";
-import type { RuleCreate, SecurityGroup } from "../../../lib/api/types";
+import type { SecurityGroup } from "../../../lib/api/types";
 import { notify } from "../../../lib/notify";
 import {
   rulePresetsQuery,
@@ -21,6 +21,7 @@ import {
   useCreateSecurityGroup,
   useUpdateSecurityGroup,
 } from "../api";
+import { ruleSchema, toRuleRequest, type RuleForm } from "./rules";
 
 const groupSchema = z.object({
   name: z
@@ -138,133 +139,7 @@ const CUSTOM = [
   { id: "other", label: "Other protocol" },
 ];
 
-const IPV4_CIDR = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
-const IPV6_CIDR = /^[0-9a-fA-F:]+\/\d{1,3}$/;
 const OPEN = new Set(["0.0.0.0/0", "::/0"]);
-
-const ruleSchema = z
-  .object({
-    kind: z.string().min(1, "Choose a rule"),
-    direction: z.enum(["ingress", "egress"]),
-    ethertype: z.enum(["IPv4", "IPv6"]),
-    port_mode: z.enum(["all", "port", "range"]),
-    port: z.number().int().min(1).max(65535).optional(),
-    port_from: z.number().int().min(1).max(65535).optional(),
-    port_to: z.number().int().min(1).max(65535).optional(),
-    icmp_type: z.number().int().min(-1).max(255).optional(),
-    icmp_code: z.number().int().min(-1).max(255).optional(),
-    protocol: z.string().trim().max(32),
-    remote: z.enum(["cidr", "group"]),
-    cidr: z.string().trim(),
-    remote_group_id: z.string(),
-    description: z.string().trim().max(255, "At most 255 characters"),
-  })
-  .superRefine((value, ctx) => {
-    const custom = value.kind === "custom_tcp" || value.kind === "custom_udp";
-    if (custom && value.port_mode === "port" && value.port === undefined) {
-      ctx.addIssue({ code: "custom", path: ["port"], message: "Enter a port" });
-    }
-    if (custom && value.port_mode === "range") {
-      if (value.port_from === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["port_from"],
-          message: "Enter the first port",
-        });
-      }
-      if (value.port_to === undefined) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["port_to"],
-          message: "Enter the last port",
-        });
-      }
-      if (
-        value.port_from !== undefined &&
-        value.port_to !== undefined &&
-        value.port_from > value.port_to
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["port_to"],
-          message: "Must not be lower than the first port",
-        });
-      }
-    }
-    if (value.kind === "other" && !value.protocol) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["protocol"],
-        message: "Enter a protocol name or number",
-      });
-    }
-    if (value.remote === "cidr") {
-      if (!value.cidr) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["cidr"],
-          message: "Enter a CIDR, for example 203.0.113.0/24",
-        });
-      } else if (value.ethertype === "IPv4" && !IPV4_CIDR.test(value.cidr)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["cidr"],
-          message: "Enter an IPv4 CIDR, for example 203.0.113.0/24",
-        });
-      } else if (value.ethertype === "IPv6" && !IPV6_CIDR.test(value.cidr)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["cidr"],
-          message: "Enter an IPv6 CIDR, for example 2001:db8::/32",
-        });
-      }
-    } else if (!value.remote_group_id) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["remote_group_id"],
-        message: "Choose a security group",
-      });
-    }
-  });
-
-type RuleForm = z.infer<typeof ruleSchema>;
-
-function toRequest(values: RuleForm): RuleCreate {
-  const request: RuleCreate = {
-    direction: values.direction,
-    ethertype: values.ethertype,
-    description: values.description,
-  };
-  if (values.kind.startsWith("custom_")) {
-    request.protocol = values.kind.replace("custom_", "");
-    if (request.protocol === "icmp") {
-      if (values.ethertype === "IPv6") request.protocol = "ipv6-icmp";
-      if (values.icmp_type !== undefined && values.icmp_type >= 0) {
-        request.port_range_min = values.icmp_type;
-        request.port_range_max =
-          values.icmp_code !== undefined && values.icmp_code >= 0
-            ? values.icmp_code
-            : -1;
-      }
-    } else if (values.port_mode === "port") {
-      request.port_range_min = values.port ?? null;
-      request.port_range_max = values.port ?? null;
-    } else if (values.port_mode === "range") {
-      request.port_range_min = values.port_from ?? null;
-      request.port_range_max = values.port_to ?? null;
-    }
-  } else if (values.kind === "other") {
-    request.protocol = values.protocol;
-  } else {
-    request.preset = values.kind;
-  }
-  if (values.remote === "cidr") {
-    request.remote_ip_prefix = values.cidr;
-  } else {
-    request.remote_group_id = values.remote_group_id;
-  }
-  return request;
-}
 
 export function AddRuleDialog({
   projectId,
@@ -308,7 +183,7 @@ export function AddRuleDialog({
 
   const submit = form.handleSubmit((values) => {
     create.mutate(
-      { groupId: group.id, ...toRequest(values) },
+      { groupId: group.id, ...toRuleRequest(values) },
       {
         onSuccess: () => {
           notify.success(`Rule added to ${group.name}.`);
@@ -344,15 +219,6 @@ export function AddRuleDialog({
         options={[
           { id: "ingress", label: "Ingress (incoming)" },
           { id: "egress", label: "Egress (outgoing)" },
-        ]}
-      />
-      <RadioInput
-        control={form.control}
-        name="ethertype"
-        label="Ether type"
-        options={[
-          { id: "IPv4", label: "IPv4" },
-          { id: "IPv6", label: "IPv6" },
         ]}
       />
       {isCustomPort && (
@@ -407,7 +273,7 @@ export function AddRuleDialog({
             label="ICMP type"
             minValue={-1}
             maxValue={255}
-            description="Leave empty (or -1) for all types."
+            description="Leave empty for all types."
           />
           <NumberInput
             control={form.control}
@@ -415,7 +281,7 @@ export function AddRuleDialog({
             label="ICMP code"
             minValue={-1}
             maxValue={255}
-            description="Leave empty (or -1) for all codes."
+            description="Leave empty for all codes. A code needs a type."
           />
         </>
       )}
@@ -442,7 +308,7 @@ export function AddRuleDialog({
           control={form.control}
           name="cidr"
           label="CIDR"
-          description="The addresses the rule applies to. There is no default: 0.0.0.0/0 opens the port to the whole internet."
+          description="The IPv4 or IPv6 addresses the rule applies to. There is no default: 0.0.0.0/0 opens the port to the whole internet."
           placeholder="203.0.113.0/24"
           isRequired
         />
@@ -458,6 +324,18 @@ export function AddRuleDialog({
           isRequired
           isDisabled={groups.isPending}
           placeholder={groups.isPending ? "Loading..." : "Choose a group"}
+        />
+      )}
+      {remote === "group" && (
+        <RadioInput
+          control={form.control}
+          name="ethertype"
+          label="Ether type"
+          description="With a CIDR the ether type follows the address."
+          options={[
+            { id: "IPv4", label: "IPv4" },
+            { id: "IPv6", label: "IPv6" },
+          ]}
         />
       )}
       {remote === "cidr" && OPEN.has(cidr.trim()) && (

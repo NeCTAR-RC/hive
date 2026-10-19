@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ReservationFlavor } from "../../lib/api/types";
 import {
-  daysBetween,
   eligibility,
   flavorDisk,
+  flavorFacts,
   flavorRate,
   flavorSize,
   slotLastDay,
@@ -50,7 +50,19 @@ describe("reservation status helpers", () => {
     expect(slotLastDay("2026-11-10T00:00:00+00:00")).toBe("2026-11-09");
     expect(slotLastDay("2026-11-10T12:00:00+00:00")).toBe("2026-11-10");
     expect(slotLastDay(null)).toBeNull();
-    expect(daysBetween("2026-10-12", "2026-10-14")).toBe(3);
+  });
+
+  it("lists the flavour facts, empty values left for the list to mark", () => {
+    const facts = Object.fromEntries(
+      flavorFacts({ ...flavor, description: null }).map((f) => [
+        f.label,
+        f.value,
+      ]),
+    );
+    expect(facts["Class"]).toBe("GPU");
+    expect(facts["Description"]).toBeNull();
+    expect(facts["Max duration"]).toBe("7 days");
+    expect(facts["Usage rate"]).toBe("0.9 SU/hour");
   });
 
   it("checks eligibility like the backend", () => {

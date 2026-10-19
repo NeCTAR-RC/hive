@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
@@ -18,6 +18,7 @@ import { snapshotsQuery } from "../api";
 import { availableSnapshotActions, statusLabel, statusTone } from "../status";
 import { useSnapshotActions } from "./SnapshotActions";
 import styles from "./SnapshotsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All statuses" },
@@ -53,12 +54,12 @@ export function SnapshotsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/storage/snapshots/$snapshotId"
             params={{ snapshotId: row.id }}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -91,12 +92,12 @@ export function SnapshotsPage() {
         label: "Volume",
         cell: (row) =>
           row.volume_id ? (
-            <RouterLink
+            <RouteLink
               to="/storage/volumes/$volumeId"
               params={{ volumeId: row.volume_id }}
             >
               {row.volume_name || row.volume_id}
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           ),
@@ -182,9 +183,9 @@ export function SnapshotsPage() {
           snapshots.data && snapshots.data.items.length === 0 ? (
             <p>
               Create a snapshot from a volume's row menu on the{" "}
-              <RouterLink to="/storage/volumes" search={{}}>
+              <RouteLink to="/storage/volumes" search={{}}>
                 Volumes
-              </RouterLink>{" "}
+              </RouteLink>{" "}
               page.
             </p>
           ) : null

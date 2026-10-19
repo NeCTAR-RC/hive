@@ -1,0 +1,10 @@
+@use "mixins" as *;
+
+.limits {
+  display: grid;
+  gap: var(--hive-space-4);
+
+  @include up($bp-md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

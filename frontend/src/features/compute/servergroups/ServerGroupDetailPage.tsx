@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
@@ -10,6 +9,7 @@ import { serverGroupRoute } from "../../../app/router";
 import { instancesQuery, serverGroupsQuery } from "../api";
 import { POLICY_LABELS } from "./policies";
 import styles from "./ServerGroupDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -45,9 +45,9 @@ export function ServerGroupDetailPage() {
         <p>
           There is no server group with id <code>{groupId}</code> in this
           project.{" "}
-          <RouterLink to="/compute/server-groups">
+          <RouteLink to="/compute/server-groups">
             Back to server groups
-          </RouterLink>
+          </RouteLink>
         </p>
       </>
     );
@@ -82,12 +82,12 @@ export function ServerGroupDetailPage() {
             <ul className={styles.members}>
               {group.members.map((id) => (
                 <li key={id}>
-                  <RouterLink
+                  <RouteLink
                     to="/compute/instances/$instanceId"
                     params={{ instanceId: id }}
                   >
                     {names.get(id) ?? id}
-                  </RouterLink>
+                  </RouteLink>
                 </li>
               ))}
             </ul>

@@ -26,7 +26,9 @@ export function isDeleting(instance: Pick<Instance, "task_state">) {
   return instance.task_state === "deleting";
 }
 
-export function statusTone(instance: Instance): StatusTone {
+export function statusTone(
+  instance: Pick<Instance, "status" | "task_state">,
+): StatusTone {
   if (isTransitional(instance)) return "progress";
   switch (instance.status) {
     case "ACTIVE":
@@ -55,10 +57,19 @@ export function statusLabel(instance: Instance): string {
   return instance.status.replace(/_/g, " ");
 }
 
-export function powerStateLabel(instance: Instance): string {
+// Horizon's POWER_DISPLAY_CHOICES (project/instances/tables.py) for the
+// two-word states; the rest (RUNNING, PAUSED, BLOCKED, CRASHED, SUSPENDED,
+// FAILED, BUILDING) read as the capitalised word.
+const POWER_LABELS: Record<string, string> = {
+  "NO STATE": "No state",
+  SHUTDOWN: "Shut down",
+  SHUTOFF: "Shut off",
+};
+
+export function powerStateLabel(instance: Pick<Instance, "power_state">) {
   const state = instance.power_state;
-  if (!state || state === "NO STATE") return "No state";
-  return state.charAt(0) + state.slice(1).toLowerCase();
+  if (!state) return POWER_LABELS["NO STATE"]!;
+  return POWER_LABELS[state] ?? state.charAt(0) + state.slice(1).toLowerCase();
 }
 
 export type InstanceActionId =
@@ -232,4 +243,24 @@ export function addressSummary(instance: Instance): string[] {
   return instance.addresses.map((address) =>
     address.type === "floating" ? `${address.addr} (floating)` : address.addr,
   );
+}
+
+/**
+ * Split a batch selection into the rows an action applies to and the rows
+ * it does not. Horizon's batch actions run only on rows whose `allowed()`
+ * passes (horizon/tables/actions.py BatchAction) and the table disables the
+ * button when none do; this uses the same rules as the row menu.
+ */
+export function batchTargets<T extends Instance>(
+  rows: T[],
+  id: InstanceActionId,
+): { allowed: T[]; skipped: T[] } {
+  const allowed: T[] = [];
+  const skipped: T[] = [];
+  for (const row of rows) {
+    const action = availableActions(row).find((a) => a.id === id);
+    if (action && !action.isDisabled) allowed.push(row);
+    else skipped.push(row);
+  }
+  return { allowed, skipped };
 }

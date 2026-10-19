@@ -178,6 +178,16 @@ export function checkSubnetForm(
     if (values.address_source === "pool") {
       if (!values.subnetpool_id)
         errors.subnetpool_id = "Choose an address pool";
+      const prefixlen = values.prefixlen.trim();
+      const max = version === 4 ? 32 : 128;
+      if (
+        prefixlen &&
+        (!/^\d+$/.test(prefixlen) ||
+          Number(prefixlen) < 1 ||
+          Number(prefixlen) > max)
+      ) {
+        errors.prefixlen = `Enter a prefix length from 1 to ${max}`;
+      }
     } else if (!values.cidr.trim()) {
       errors.cidr = "Specify a network address";
     } else {
@@ -222,7 +232,8 @@ export function subnetFieldsFromForm(
   if (!previous) {
     if (values.address_source === "pool") {
       fields.subnetpool_id = values.subnetpool_id;
-      if (values.prefixlen) fields.prefixlen = Number(values.prefixlen);
+      const prefixlen = values.prefixlen.trim();
+      if (/^\d+$/.test(prefixlen)) fields.prefixlen = Number(prefixlen);
     } else {
       fields.cidr = values.cidr.trim();
     }

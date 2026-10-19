@@ -4,7 +4,6 @@
 // phone and with a screen reader and needs no canvas.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { Globe, Network as NetworkIcon, Router, Server } from "lucide-react";
 import { EmptyState } from "../../../components/EmptyState/EmptyState";
@@ -17,6 +16,7 @@ import { statusLabel, statusTone } from "../status";
 import { topologyQuery } from "../api";
 import { buildTopology, type TopologyAttachment } from "./topology";
 import styles from "./TopologyPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
@@ -83,13 +83,13 @@ export function TopologyPage() {
                     ) : (
                       <NetworkIcon aria-hidden="true" size={18} />
                     )}
-                    <RouterLink
+                    <RouteLink
                       to="/network/networks/$networkId"
                       params={{ networkId: network.id }}
                       search={{}}
                     >
                       {network.name}
-                    </RouterLink>
+                    </RouteLink>
                   </h2>
                   <div className={styles.badges}>
                     {network.isExternal && (
@@ -108,13 +108,13 @@ export function TopologyPage() {
                     {network.subnets.map((subnet, index) => (
                       <span key={subnet.id}>
                         {index > 0 && ", "}
-                        <RouterLink
+                        <RouteLink
                           to="/network/subnets/$subnetId"
                           params={{ subnetId: subnet.id }}
                         >
                           {subnet.name ? `${subnet.name} ` : ""}
                           <code>{subnet.cidr}</code>
-                        </RouterLink>
+                        </RouteLink>
                       </span>
                     ))}
                   </p>
@@ -134,9 +134,9 @@ export function TopologyPage() {
                         <AttachmentIcon kind={attachment.kind} />
                         <span className={styles.attachmentBody}>
                           {attachment.href ? (
-                            <RouterLink to={attachment.href}>
+                            <RouteLink to={attachment.href}>
                               {attachment.name}
-                            </RouterLink>
+                            </RouteLink>
                           ) : (
                             attachment.name
                           )}
@@ -183,7 +183,7 @@ export function TopologyPage() {
                   >
                     <AttachmentIcon kind={island.kind} />
                     <span className={styles.attachmentBody}>
-                      <RouterLink to={island.href}>{island.name}</RouterLink>
+                      <RouteLink to={island.href}>{island.name}</RouteLink>
                       <span className={styles.kind}>
                         {island.kind === "router" ? " (router)" : ""}
                       </span>

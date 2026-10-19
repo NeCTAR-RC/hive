@@ -2,8 +2,6 @@
 // status, and the suspend, resume, check and delete actions.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { Link } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
   DataTable,
@@ -17,8 +15,8 @@ import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { stacksQuery, useDeleteStack, useStackAction } from "./api";
-import { ACTION_LABELS, statusLabel, statusTone } from "./status";
-import styles from "./Orchestration.module.scss";
+import { ACTION_LABELS, actionVerb, statusLabel, statusTone } from "./status";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function StacksPage() {
   const projectId = useProjectId();
@@ -35,13 +33,12 @@ export function StacksPage() {
         label: "Stack name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/orchestration/stacks/$stackId"
             params={{ stackId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id} ${row.description ?? ""}`,
@@ -91,7 +88,7 @@ export function StacksPage() {
         onSuccess: () =>
           notify.success(`${ACTION_LABELS[action] ?? action}: ${stack.name}.`),
         onError: () =>
-          notify.danger(`Could not ${action} stack ${stack.name}.`),
+          notify.danger(`Could not ${actionVerb(action)} stack ${stack.name}.`),
       },
     );
 
@@ -118,9 +115,9 @@ export function StacksPage() {
         title="Stacks"
         crumbs={[{ label: "Project" }, { label: "Orchestration" }]}
         actions={
-          <Link variant="primary" size="sm" href="/orchestration/stacks/new">
+          <RouteLink variant="primary" size="sm" to="/orchestration/stacks/new">
             Launch stack
-          </Link>
+          </RouteLink>
         }
       />
       <DataTable
@@ -153,6 +150,15 @@ export function StacksPage() {
         }
         defaultSort={{ column: "created", direction: "descending" }}
         rowActions={(row) => [
+          ...(row.actions.includes("cancel_update")
+            ? [
+                {
+                  id: "cancel_update",
+                  label: "Cancel stack update",
+                  onAction: () => run(row, "cancel_update"),
+                },
+              ]
+            : []),
           ...(row.actions.includes("resume")
             ? [
                 {

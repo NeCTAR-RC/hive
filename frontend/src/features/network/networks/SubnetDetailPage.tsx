@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { RowActionsMenu } from "../../../components/DataTable/DataTable";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
@@ -13,6 +13,7 @@ import { networkQuery, subnetQuery } from "../api";
 import { availableSubnetActions } from "../status";
 import { useSubnetActions } from "./NetworkActions";
 import styles from "./NetworkDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 export function SubnetDetailPage() {
   const projectId = useProjectId();
@@ -60,9 +61,9 @@ export function SubnetDetailPage() {
         {notFound ? (
           <p>
             There is no subnet <code>{subnetId}</code> visible to this project.{" "}
-            <RouterLink to="/network/networks" search={{}}>
+            <RouteLink to="/network/networks" search={{}}>
               Back to networks
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -111,13 +112,13 @@ export function SubnetDetailPage() {
               {
                 label: "Network",
                 value: data.network_id ? (
-                  <RouterLink
+                  <RouteLink
                     to="/network/networks/$networkId"
                     params={{ networkId: data.network_id }}
                     search={{}}
                   >
                     {network.data?.name ?? data.network_id}
-                  </RouterLink>
+                  </RouteLink>
                 ) : null,
               },
               { label: "Network address", value: <code>{data.cidr}</code> },

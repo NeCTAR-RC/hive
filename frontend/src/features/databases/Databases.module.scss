@@ -6,11 +6,6 @@
   gap: var(--hive-space-4);
 }
 
-.nameLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
-}
-
 .muted {
   margin: 0;
   color: var(--hive-color-text-muted);
@@ -81,13 +76,4 @@
   flex-direction: column;
   gap: var(--hive-space-2);
   max-width: 28rem;
-}
-
-.list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
-  overflow-wrap: anywhere;
 }

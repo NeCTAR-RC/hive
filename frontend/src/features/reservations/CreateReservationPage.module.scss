@@ -44,15 +44,6 @@
   margin: var(--hive-space-3) 0 var(--hive-space-4);
 }
 
-.limits {
-  display: grid;
-  gap: var(--hive-space-4);
-
-  @include up($bp-md) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 .usage {
   margin: 0;
 }
@@ -100,39 +91,12 @@
 
 .reserveHead {
   margin: 0 0 var(--hive-space-4);
-  text-align: center;
 }
 
 .reserveFlavor {
   margin: 0 0 var(--hive-space-2);
   font-size: var(--hive-font-size-xl);
   font-weight: var(--hive-font-weight-semibold);
-}
-
-.reserveDetails {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--hive-space-1) var(--hive-space-3);
-  margin: 0;
-  font-size: var(--hive-font-size-sm);
-
-  div {
-    display: inline-flex;
-    gap: var(--hive-space-1);
-  }
-
-  dt {
-    color: var(--hive-color-text-muted);
-
-    &::after {
-      content: ":";
-    }
-  }
-
-  dd {
-    margin: 0;
-  }
 }
 
 .reserveColumns {

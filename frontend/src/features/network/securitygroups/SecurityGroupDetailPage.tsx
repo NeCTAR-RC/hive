@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -28,6 +28,7 @@ import {
 import { AddRuleDialog, EditSecurityGroupDialog } from "./SecurityGroupDialogs";
 import { portRange } from "./rules";
 import styles from "./SecurityGroupDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -124,9 +125,9 @@ export function SecurityGroupDetailPage() {
           <p>
             There is no security group with id <code>{groupId}</code> in this
             project.{" "}
-            <RouterLink to="/network/security-groups">
+            <RouteLink to="/network/security-groups">
               Back to security groups
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState

@@ -1,0 +1,52 @@
+---
+fixes:
+  - |
+    The database instance Update dialog no longer shows 0.0.0.0/0 as the
+    allowed CIDRs when the instance details fail to load; it shows the
+    error with a retry and keeps Update disabled until the current value
+    is known.
+  - |
+    Creating a database backup clears the chosen parent backup when a
+    different instance is selected, so an incremental backup can no longer
+    be requested from another instance's backup.
+  - |
+    Database quotas with no limit show as "Unlimited" instead of -1 on the
+    launch page.
+  - |
+    Restarting several database instances at once skips the ones that
+    cannot restart and reports the result in one notification.
+  - |
+    The database Resize, Upgrade and Attach configuration group dialogs
+    keep their submit button disabled when there is nothing to choose,
+    and show load errors with a retry.
+  - |
+    Adding a configuration group parameter offers a searchable parameter
+    list and an input that matches the parameter's type: a switch for
+    booleans and a number field limited to the allowed range for numbers.
+  - |
+    A database user's access is managed with one switch per database.
+  - |
+    Database and Kubernetes mutations no longer wait for every list to
+    refetch before the dialog closes, and database changes refresh only
+    the affected data.
+  - |
+    The Extend reservation dialog forgets a cancelled date, shows a failure
+    to load the free window as an error with a retry instead of "not
+    available", and reloads the window when the extension is refused
+    because the date is too late or the following slot has gone.
+  - |
+    The Create reservation chart keeps fully booked flavours, with a note
+    that they have no free time slot, and says when free slots are only
+    shown up to an earlier date than the chart covers.
+  - |
+    The reservation chart's hover tip stays inside the window near the
+    right and bottom edges.
+  - |
+    The reservation "Add to calendar" menu entries are links, so Google
+    Calendar and Outlook open as links in a new tab and the .ics file
+    downloads directly.
+  - |
+    Names in the database, Kubernetes and reservation lists, and the
+    create and launch buttons, use the design-system link style and
+    navigate inside the dashboard. Leaving a page cancels its pending data
+    requests.

@@ -1,13 +1,14 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
-import { Label, Link, Select, SelectItem } from "@ardc-ui/react";
+import { useNavigate } from "@tanstack/react-router";
+import { Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
 import { filterRows } from "../../../components/DataTable/filter";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
 import type { Instance } from "../../../lib/api/types";
 import { formatRelative, formatSuRate } from "../../../lib/format";
@@ -20,11 +21,26 @@ import { useInstanceActions } from "./InstanceActions";
 import {
   addressSummary,
   availableActions,
+  batchTargets,
   powerStateLabel,
   statusLabel,
   statusTone,
 } from "./status";
+import type { InstanceActionId } from "./status";
 import styles from "./InstancesPage.module.scss";
+
+// Batch actions run only on the selected rows they apply to; the rest are
+// named as skipped (batchTargets).
+const BATCH_ACTIONS: {
+  id: InstanceActionId;
+  label: string;
+  tone?: "danger";
+}[] = [
+  { id: "start", label: "Start" },
+  { id: "stop", label: "Shut off" },
+  { id: "soft-reboot", label: "Soft reboot" },
+  { id: "delete", label: "Delete", tone: "danger" },
+];
 
 const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All statuses" },
@@ -74,13 +90,12 @@ export function InstancesPage() {
         label: "Instance name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/compute/instances/$instanceId"
             params={{ instanceId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -150,14 +165,14 @@ export function InstancesPage() {
         cell: (row) => {
           const count = riskCounts.get(row.id) ?? 0;
           return count > 0 ? (
-            <RouterLink
+            <RouteLink
               to="/security/risks"
               hash={row.id}
               className={styles.riskLink}
               aria-label={`${count} security ${count === 1 ? "risk" : "risks"}`}
             >
               <StatusPill tone="danger">{`${count} ${count === 1 ? "risk" : "risks"}`}</StatusPill>
-            </RouterLink>
+            </RouteLink>
           ) : (
             ""
           );
@@ -207,9 +222,14 @@ export function InstancesPage() {
         title="Instances"
         crumbs={[{ label: "Project" }, { label: "Compute" }]}
         actions={
-          <Link variant="primary" size="sm" href="/compute/instances/launch">
+          <RouteLink
+            variant="primary"
+            size="sm"
+            to="/compute/instances/launch"
+            search={{}}
+          >
             Launch instance
-          </Link>
+          </RouteLink>
         }
       />
       <DataTable
@@ -274,29 +294,17 @@ export function InstancesPage() {
             ...(action.tone ? { tone: action.tone } : {}),
           }))
         }
-        batchActions={[
-          {
-            id: "start",
-            label: "Start",
-            onAction: (selected) => run(selected, "start"),
+        batchActions={BATCH_ACTIONS.map(({ id, label, tone }) => ({
+          id,
+          label,
+          ...(tone ? { tone } : {}),
+          onAction: (selected: Instance[]) => {
+            const { allowed, skipped } = batchTargets(selected, id);
+            run(allowed, id, skipped);
           },
-          {
-            id: "stop",
-            label: "Shut off",
-            onAction: (selected) => run(selected, "stop"),
-          },
-          {
-            id: "soft-reboot",
-            label: "Soft reboot",
-            onAction: (selected) => run(selected, "soft-reboot"),
-          },
-          {
-            id: "delete",
-            label: "Delete",
-            tone: "danger",
-            onAction: (selected) => run(selected, "delete"),
-          },
-        ]}
+          isDisabled: (selected: Instance[]) =>
+            batchTargets(selected, id).allowed.length === 0,
+        }))}
       />
       {dialogs}
     </>

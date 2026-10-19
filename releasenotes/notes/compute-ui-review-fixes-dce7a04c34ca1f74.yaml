@@ -1,0 +1,50 @@
+---
+fixes:
+  - |
+    Changing the boot source type in the launch wizard clears the chosen
+    source and the delete-volume switch, so an image id can no longer be
+    launched as a volume.
+  - |
+    The launch wizard greys out flavours whose vCPUs or RAM, times the
+    instance count, exceed the project's remaining quota, as Horizon does.
+    A cleared Count no longer gives a wrong quota warning, and a missing
+    source or flavour is announced with the list and focused on Next.
+  - |
+    Launching from a reservation whose flavour is not available to the
+    project leaves the flavour unselected and says why on the flavour
+    step, instead of falling back to another flavour.
+  - |
+    Batch Start, Shut off, Soft reboot and Delete on the Instances page
+    run only on the selected instances they apply to, name the ones they
+    skip, and are disabled when none apply. The list refreshes once after
+    a batch action instead of once per instance.
+  - |
+    The instance power state reads "Shut off", "Shut down", "Blocked",
+    "Failed" and "Building" as Horizon shows them.
+  - |
+    Images created with the ami, aki or ari disk format use the matching
+    container format, which Glance requires. Cancelling an image upload no
+    longer shows "Could not save: aborted".
+  - |
+    The "Having trouble logging in?" link on the login page opens the
+    support article instead of a missing page.
+  - |
+    The Compute Overview links to the dashboard's own Usage Trend and
+    Security Risks pages instead of the old dashboard.
+  - |
+    Links on the home, API access, login, terms, My Details, allocation
+    usage and compute, volume and identity pages use the design-system
+    link style, stay inside the dashboard without a full page reload, and
+    mark links that leave the dashboard.
+  - |
+    The EC2 secret key on the Credentials page stays hidden until "Show
+    secret key" is pressed. Newly created private keys and application
+    credential secrets are no longer kept in memory after they are handed
+    over.
+  - |
+    The volume attach picker lists instances in another availability zone
+    as unavailable. "Create backup" is disabled for a volume snapshot
+    whose volume no longer exists. The volume detail and snapshot list
+    tables keep separate column and page-size preferences.
+  - |
+    The usage trend date presets show which preset is active.

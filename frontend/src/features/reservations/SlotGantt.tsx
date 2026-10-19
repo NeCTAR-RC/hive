@@ -6,12 +6,15 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
-import { ChevronDown } from "@ardc-ui/react";
+import { Button, ChevronDown } from "@ardc-ui/react";
+import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import type { ReservationFlavor } from "../../lib/api/types";
 import { formatCalendarDate, formatNumber } from "../../lib/format";
 import {
@@ -19,12 +22,13 @@ import {
   eligibleDays,
   monthSpans,
   selectionFor,
+  tipPosition,
   type GanttBar,
   type GanttRange,
   type GanttRow,
   type Selection,
 } from "./gantt";
-import { flavorDisk, flavorRate, flavorSize } from "./status";
+import { flavorFacts } from "./status";
 import styles from "./SlotGantt.module.scss";
 
 export interface PickedSlot {
@@ -64,12 +68,15 @@ function monthColumns(days: string[]) {
 export function SlotGantt({
   rows,
   range,
+  searchedTo,
   daysLeft,
   canReserve,
   onPick,
 }: {
   rows: GanttRow[];
   range: GanttRange;
+  /** The last day the slot search covered (the backend may clamp it). */
+  searchedTo?: string;
   daysLeft: number | null;
   canReserve: boolean;
   onPick: (picked: PickedSlot) => void;
@@ -171,6 +178,7 @@ export function SlotGantt({
               track={track}
               alt={rowIndex % 2 === 1}
               eligible={eligibleDays(daysLeft, row.flavor.max_days)}
+              searchedTo={searchedTo ?? range.last}
               canReserve={canReserve}
               hover={hover}
               onHover={place}
@@ -214,6 +222,7 @@ function FlavorRow({
   track,
   alt,
   eligible,
+  searchedTo,
   canReserve,
   hover,
   onHover,
@@ -225,6 +234,7 @@ function FlavorRow({
   track: string;
   alt: boolean;
   eligible: number;
+  searchedTo: string;
   canReserve: boolean;
   hover: Hover | null;
   onHover: (event: PointerEvent<HTMLElement>, bar: GanttBar) => void;
@@ -238,37 +248,26 @@ function FlavorRow({
   const labelId = useId();
   const [open, setOpen] = useState(false);
   const { flavor } = row;
+  const hasFree = row.bars.some((bar) => bar.kind === "free");
   return (
     <div role="group" aria-labelledby={labelId} className={styles.row}>
       <div className={styles.label}>
-        <button
-          type="button"
-          className={styles.toggle}
+        <Button
+          variant="link"
+          size="xs"
           aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
+          onPress={() => setOpen((value) => !value)}
         >
           <span id={labelId}>{flavor.name ?? flavor.id}</span>
-          <ChevronDown aria-hidden="true" className={styles.chevron} />
-        </button>
+          <ChevronDown
+            aria-hidden="true"
+            className={open ? styles.chevronOpen : styles.chevron}
+          />
+        </Button>
         {open && (
-          <dl className={styles.details}>
-            <dt>Class</dt>
-            <dd>{flavor.category ?? "-"}</dd>
-            <dt>Description</dt>
-            <dd>{flavor.description || "-"}</dd>
-            <dt>Availability zone</dt>
-            <dd>{flavor.availability_zone ?? "-"}</dd>
-            <dt>Size</dt>
-            <dd>{flavorSize(flavor) || "-"}</dd>
-            <dt>Disk</dt>
-            <dd>{flavorDisk(flavor) || "-"}</dd>
-            <dt>Max duration</dt>
-            <dd>
-              {flavor.max_days} {flavor.max_days === 1 ? "day" : "days"}
-            </dd>
-            <dt>Usage rate</dt>
-            <dd>{flavorRate(flavor)}</dd>
-          </dl>
+          <div className={styles.details}>
+            <KeyValueList items={flavorFacts(flavor)} onTint />
+          </div>
         )}
       </div>
       <div
@@ -281,6 +280,11 @@ function FlavorRow({
             style={{ gridColumn: range.todayIndex + 1 }}
             aria-hidden="true"
           />
+        )}
+        {!hasFree && (
+          <span className={styles.noSlots}>
+            No free time slots up to {formatCalendarDate(searchedTo)}.
+          </span>
         )}
         {row.bars.map((bar) => {
           const span = bar.to - bar.from + 1;
@@ -354,10 +358,64 @@ function HoverTip({
     }
   }
   if (!row || !bar) return null;
-  const style = { left: hover.x + 16, top: hover.y + 16 };
+  return (
+    <PlacedTip x={hover.x} y={hover.y} className={className}>
+      <TipBody row={row} bar={bar} hover={hover} daysLeft={daysLeft} />
+    </PlacedTip>
+  );
+}
+
+/** Follows the pointer, flipped to the other side of it where the tip
+ * would run off the viewport. */
+function PlacedTip({
+  x,
+  y,
+  className,
+  children,
+}: {
+  x: number;
+  y: number;
+  className: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  // Measure after each move: the text, and so the size, follows the day
+  // under the pointer.
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const width = box.offsetWidth;
+    const height = box.offsetHeight;
+    setSize((old) =>
+      old.width === width && old.height === height ? old : { width, height },
+    );
+  }, [x, y, children]);
+  const style = tipPosition({ x, y }, size, {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  return (
+    <div ref={ref} className={className} style={style} aria-hidden="true">
+      {children}
+    </div>
+  );
+}
+
+function TipBody({
+  row,
+  bar,
+  hover,
+  daysLeft,
+}: {
+  row: GanttRow;
+  bar: GanttBar;
+  hover: Hover;
+  daysLeft: number | null;
+}) {
   if (bar.kind === "maintenance") {
     return (
-      <div className={className} style={style} aria-hidden="true">
+      <>
         <strong>Maintenance</strong>
         <br />
         {dateSpan(bar.first, bar.last)}
@@ -367,7 +425,7 @@ function HoverTip({
             {bar.note}
           </>
         ) : null}
-      </div>
+      </>
     );
   }
   const selection = selectionFor(
@@ -379,13 +437,13 @@ function HoverTip({
     ? Math.round(row.flavor.rate * 24 * selection.days * 100) / 100
     : null;
   return (
-    <div className={className} style={style} aria-hidden="true">
+    <>
       <strong>{row.flavor.name}</strong>
       <br />
       {dateSpan(selection.start, selection.end)}
       <br />
       {selection.days} {selection.days === 1 ? "day" : "days"}
       {estimate !== null ? `, about ${formatNumber(estimate)} SU` : ""}
-    </div>
+    </>
   );
 }

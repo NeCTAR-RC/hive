@@ -1,7 +1,5 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { Link } from "@ardc-ui/react";
 import { ChartFigure } from "../../../components/Charts/ChartFigure";
 import { LazyDailyLineChart } from "../../../components/Charts/LazyDailyLineChart";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
@@ -11,13 +9,14 @@ import { Skeleton, SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
 import type { ComputeLimits } from "../../../lib/api/types";
 import { formatCalendarDate, formatSu } from "../../../lib/format";
-import { configQuery, risksQuery, usageQuery } from "../../../lib/queries";
+import { risksQuery, usageQuery } from "../../../lib/queries";
 import { useProjectId } from "../../../lib/useProject";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
 import { instancesQuery, limitsQuery } from "../api";
 import { statusTone } from "../instances/status";
 import styles from "./OverviewPage.module.scss";
 import { dailyPoints, peak } from "./usage";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 function meter(limits: ComputeLimits, maxKey: string, usedKey: string) {
   const max = limits[maxKey];
@@ -32,14 +31,12 @@ const TREND_COLUMNS = [
 
 export function OverviewPage() {
   const projectId = useProjectId();
-  const { data: config } = useQuery(configQuery);
   const limits = useQuery(limitsQuery(projectId));
   // One row per day for the past 3 months, as nectar-dashboard's overview
   // (groupby=time-1d) draws it.
   const trend = useQuery(usageQuery(projectId, { groupby: "time-1d" }));
   const risks = useQuery(risksQuery(projectId));
   const instances = useQuery(instancesQuery(projectId));
-  const horizon = config?.horizon_url?.replace(/\/$/, "") ?? "";
 
   const byStatus = useMemo(() => {
     const counts = new Map<string, number>();
@@ -72,9 +69,14 @@ export function OverviewPage() {
         title="Overview"
         crumbs={[{ label: "Project" }, { label: "Compute" }]}
         actions={
-          <Link variant="primary" size="sm" href="/compute/instances/launch">
+          <RouteLink
+            variant="primary"
+            size="sm"
+            to="/compute/instances/launch"
+            search={{}}
+          >
             Launch instance
-          </Link>
+          </RouteLink>
         }
       />
       <div className={styles.grid}>
@@ -94,9 +96,9 @@ export function OverviewPage() {
                   <p className={styles.noUsage}>
                     There is no usage data recorded because no instances were
                     running. Do you want to{" "}
-                    <RouterLink to="/compute/instances/launch" search={{}}>
+                    <RouteLink to="/compute/instances/launch" search={{}}>
                       launch an instance
-                    </RouterLink>
+                    </RouteLink>
                     ?
                   </p>
                 ) : (
@@ -122,13 +124,14 @@ export function OverviewPage() {
                 <p className={styles.muted}>
                   To view more usage data, visit the Usage Trend page.
                 </p>
-                <Link
+                <RouteLink
                   variant="secondary"
                   size="sm"
-                  href={`${horizon}/project/usage-trend/`}
+                  to="/usage/trend"
+                  search={{}}
                 >
                   Usage Trend
-                </Link>
+                </RouteLink>
               </div>
             </div>
           )}
@@ -207,23 +210,21 @@ export function OverviewPage() {
           ) : byStatus.length === 0 ? (
             <p className={styles.muted}>
               No instances yet.{" "}
-              <RouterLink to="/compute/instances/launch" search={{}}>
+              <RouteLink to="/compute/instances/launch" search={{}}>
                 Launch one
-              </RouterLink>
+              </RouteLink>
               .
             </p>
           ) : (
             <ul className={styles.statusList}>
               {byStatus.map(([status, count]) => (
                 <li key={status}>
-                  <RouterLink to="/compute/instances" search={{ status }}>
-                    <StatusPill
-                      tone={statusTone({ status, task_state: null } as never)}
-                    >
+                  <RouteLink to="/compute/instances" search={{ status }}>
+                    <StatusPill tone={statusTone({ status, task_state: null })}>
                       {status.replace(/_/g, " ")}
                     </StatusPill>
                     <span className={styles.count}>{count}</span>
-                  </RouterLink>
+                  </RouteLink>
                 </li>
               ))}
             </ul>
@@ -241,7 +242,7 @@ export function OverviewPage() {
           ) : (
             <p>
               <StatusPill tone="danger">{`${risks.data.items.length} ${risks.data.items.length === 1 ? "risk" : "risks"}`}</StatusPill>{" "}
-              <a href={`${horizon}/project/security/`}>Review security risks</a>
+              <RouteLink to="/security/risks">Review security risks</RouteLink>
             </p>
           )}
         </Panel>

@@ -6,6 +6,7 @@ import {
   Button,
   Dialog,
   Label,
+  Loading,
   Modal,
   Select,
   SelectItem,
@@ -18,7 +19,6 @@ import {
 } from "../../components/DataTable/DataTable";
 import { filterRows } from "../../components/DataTable/filter";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
 import type { DbConfigDefault, DbLog } from "../../lib/api/types";
 import { downloadUrl } from "../../lib/download";
@@ -246,7 +246,7 @@ export function LogContentsDialog({
             </Button>
           </div>
           {contents.isPending ? (
-            <SkeletonLines lines={8} />
+            <Loading>Loading log...</Loading>
           ) : contents.isError ? (
             <ErrorState
               error={contents.error}

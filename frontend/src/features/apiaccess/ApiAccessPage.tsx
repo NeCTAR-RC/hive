@@ -13,6 +13,7 @@ import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { credentialsQuery, endpointsQuery, type ServiceEndpoint } from "./api";
 import styles from "./ApiAccessPage.module.scss";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function ApiAccessPage() {
   const projectId = useProjectId();
@@ -88,12 +89,13 @@ export function ApiAccessPage() {
             The OpenStack RC file and clouds.yaml configure the OpenStack
             command line tools and SDKs for this project. They use your Nectar
             username with the password set under{" "}
-            <a href="/account/reset-password">Reset Password</a>. EC2
-            credentials for S3-compatible tools and application credentials are
-            under <a href="/identity/credentials">Credentials</a> and{" "}
-            <a href="/identity/application-credentials">
+            <RouteLink to="/account/reset-password">Reset Password</RouteLink>.
+            EC2 credentials for S3-compatible tools and application credentials
+            are under{" "}
+            <RouteLink to="/identity/credentials">Credentials</RouteLink> and{" "}
+            <RouteLink to="/identity/application-credentials">
               Application Credentials
-            </a>
+            </RouteLink>
             .
           </p>
         </Panel>

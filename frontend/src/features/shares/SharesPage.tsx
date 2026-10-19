@@ -2,7 +2,7 @@
 // the create, edit, resize, revert, snapshot, rules and delete actions.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -12,6 +12,7 @@ import {
 import { filterRows } from "../../components/DataTable/filter";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import type { Share } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import { useProjectId } from "../../lib/useProject";
@@ -26,7 +27,8 @@ import {
   ResizeShareDialog,
   RevertShareDialog,
 } from "./ShareDialogs";
-import { statusLabel, statusTone } from "./status";
+import { shareDeleteConfirmText, statusLabel, statusTone } from "./status";
+import { TruncatedText } from "./TruncatedText";
 import styles from "./Shares.module.scss";
 
 type Dialog = {
@@ -62,13 +64,9 @@ export function SharesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
-            to="/shares/shares/$shareId"
-            params={{ shareId: row.id }}
-            className={styles.nameLink}
-          >
+          <RouteLink to="/shares/shares/$shareId" params={{ shareId: row.id }}>
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>
@@ -77,7 +75,7 @@ export function SharesPage() {
       {
         id: "description",
         label: "Description",
-        cell: (row) => (row.description ?? "").slice(0, 40),
+        cell: (row) => <TruncatedText text={row.description} />,
         hideBelow: "lg",
       },
       {
@@ -351,6 +349,7 @@ export function SharesPage() {
             : `Delete ${deleting.length} shares?`
         }
         confirmLabel="Delete"
+        confirmText={shareDeleteConfirmText(deleting)}
         isPending={remove.isPending}
         onConfirm={() => void confirmDelete()}
       >

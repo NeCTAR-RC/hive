@@ -2,13 +2,12 @@
 // Nectar: the templates are managed by the cloud operators.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
-import { Link } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../components/DataTable/DataTable";
 import { filterRows } from "../../components/DataTable/filter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import type { ClusterTemplate } from "../../lib/api/types";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
@@ -26,13 +25,12 @@ export function ClusterTemplatesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/kubernetes/cluster-templates/$templateId"
             params={{ templateId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -82,9 +80,9 @@ export function ClusterTemplatesPage() {
         title="Cluster Templates"
         crumbs={[{ label: "Project" }, { label: "Container Infra" }]}
         actions={
-          <Link variant="primary" size="sm" href="/kubernetes/clusters/new">
+          <RouteLink variant="primary" size="sm" to="/kubernetes/clusters/new">
             Create cluster
-          </Link>
+          </RouteLink>
         }
       >
         <p className={styles.muted}>

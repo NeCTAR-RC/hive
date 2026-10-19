@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Label, ProgressBar } from "@ardc-ui/react";
+import { Button, Label, ProgressBar } from "@ardc-ui/react";
 import { FormDialog } from "../../../components/FormDialog/FormDialog";
 import {
   NumberInput,
@@ -17,6 +17,7 @@ import type { Image } from "../../../lib/api/types";
 import { formatBytes } from "../../../lib/format";
 import { notify } from "../../../lib/notify";
 import { useCreateImage, useUpdateImage, useUploadImageFile } from "../api";
+import { containerFormat } from "./presentation";
 import styles from "./ImageDialogs.module.scss";
 
 const DISK_FORMATS = [
@@ -134,7 +135,7 @@ export function CreateImageDialog({
     const body = {
       name: values.name,
       disk_format: values.disk_format,
-      container_format: "bare",
+      container_format: containerFormat(values.disk_format),
       visibility: values.visibility,
       min_disk: values.min_disk,
       min_ram: values.min_ram,
@@ -173,6 +174,9 @@ export function CreateImageDialog({
     } catch (error) {
       setProgress(null);
       if (error instanceof DOMException && error.name === "AbortError") {
+        // A cancel is not a failure: clear the aborted mutation so the
+        // dialog does not show "Could not save: aborted".
+        upload.reset();
         notify.info(`Upload of ${image.name} cancelled.`);
         return;
       }
@@ -217,13 +221,15 @@ export function CreateImageDialog({
             {formatBytes(progress.sent)} of {formatBytes(progress.total)}. Keep
             this page open until the upload finishes.
           </p>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            tone="danger"
+            size="xs"
             className={styles.cancel}
-            onClick={() => controller?.abort()}
+            onPress={() => controller?.abort()}
           >
             Cancel upload
-          </button>
+          </Button>
         </div>
       ) : (
         <>

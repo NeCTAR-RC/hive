@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Alert,
   Button,
@@ -59,6 +59,7 @@ import {
   statusTone,
 } from "./status";
 import styles from "./InstanceDetailPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const TABS = [
   "overview",
@@ -113,7 +114,7 @@ export function InstanceDetailPage() {
           <p>
             There is no instance with id <code>{instanceId}</code> in this
             project.{" "}
-            <RouterLink to="/compute/instances">Back to instances</RouterLink>
+            <RouteLink to="/compute/instances">Back to instances</RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -249,12 +250,12 @@ function Overview({ instance }: { instance: InstanceDetail }) {
               value: instance.boot_from_volume ? (
                 "Boot from volume"
               ) : instance.image ? (
-                <RouterLink
+                <RouteLink
                   to="/compute/images/$imageId"
                   params={{ imageId: instance.image.id }}
                 >
                   {instance.image.name ?? instance.image.id}
-                </RouterLink>
+                </RouteLink>
               ) : null,
             },
             { label: "Key pair", value: instance.key_name },
@@ -568,12 +569,12 @@ function SecurityGroups({
             return (
               <li key={name}>
                 {group ? (
-                  <RouterLink
+                  <RouteLink
                     to="/network/security-groups/$groupId"
                     params={{ groupId: group.id }}
                   >
                     {name}
-                  </RouterLink>
+                  </RouteLink>
                 ) : (
                   name
                 )}

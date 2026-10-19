@@ -8,7 +8,6 @@ import {
   Alert,
   Badge,
   Label,
-  Link,
   Select,
   SelectItem,
   TabItem,
@@ -19,19 +18,17 @@ import {
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { Panel } from "../../components/Panel/Panel";
-import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type {
-  ReservationLimits,
-  ReservationOptions,
-} from "../../lib/api/types";
-import { formatNumber } from "../../lib/format";
+import type { ReservationOptions } from "../../lib/api/types";
+import { formatCalendarDate, formatNumber } from "../../lib/format";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { createReservationRoute } from "../../app/router";
 import { reservationOptionsQuery, slotsQuery } from "./api";
 import { buildRows, ganttRange } from "./gantt";
 import { ReserveDialog } from "./ReservationDialogs";
+import { ReservationLimits } from "./ReservationLimits";
 import { SlotGantt, type PickedSlot } from "./SlotGantt";
 import { FEEDBACK_FORM } from "./status";
 import styles from "./CreateReservationPage.module.scss";
@@ -106,8 +103,17 @@ export function CreateReservationPage() {
       slots.data.slots,
       options.data?.maintenance_windows ?? [],
       range,
-    ).filter((row) => row.bars.some((bar) => bar.kind === "free"));
+    );
   }, [range, slots.data, options.data]);
+  // Fully booked flavours keep their row (Horizon lists every flavour the
+  // search returns); each says it has no free slot.
+  const anyFree = rows.some((row) =>
+    row.bars.some((bar) => bar.kind === "free"),
+  );
+  // The backend clamps the search end (today + 730 days); say so if it
+  // stopped short of the chart.
+  const searchedTo = slots.data?.end.slice(0, 10);
+  const clamped = Boolean(range && searchedTo && searchedTo < range.last);
 
   const limits = options.data?.limits;
   const canCreate = limits?.can_create ?? true;
@@ -122,9 +128,9 @@ export function CreateReservationPage() {
           { label: "Reservations", href: "/reservations" },
         ]}
         actions={
-          <Link variant="secondary" size="sm" href="/reservations">
+          <RouteLink variant="secondary" size="sm" to="/reservations">
             Back
-          </Link>
+          </RouteLink>
         }
       />
       <div className={styles.stack}>
@@ -166,7 +172,7 @@ export function CreateReservationPage() {
                   onRetry={() => options.refetch()}
                 />
               ) : limits ? (
-                <Limits limits={limits} />
+                <ReservationLimits limits={limits} />
               ) : null}
             </Panel>
             <Panel title="Usage limit">
@@ -237,16 +243,30 @@ export function CreateReservationPage() {
             <ErrorState error={slots.error} onRetry={() => slots.refetch()} />
           ) : rows.length === 0 ? (
             <Alert tone="warning" role="status">
-              There are no available time slots for this selection.
+              There are no flavours for this selection.
             </Alert>
           ) : (
-            <SlotGantt
-              rows={rows}
-              range={range}
-              daysLeft={limits?.days_left ?? null}
-              canReserve={canCreate}
-              onPick={setPicked}
-            />
+            <div className={styles.stack}>
+              {!anyFree && (
+                <Alert tone="warning" role="status">
+                  There are no available time slots for this selection.
+                </Alert>
+              )}
+              {clamped && (
+                <Alert tone="info" role="status">
+                  Free time slots are shown up to{" "}
+                  {formatCalendarDate(searchedTo)}.
+                </Alert>
+              )}
+              <SlotGantt
+                rows={rows}
+                range={range}
+                {...(searchedTo ? { searchedTo } : {})}
+                daysLeft={limits?.days_left ?? null}
+                canReserve={canCreate}
+                onPick={setPicked}
+              />
+            </div>
           )}
         </Panel>
         <section
@@ -270,33 +290,6 @@ export function CreateReservationPage() {
         />
       )}
     </>
-  );
-}
-
-function Limits({ limits }: { limits: ReservationLimits }) {
-  return (
-    <div className={styles.limits}>
-      <QuotaMeter
-        label="Days"
-        value={limits.days_used}
-        max={limits.max_days}
-        valueText={
-          limits.max_days === null
-            ? `Used ${limits.days_used} (No limit)`
-            : `Used ${limits.days_used} of ${limits.max_days}`
-        }
-      />
-      <QuotaMeter
-        label="Reservations"
-        value={limits.reservations_used}
-        max={limits.max_reservations}
-        valueText={
-          limits.max_reservations === null
-            ? `Used ${limits.reservations_used} (No limit)`
-            : `Used ${limits.reservations_used} of ${limits.max_reservations}`
-        }
-      />
-    </div>
   );
 }
 

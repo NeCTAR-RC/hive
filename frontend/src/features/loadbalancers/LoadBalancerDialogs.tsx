@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Alert } from "@ardc-ui/react";
+import { Alert, Loading } from "@ardc-ui/react";
 import {
   SelectInput,
   SwitchInput,
@@ -11,7 +11,6 @@ import {
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { LoadBalancer } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import { floatingIpsQuery, networkOptionsQuery } from "../network/api";
@@ -132,8 +131,14 @@ export function AssociateFipDialog({
       isPending={associate.isPending}
       error={associate.error}
     >
+      {associate.isError && form.getValues("choice").startsWith("pool:") && (
+        <Alert tone="warning" role="status">
+          If a new floating IP was allocated before the association failed, it
+          may still be in your project; check Floating IPs before trying again.
+        </Alert>
+      )}
       {fips.isPending || options.isPending ? (
-        <SkeletonLines lines={3} />
+        <Loading>Loading floating IPs...</Loading>
       ) : (
         <>
           <p>

@@ -12,20 +12,6 @@
   gap: var(--hive-space-4);
 }
 
-.limits {
-  display: grid;
-  gap: var(--hive-space-4);
-
-  @include up($bp-md) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.idLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
-}
-
 .muted {
   color: var(--hive-color-text-muted);
   font-size: var(--hive-font-size-sm);

@@ -1,0 +1,45 @@
+---
+fixes:
+  - |
+    Reverting a share now offers the share's newest snapshot, as named by
+    the backend, instead of the last snapshot in the list, so revert no
+    longer fails with "Only the newest snapshot can be reverted to" when a
+    share has more than one snapshot.
+  - |
+    Edit listener can detach the default pool by choosing None, and can
+    change the timeouts and, on TERMINATED_HTTPS listeners, the
+    certificate reference, SNI certificates and TLS ciphers.
+  - |
+    Edit pool can turn session persistence off and switch TLS to the
+    members on or off; Edit member can clear the monitor address and port.
+    Create and Edit pool offer only Source IP persistence for UDP and SCTP
+    pools.
+  - |
+    Going back to the Listener step of the create load balancer wizard no
+    longer resets the port. Choosing a protocol without a default port
+    (TCP, UDP, SCTP and others) leaves the port empty to fill in, and new
+    members get port 80 only on HTTP pools. The wizard and the listener
+    dialogs explain the Barbican certificate reference TERMINATED_HTTPS
+    needs.
+  - |
+    Disassociating a load balancer's floating IP asks for confirmation on
+    the list and the detail page, and reports a failure. The detail page
+    shows the flavour's name instead of its id, describes background steps
+    such as removing a member, and keeps Create listener, Create pool and
+    Add member disabled while the load balancer is busy.
+  - |
+    L7 rules are managed in a panel on the listener page rather than a
+    nested dialog, and the rules list refreshes on its own while a rule is
+    being created or deleted. Allowed CIDRs and member addresses are
+    checked properly, rejecting values such as "1.2.3" and "::/999".
+  - |
+    Creating a share or a snapshot past the project quota keeps the submit
+    button disabled. Changing the share group type clears share types
+    ticked under the previous type. Snapshot access rules on CephFS shares
+    default to CephX, as share rules do.
+  - |
+    Deleting a share asks for its name on the Shares list as well as on
+    the share page. Long share, snapshot and share group snapshot
+    descriptions are cut with an ellipsis and shown in full in a tooltip.
+    Share, load balancer and related names in tables are design-system
+    links that navigate without reloading the page.

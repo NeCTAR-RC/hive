@@ -1,12 +1,20 @@
 // Create container, create folder, upload, details and copy dialogs for
 // the Object Store panel.
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FileTrigger } from "react-aria-components";
-import { Alert, Button, Dialog, Modal } from "@ardc-ui/react";
+import {
+  Alert,
+  Button,
+  Dialog,
+  Loading,
+  Modal,
+  ProgressBar,
+} from "@ardc-ui/react";
+import { loadingProps } from "../../components/buttonState";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import {
   SelectInput,
@@ -15,7 +23,6 @@ import {
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { StoreObject, StorePolicy } from "../../lib/api/types";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
@@ -29,13 +36,20 @@ import {
 import { uploadFiles, type UploadItem } from "./upload";
 import styles from "./ObjectStore.module.scss";
 
+// The object store refuses "." and ".." as a name or a path segment.
+const DOT_MESSAGE = 'A name or folder cannot be "." or ".."';
+function noDotSegments(value: string): boolean {
+  return !value.split("/").some((part) => part === "." || part === "..");
+}
+
 const containerSchema = z.object({
   name: z
     .string()
     .trim()
     .min(1, "Enter a container name")
     .max(255, "At most 255 characters")
-    .regex(/^[^/]+$/, "Container names cannot contain a slash"),
+    .regex(/^[^/]+$/, "Container names cannot contain a slash")
+    .refine(noDotSegments, DOT_MESSAGE),
   is_public: z.boolean(),
   storage_policy: z.string(),
 });
@@ -121,7 +135,8 @@ const folderSchema = z.object({
     .trim()
     .min(1, "Enter a folder name")
     .max(255, "At most 255 characters")
-    .regex(/^[^/](.*[^/])?$/, "The name cannot start or end with a slash"),
+    .regex(/^[^/](.*[^/])?$/, "The name cannot start or end with a slash")
+    .refine(noDotSegments, DOT_MESSAGE),
 });
 
 export function CreateFolderDialog({
@@ -197,6 +212,20 @@ export function UploadDialog({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const abort = useRef<AbortController | null>(null);
+  // The rows to show: the upload's progress once it starts, else the
+  // chosen files as pending.
+  const shown = useMemo<UploadItem[]>(
+    () =>
+      items.length
+        ? items
+        : files.map((file) => ({
+            name: `${prefix}${file.name}`,
+            file,
+            sent: 0,
+            status: "pending",
+          })),
+    [items, files, prefix],
+  );
   const finished =
     items.length > 0 &&
     items.every((i) => i.status === "done" || i.status === "error");
@@ -267,22 +296,19 @@ export function UploadDialog({
                 {finished ? "Close" : "Cancel"}
               </Button>
             )}
-            {!finished &&
-              (running ? (
-                <Button state="loading" loadingText="Uploading..." isDisabled>
-                  Upload
-                </Button>
-              ) : (
-                <Button
-                  onPress={() => void start()}
-                  isDisabled={files.length === 0}
-                >
-                  Upload{" "}
-                  {files.length > 0
-                    ? `${files.length} ${files.length === 1 ? "file" : "files"}`
-                    : ""}
-                </Button>
-              ))}
+            {!finished && (
+              <Button
+                onPress={() => void start()}
+                isPending={running}
+                isDisabled={!running && files.length === 0}
+                {...loadingProps(running, "Uploading...")}
+              >
+                Upload{" "}
+                {files.length > 0
+                  ? `${files.length} ${files.length === 1 ? "file" : "files"}`
+                  : ""}
+              </Button>
+            )}
           </>
         }
       >
@@ -304,26 +330,9 @@ export function UploadDialog({
             </FileTrigger>
           )}
           {error ? <ErrorState error={error} title="Upload failed" /> : null}
-          {(items.length
-            ? items
-            : files.map((file) => ({
-                name: `${prefix}${file.name}`,
-                file,
-                sent: 0,
-                status: "pending" as const,
-              }))
-          ).length > 0 && (
+          {shown.length > 0 && (
             <ul className={styles.uploadList} aria-label="Files to upload">
-              {(items.length
-                ? items
-                : files.map((file) => ({
-                    name: `${prefix}${file.name}`,
-                    file,
-                    sent: 0,
-                    status: "pending" as const,
-                    error: undefined,
-                  }))
-              ).map((item) => (
+              {shown.map((item) => (
                 <li key={item.name} className={styles.uploadItem}>
                   <div className={styles.uploadRow}>
                     <span className={styles.uploadName}>{item.file.name}</span>
@@ -335,10 +344,11 @@ export function UploadDialog({
                           : `${formatBytes(item.sent)} of ${formatBytes(item.file.size)}`}
                     </span>
                   </div>
-                  <progress
-                    className={styles.progress}
-                    value={item.sent}
-                    max={Math.max(item.file.size, 1)}
+                  <ProgressBar
+                    value={item.status === "done" ? 1 : item.sent}
+                    maxValue={
+                      item.status === "done" ? 1 : Math.max(item.file.size, 1)
+                    }
                     aria-label={`Upload progress for ${item.file.name}`}
                   />
                 </li>
@@ -380,7 +390,7 @@ export function ObjectDetailsDialog({
         }
       >
         {detail.isPending ? (
-          <SkeletonLines lines={5} />
+          <Loading>Loading object details...</Loading>
         ) : detail.isError ? (
           <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
         ) : (
@@ -419,8 +429,16 @@ export function ObjectDetailsDialog({
 }
 
 const copySchema = z.object({
-  dest_container: z.string().trim().min(1, "Enter the destination container"),
-  dest_name: z.string().trim().min(1, "Enter the destination name"),
+  dest_container: z
+    .string()
+    .trim()
+    .min(1, "Enter the destination container")
+    .refine(noDotSegments, DOT_MESSAGE),
+  dest_name: z
+    .string()
+    .trim()
+    .min(1, "Enter the destination name")
+    .refine(noDotSegments, DOT_MESSAGE),
 });
 
 export function CopyObjectDialog({

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { RowActionsMenu } from "../../../components/DataTable/DataTable";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
@@ -14,6 +13,7 @@ import { snapshotRoute } from "../../../app/router";
 import { snapshotQuery } from "../api";
 import { availableSnapshotActions, statusLabel, statusTone } from "../status";
 import { useSnapshotActions } from "./SnapshotActions";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [
   { label: "Project" },
@@ -40,9 +40,9 @@ export function SnapshotDetailPage() {
           <p>
             There is no volume snapshot <code>{snapshotId}</code> in this
             project.{" "}
-            <RouterLink to="/storage/snapshots" search={{}}>
+            <RouteLink to="/storage/snapshots" search={{}}>
               Back to snapshots
-            </RouterLink>
+            </RouteLink>
           </p>
         ) : (
           <ErrorState
@@ -98,12 +98,12 @@ export function SnapshotDetailPage() {
               {
                 label: "Volume",
                 value: data.volume_id ? (
-                  <RouterLink
+                  <RouteLink
                     to="/storage/volumes/$volumeId"
                     params={{ volumeId: data.volume_id }}
                   >
                     {data.volume_name || data.volume_id}
-                  </RouterLink>
+                  </RouteLink>
                 ) : null,
               },
               { label: "Progress", value: data.progress },

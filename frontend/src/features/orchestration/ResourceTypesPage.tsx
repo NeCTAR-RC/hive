@@ -2,7 +2,6 @@
 // Heat engine offers, with a detail page showing its schema.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import {
   DataTable,
   type ColumnDef,
@@ -12,7 +11,7 @@ import type { ResourceTypeSummary } from "../../lib/api/types";
 import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { resourceTypesQuery } from "./api";
-import styles from "./Orchestration.module.scss";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function ResourceTypesPage() {
   const projectId = useProjectId();
@@ -25,13 +24,12 @@ export function ResourceTypesPage() {
         label: "Type",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/orchestration/resource-types/$name"
             params={{ name: row.name ?? "" }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? "",
         textValue: (row) => `${row.name ?? ""} ${row.description ?? ""}`,

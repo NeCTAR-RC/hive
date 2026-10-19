@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { configQuery } from "../../lib/queries";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import styles from "./TermsPage.module.scss";
@@ -17,13 +18,16 @@ export function TermsPage() {
       <h1>Terms of service</h1>
       <p>
         Use of the ARDC Nectar Research Cloud is subject to the ARDC{" "}
-        <a href="https://ardc.edu.au/terms-and-conditions/">
+        <ExternalLink href="https://ardc.edu.au/terms-and-conditions/">
           terms and conditions
-        </a>{" "}
+        </ExternalLink>{" "}
         and the Nectar Research Cloud service schedule.
       </p>
       <p>
-        <a href={`${horizon}/terms/`}>Read the full service schedule</a>.
+        <ExternalLink href={`${horizon}/terms/`}>
+          Read the full service schedule
+        </ExternalLink>
+        .
       </p>
     </div>
   );

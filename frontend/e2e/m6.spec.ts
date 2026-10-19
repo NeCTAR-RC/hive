@@ -327,9 +327,21 @@ test.describe("databases", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Add parameter" }).click();
     const add = page.getByRole("dialog", { name: "Add parameter" });
-    await add.getByRole("button", { name: /Parameter$/ }).click();
-    await page.getByRole("option", { name: "autocommit" }).click();
-    await add.getByRole("textbox", { name: "Value" }).fill("true");
+    // The parameter picker is a combobox: type to filter, then choose with
+    // the keyboard (a pointer click on the popover is flaky at phone width).
+    const picker = add.getByRole("combobox", { name: "Parameter" });
+    await picker.fill("autocommit");
+    await expect(
+      page.getByRole("option", { name: "autocommit" }),
+    ).toBeVisible();
+    await picker.press("ArrowDown");
+    await picker.press("Enter");
+    await expect(picker).toHaveValue("autocommit");
+    // autocommit is a boolean parameter, so its value is a switch. The real
+    // input is visually hidden (React Aria), so press its label.
+    const flag = add.getByRole("switch", { name: "Value" });
+    await add.getByText("Value", { exact: true }).click();
+    await expect(flag).toBeChecked();
     await add.getByRole("button", { name: "Add parameter" }).click();
     await expect(page.getByText("Set autocommit.")).toBeVisible();
     await expectNoHorizontalScroll(page);

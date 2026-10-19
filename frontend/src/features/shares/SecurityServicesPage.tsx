@@ -2,7 +2,6 @@
 // services shares can authenticate against, with create, edit and delete.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import {
@@ -14,6 +13,7 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import type { SecurityService } from "../../lib/api/types";
 import { formatDateTime } from "../../lib/format";
 import { notify } from "../../lib/notify";
@@ -29,7 +29,6 @@ import {
   CreateSecurityServiceDialog,
   EditSecurityServiceDialog,
 } from "./SecurityServiceDialogs";
-import styles from "./Shares.module.scss";
 
 export function SecurityServicesPage() {
   const projectId = useProjectId();
@@ -47,13 +46,12 @@ export function SecurityServicesPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/shares/security-services/$serviceId"
             params={{ serviceId: row.id }}
-            className={styles.nameLink}
           >
             {row.name || row.id}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name ?? row.id,
         textValue: (row) =>

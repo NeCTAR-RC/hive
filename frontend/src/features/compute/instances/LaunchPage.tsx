@@ -3,7 +3,7 @@
 // preselected, otherwise only a sole network, community images hidden until
 // searched, SU per hour and the preemptible notice on flavours) come from
 // the backend's launch options.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import {
@@ -12,10 +12,7 @@ import {
   Cell,
   Column,
   Label,
-  RadioGroup,
-  RadioGroupItem,
   Row,
-  SearchField,
   StepItem,
   Stepper,
   Table,
@@ -24,34 +21,35 @@ import {
   Text,
 } from "@ardc-ui/react";
 import type { Selection } from "@ardc-ui/react";
-import { useFieldArray, useForm, useWatch } from "react-hook-form";
+import {
+  useController,
+  useFieldArray,
+  useForm,
+  useWatch,
+} from "react-hook-form";
 import type { FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import {
   CheckboxesInput,
   NumberInput,
-  RadioInput,
   SelectInput,
-  SwitchInput,
   TextAreaInput,
   TextInput,
 } from "../../../components/Form/fields";
+import { loadingProps } from "../../../components/buttonState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
 import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
 import type {
   Flavor,
-  Image,
   LaunchOptions,
   LaunchRequest,
   LaunchSourceType,
 } from "../../../lib/api/types";
 import {
-  formatBytes,
   formatGb,
   formatMb,
   formatNumber,
@@ -67,46 +65,16 @@ import {
   CreateKeyPairDialog,
   ImportKeyPairDialog,
 } from "../keypairs/KeyPairDialogs";
-import { defaultNetworkIds } from "./launch";
+import { defaultNetworkIds, flavorQuotaProblem } from "./launch";
+import {
+  focusTarget,
+  launchSchema,
+  useSourceTypeReset,
+  type LaunchForm,
+  type LaunchFormApi,
+} from "./launchForm";
+import { SourceStep } from "./LaunchSourceStep";
 import styles from "./LaunchPage.module.scss";
-
-const schema = z
-  .object({
-    name: z
-      .string()
-      .trim()
-      .min(1, "Enter an instance name")
-      .max(255, "At most 255 characters"),
-    description: z.string().trim().max(255, "At most 255 characters"),
-    availability_zone: z.string().min(1, "Choose an availability zone"),
-    count: z
-      .number({ message: "Enter how many instances to launch" })
-      .int()
-      .min(1, "At least 1")
-      .max(100, "At most 100"),
-    source_type: z.enum(["image", "snapshot", "volume", "volume_snapshot"]),
-    source_id: z.string().min(1, "Choose a source"),
-    delete_volume_on_termination: z.boolean(),
-    flavor_id: z.string().min(1, "Choose a flavour"),
-    networks: z.array(z.string()),
-    ports: z.array(z.string()),
-    security_groups: z.array(z.string()),
-    key_name: z.string(),
-    user_data: z.string().max(65535, "User data is limited to 64 KB"),
-    server_group_id: z.string(),
-    metadata: z.array(
-      z.object({
-        key: z.string().trim().min(1, "Enter a key").max(255),
-        value: z.string().max(255),
-      }),
-    ),
-  })
-  .refine((v) => v.networks.length + v.ports.length > 0, {
-    message: "Choose at least one network or port",
-    path: ["networks"],
-  });
-
-type LaunchForm = z.infer<typeof schema>;
 
 interface Step {
   id: string;
@@ -151,6 +119,14 @@ const SECTION_LABELS: Record<string, string> = {
   limits: "Quota",
 };
 
+function findFlavor(
+  data: LaunchOptions | undefined,
+  flavor: string | undefined,
+): Flavor | undefined {
+  if (!flavor) return undefined;
+  return data?.flavors?.find((f) => f.id === flavor || f.name === flavor);
+}
+
 function parseSource(
   value: string | undefined,
 ): { type: LaunchSourceType; id: string } | null {
@@ -173,7 +149,7 @@ export function LaunchPage() {
   const [launched, setLaunched] = useState(false);
 
   const form = useForm<LaunchForm>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(launchSchema),
     mode: "onTouched",
     defaultValues: {
       name: "",
@@ -195,6 +171,7 @@ export function LaunchPage() {
   });
 
   const count = useWatch({ control: form.control, name: "count" });
+  useSourceTypeReset(form);
 
   // Once the options arrive, apply Nectar's defaults and any deep link.
   const applied = useRef(false);
@@ -208,10 +185,10 @@ export function LaunchPage() {
       ...form.getValues(),
       source_type: source?.type ?? "image",
       source_id: source?.id ?? "",
-      flavor_id:
-        search.flavor && data.flavors?.some((f) => f.id === search.flavor)
-          ? search.flavor
-          : "",
+      // A deep link (the reservation hand-off) names the flavour by id or
+      // name; one this project cannot see stays unselected, and the flavour
+      // step says why, rather than falling back to another flavour.
+      flavor_id: findFlavor(data, search.flavor)?.id ?? "",
       networks: defaultNetworkIds(data.networks),
       security_groups: data.security_groups?.some((g) => g.name === "default")
         ? ["default"]
@@ -285,6 +262,10 @@ export function LaunchPage() {
   );
 
   const data = options.data;
+  const missingFlavor =
+    search.flavor && data?.flavors && !findFlavor(data, search.flavor)
+      ? search.flavor
+      : null;
   const sectionErrors = Object.entries(data?.errors ?? {});
   const current = STEPS[step]!;
 
@@ -348,6 +329,7 @@ export function LaunchPage() {
                       form={form}
                       data={data}
                       projectId={projectId}
+                      missingFlavor={missingFlavor}
                       onOpenKeyPairDialog={setKeyPairDialog}
                     />
                   )}
@@ -372,12 +354,14 @@ export function LaunchPage() {
                 >
                   Next
                 </Button>
-              ) : launch.isPending ? (
-                <Button state="loading" loadingText="Launching..." isDisabled>
+              ) : (
+                <Button
+                  onPress={() => void submit()}
+                  isPending={launch.isPending}
+                  {...loadingProps(launch.isPending, "Launching...")}
+                >
                   Launch
                 </Button>
-              ) : (
-                <Button onPress={() => void submit()}>Launch</Button>
               )}
             </div>
           </div>
@@ -405,7 +389,7 @@ export function LaunchPage() {
   );
 }
 
-type FormApi = ReturnType<typeof useForm<LaunchForm>>;
+type FormApi = LaunchFormApi;
 
 function QuotaWarning({
   data,
@@ -424,7 +408,7 @@ function QuotaWarning({
   }
   const used = limits.totalInstancesUsed ?? 0;
   const remaining = limits.maxTotalInstances - used;
-  if (count <= remaining) return null;
+  if (!Number.isFinite(count) || count <= remaining) return null;
   return (
     <Alert tone="warning" role="status">
       Your project can launch {remaining} more{" "}
@@ -439,12 +423,14 @@ function StepBody({
   form,
   data,
   projectId,
+  missingFlavor,
   onOpenKeyPairDialog,
 }: {
   id: string;
   form: FormApi;
   data: LaunchOptions;
   projectId: string;
+  missingFlavor: string | null;
   onOpenKeyPairDialog: (mode: KeyPairDialogMode) => void;
 }) {
   switch (id) {
@@ -453,7 +439,9 @@ function StepBody({
     case "source":
       return <SourceStep form={form} data={data} />;
     case "flavor":
-      return <FlavorStep form={form} data={data} />;
+      return (
+        <FlavorStep form={form} data={data} missingFlavor={missingFlavor} />
+      );
     case "networks":
       return <NetworksStep form={form} data={data} projectId={projectId} />;
     case "security":
@@ -514,154 +502,22 @@ function DetailsStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
   );
 }
 
-const SOURCE_TYPES: { id: LaunchSourceType; label: string }[] = [
-  { id: "image", label: "Image" },
-  { id: "snapshot", label: "Instance snapshot" },
-  { id: "volume", label: "Volume" },
-  { id: "volume_snapshot", label: "Volume snapshot" },
-];
-
-const MAX_LISTED = 200;
-
-function SourceStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
-  const [query, setQuery] = useState("");
-  const type = useWatch({ control: form.control, name: "source_type" });
-  const zone = useWatch({ control: form.control, name: "availability_zone" });
-  const chosen = useWatch({ control: form.control, name: "source_id" });
-  const needle = query.trim().toLowerCase();
-
-  const items = useMemo(() => {
-    const matches = (name: string | null | undefined) =>
-      !needle || (name ?? "").toLowerCase().includes(needle);
-    if (type === "image" || type === "snapshot") {
-      const list = (type === "image" ? data.images : data.snapshots) ?? [];
-      return list
-        .filter((image) => (needle ? true : !image.hidden_until_search))
-        .filter((image) => matches(image.name))
-        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
-        .map((image) => ({
-          id: image.id,
-          name: image.name ?? image.id,
-          meta: imageMeta(image),
-        }));
-    }
-    if (type === "volume") {
-      return (data.volumes ?? [])
-        .filter(
-          (volume) =>
-            !zone ||
-            !volume.availability_zone ||
-            volume.availability_zone === zone,
-        )
-        .filter((volume) => matches(volume.name))
-        .map((volume) => ({
-          id: volume.id,
-          name: volume.name,
-          meta: `${formatGb(volume.size_gb)}${volume.availability_zone ? `, ${volume.availability_zone}` : ""}`,
-        }));
-    }
-    return (data.volume_snapshots ?? [])
-      .filter((snapshot) => matches(snapshot.name))
-      .map((snapshot) => ({
-        id: snapshot.id,
-        name: snapshot.name,
-        meta: formatGb(snapshot.size_gb),
-      }));
-  }, [type, needle, zone, data]);
-
-  const listed = items.slice(0, MAX_LISTED);
-  const hiddenCommunity =
-    type === "image" &&
-    !needle &&
-    (data.images ?? []).some((i) => i.hidden_until_search);
-  const error = form.formState.errors.source_id?.message;
-
-  return (
-    <div className={styles.fields}>
-      <RadioInput
-        control={form.control}
-        name="source_type"
-        label="Boot source"
-        options={SOURCE_TYPES.map((option) => ({
-          ...option,
-          isDisabled:
-            (option.id === "volume" && !data.volumes) ||
-            (option.id === "volume_snapshot" && !data.volume_snapshots) ||
-            (option.id === "snapshot" && !data.snapshots),
-        }))}
-      />
-      <SearchField
-        size="sm"
-        aria-label="Search sources"
-        value={query}
-        onChange={setQuery}
-        placeholder={
-          type === "image"
-            ? "Search images (community images appear when you search)"
-            : "Search"
-        }
-        className={styles.search}
-      />
-      {hiddenCommunity && (
-        <p className={styles.hint}>
-          Community images shared by other projects are shown once you search
-          for them.
-        </p>
-      )}
-      <RadioGroup
-        aria-label="Source"
-        value={chosen}
-        onChange={(value) =>
-          form.setValue("source_id", value, {
-            shouldValidate: true,
-            shouldDirty: true,
-          })
-        }
-        isInvalid={Boolean(error)}
-        className={styles.sourceList}
-      >
-        {listed.length === 0 && <p className={styles.hint}>Nothing matches.</p>}
-        {listed.map((item) => (
-          <RadioGroupItem key={item.id} value={item.id}>
-            <span className={styles.sourceName}>{item.name}</span>
-            <span className={styles.sourceMeta}>{item.meta}</span>
-          </RadioGroupItem>
-        ))}
-      </RadioGroup>
-      {items.length > MAX_LISTED && (
-        <p className={styles.hint}>
-          Showing the first {MAX_LISTED} of {items.length}. Refine your search
-          to see more.
-        </p>
-      )}
-      {error && (
-        <p role="alert" className={styles.error}>
-          {error}
-        </p>
-      )}
-      {(type === "volume" || type === "volume_snapshot") && (
-        <SwitchInput
-          control={form.control}
-          name="delete_volume_on_termination"
-          label="Delete the volume when the instance is deleted"
-        />
-      )}
-    </div>
-  );
-}
-
-function imageMeta(image: Image): string {
-  const parts = [
-    image.is_snapshot ? "snapshot" : image.visibility,
-    formatBytes(image.size),
-    image.min_disk ? `min disk ${image.min_disk} GB` : "",
-    image.min_ram ? `min RAM ${formatMb(image.min_ram)}` : "",
-  ];
-  return parts.filter(Boolean).join(", ");
-}
-
-function FlavorStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
-  const chosen = useWatch({ control: form.control, name: "flavor_id" });
+function FlavorStep({
+  form,
+  data,
+  missingFlavor,
+}: {
+  form: FormApi;
+  data: LaunchOptions;
+  missingFlavor: string | null;
+}) {
+  const errorId = useId();
+  const { field, fieldState } = useController({
+    control: form.control,
+    name: "flavor_id",
+  });
+  const chosen = field.value;
+  const count = useWatch({ control: form.control, name: "count" });
   const sourceType = useWatch({ control: form.control, name: "source_type" });
   const sourceId = useWatch({ control: form.control, name: "source_id" });
   const image =
@@ -680,6 +536,8 @@ function FlavorStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
       ),
     [data.flavors],
   );
+  const unavailable = (flavor: Flavor): string | null =>
+    flavorQuotaProblem(flavor, data.limits, count) ?? tooSmall(flavor);
   const tooSmall = (flavor: Flavor): string | null => {
     if (!image) return null;
     if (
@@ -699,66 +557,74 @@ function FlavorStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
     }
     return null;
   };
-  const disabled = flavors.filter((f) => tooSmall(f)).map((f) => f.id);
+  const disabled = flavors.filter((f) => unavailable(f)).map((f) => f.id);
   const selected = flavors.find((f) => f.id === chosen);
-  const error = form.formState.errors.flavor_id?.message;
+  const error = fieldState.error?.message;
   const onSelectionChange = (keys: Selection) => {
     const key = keys === "all" ? null : [...keys][0];
-    form.setValue("flavor_id", key ? String(key) : "", {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
+    field.onChange(key ? String(key) : "");
+    void form.trigger("flavor_id");
   };
   return (
     <div className={styles.fields}>
+      {missingFlavor && !chosen && (
+        <Alert tone="warning" role="status">
+          The reserved flavour {missingFlavor} is not available to this project;
+          check the reservation is active and you are in the project that made
+          it.
+        </Alert>
+      )}
       <p className={styles.hint}>
         Service units (SU) are charged per hour the instance exists, whether it
         is running or not.
       </p>
-      <Table
-        aria-label="Flavours"
-        selectionMode="single"
-        selectedKeys={chosen ? new Set([chosen]) : new Set()}
-        onSelectionChange={onSelectionChange}
-        disabledKeys={disabled}
-        className={styles.flavorTable}
-      >
-        <TableHeader>
-          <Column id="name" isRowHeader>
-            Name
-          </Column>
-          <Column id="vcpus">vCPUs</Column>
-          <Column id="ram">RAM</Column>
-          <Column id="disk">Root disk</Column>
-          <Column id="rate">SU/hour</Column>
-          <Column id="notes">Notes</Column>
-        </TableHeader>
-        <TableBody items={flavors}>
-          {(flavor) => (
-            <Row id={flavor.id}>
-              <Cell>{flavor.name}</Cell>
-              <Cell>{flavor.vcpus ?? ""}</Cell>
-              <Cell>{formatMb(flavor.ram_mb)}</Cell>
-              <Cell>
-                {flavor.disk_gb ? formatGb(flavor.disk_gb) : "volume"}
-              </Cell>
-              <Cell>
-                {flavor.su_rate === null ? "" : formatNumber(flavor.su_rate)}
-              </Cell>
-              <Cell>
-                {tooSmall(flavor) ??
-                  (flavor.is_preemptible ? (
-                    <StatusPill tone="warning">Preemptible</StatusPill>
-                  ) : (
-                    ""
-                  ))}
-              </Cell>
-            </Row>
-          )}
-        </TableBody>
-      </Table>
+      <div ref={(el) => field.ref(focusTarget(el))}>
+        <Table
+          aria-label="Flavours"
+          selectionMode="single"
+          selectedKeys={chosen ? new Set([chosen]) : new Set()}
+          onSelectionChange={onSelectionChange}
+          disabledKeys={disabled}
+          {...(error ? { "aria-describedby": errorId } : {})}
+          className={styles.flavorTable}
+        >
+          <TableHeader>
+            <Column id="name" isRowHeader>
+              Name
+            </Column>
+            <Column id="vcpus">vCPUs</Column>
+            <Column id="ram">RAM</Column>
+            <Column id="disk">Root disk</Column>
+            <Column id="rate">SU/hour</Column>
+            <Column id="notes">Notes</Column>
+          </TableHeader>
+          <TableBody items={flavors}>
+            {(flavor) => (
+              <Row id={flavor.id}>
+                <Cell>{flavor.name}</Cell>
+                <Cell>{flavor.vcpus ?? ""}</Cell>
+                <Cell>{formatMb(flavor.ram_mb)}</Cell>
+                <Cell>
+                  {flavor.disk_gb ? formatGb(flavor.disk_gb) : "volume"}
+                </Cell>
+                <Cell>
+                  {flavor.su_rate === null ? "" : formatNumber(flavor.su_rate)}
+                </Cell>
+                <Cell>
+                  {unavailable(flavor) ??
+                    (flavor.is_preemptible ? (
+                      <StatusPill tone="warning">Preemptible</StatusPill>
+                    ) : (
+                      ""
+                    ))}
+                </Cell>
+              </Row>
+            )}
+          </TableBody>
+        </Table>
+      </div>
       {error && (
-        <p role="alert" className={styles.error}>
+        <p id={errorId} role="alert" className={styles.error}>
           {error}
         </p>
       )}
@@ -998,7 +864,9 @@ function Summary({
   form: FormApi;
   data: LaunchOptions | undefined;
 }) {
-  const values = form.watch();
+  // useWatch re-renders only the summary on a keystroke, not the wizard.
+  const values = useWatch({ control: form.control });
+  const count = Number.isFinite(values.count) ? (values.count ?? 1) : 1;
   const flavor = data?.flavors?.find((f) => f.id === values.flavor_id);
   const sourceName = (() => {
     switch (values.source_type) {
@@ -1014,7 +882,7 @@ function Summary({
     }
   })();
   const networkNames = (data?.networks ?? [])
-    .filter((n) => values.networks.includes(n.id))
+    .filter((n) => (values.networks ?? []).includes(n.id))
     .map((n) => n.name);
   const rate = flavor?.su_rate ?? null;
   return (
@@ -1023,7 +891,10 @@ function Summary({
         <KeyValueList
           items={[
             { label: "Name", value: values.name },
-            { label: "Count", value: values.count },
+            {
+              label: "Count",
+              value: Number.isFinite(values.count) ? values.count : "",
+            },
             { label: "Availability zone", value: values.availability_zone },
             { label: "Source", value: sourceName ?? "" },
             { label: "Flavour", value: flavor?.name },
@@ -1032,12 +903,12 @@ function Summary({
               value:
                 rate === null
                   ? ""
-                  : `${formatSuRate(rate * (values.count || 1))}${values.count > 1 ? ` (${formatSuRate(rate)} each)` : ""}`,
+                  : `${formatSuRate(rate * count)}${count > 1 ? ` (${formatSuRate(rate)} each)` : ""}`,
             },
             { label: "Networks", value: networkNames.join(", ") },
             {
               label: "Security groups",
-              value: values.security_groups.join(", "),
+              value: (values.security_groups ?? []).join(", "),
             },
             {
               label: "Key pair",

@@ -3,7 +3,9 @@ import type { Instance } from "../../../lib/api/types";
 import {
   addressSummary,
   availableActions,
+  batchTargets,
   isTransitional,
+  powerStateLabel,
   statusLabel,
   statusTone,
 } from "./status";
@@ -128,5 +130,50 @@ describe("availableActions", () => {
       expect.arrayContaining(["confirm-resize", "revert-resize"]),
     );
     expect(ids(instance())).not.toContain("confirm-resize");
+  });
+});
+
+describe("batchTargets", () => {
+  const running = instance({ id: "a", name: "running" });
+  const off = instance({ id: "b", name: "off", status: "SHUTOFF" });
+  const locked = instance({ id: "c", name: "locked", locked: true });
+  const busy = instance({ id: "d", name: "busy", task_state: "rebooting" });
+
+  it("runs Start only on shut-off rows and names the rest", () => {
+    const { allowed, skipped } = batchTargets([running, off, busy], "start");
+    expect(allowed.map((i) => i.name)).toEqual(["off"]);
+    expect(skipped.map((i) => i.name)).toEqual(["running", "busy"]);
+  });
+
+  it("skips busy rows for Shut off and Soft reboot", () => {
+    expect(
+      batchTargets([running, busy], "stop").allowed.map((i) => i.name),
+    ).toEqual(["running"]);
+    expect(
+      batchTargets([running, off, busy], "soft-reboot").allowed.map(
+        (i) => i.name,
+      ),
+    ).toEqual(["running", "off"]);
+  });
+
+  it("skips locked rows for Delete", () => {
+    const { allowed, skipped } = batchTargets([running, locked], "delete");
+    expect(allowed.map((i) => i.name)).toEqual(["running"]);
+    expect(skipped.map((i) => i.name)).toEqual(["locked"]);
+  });
+
+  it("allows nothing when no row qualifies", () => {
+    expect(batchTargets([running], "start").allowed).toEqual([]);
+  });
+});
+
+describe("powerStateLabel", () => {
+  it("uses Horizon's wording for every nova power state", () => {
+    expect(powerStateLabel({ power_state: "SHUTOFF" })).toBe("Shut off");
+    expect(powerStateLabel({ power_state: "SHUTDOWN" })).toBe("Shut down");
+    expect(powerStateLabel({ power_state: "BLOCKED" })).toBe("Blocked");
+    expect(powerStateLabel({ power_state: "BUILDING" })).toBe("Building");
+    expect(powerStateLabel({ power_state: "NO STATE" })).toBe("No state");
+    expect(powerStateLabel({ power_state: "" })).toBe("No state");
   });
 });

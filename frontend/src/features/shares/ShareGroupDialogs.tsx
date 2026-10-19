@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Loading } from "@ardc-ui/react";
 import {
   CheckboxesInput,
   SelectInput,
@@ -11,7 +12,6 @@ import {
   TextInput,
 } from "../../components/Form/fields";
 import { FormDialog } from "../../components/FormDialog/FormDialog";
-import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import type { ShareGroup, ShareGroupSnapshot } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import {
@@ -22,25 +22,7 @@ import {
   useUpdateShareGroup,
   useUpdateShareGroupSnapshot,
 } from "./api";
-
-const createSchema = z
-  .object({
-    name: z.string().trim().min(1, "Enter a name").max(255),
-    description: z.string().trim().max(255),
-    snapshot_id: z.string(),
-    share_group_type_id: z.string(),
-    share_types: z.array(z.string()),
-    availability_zone: z.string(),
-  })
-  .superRefine((values, ctx) => {
-    if (!values.snapshot_id && !values.share_group_type_id) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["share_group_type_id"],
-        message: "Choose a share group type",
-      });
-    }
-  });
+import { createShareGroupSchema, useShareTypesReset } from "./shareForms";
 
 export function CreateShareGroupDialog({
   projectId,
@@ -54,8 +36,8 @@ export function CreateShareGroupDialog({
   const options = useQuery(shareOptionsQuery(projectId));
   const snapshots = useQuery(shareGroupSnapshotsQuery(projectId));
   const create = useCreateShareGroup(projectId);
-  const form = useForm<z.infer<typeof createSchema>>({
-    resolver: zodResolver(createSchema),
+  const form = useForm<z.infer<typeof createShareGroupSchema>>({
+    resolver: zodResolver(createShareGroupSchema),
     defaultValues: {
       name: "",
       description: "",
@@ -69,6 +51,7 @@ export function CreateShareGroupDialog({
     control: form.control,
     name: ["snapshot_id", "share_group_type_id"],
   });
+  useShareTypesReset(form);
   const data = options.data;
   const groupTypes = data?.share_group_types ?? [];
   const allowedTypes =
@@ -112,7 +95,7 @@ export function CreateShareGroupDialog({
       error={create.error}
     >
       {options.isPending ? (
-        <SkeletonLines lines={5} />
+        <Loading>Loading share group options...</Loading>
       ) : (
         <>
           <TextInput

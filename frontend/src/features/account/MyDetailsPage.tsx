@@ -7,13 +7,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Alert, Button, Link } from "@ardc-ui/react";
+import { loadingProps } from "../../components/buttonState";
 import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
+import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
 import { SelectInput, TextInput } from "../../components/Form/fields";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type { Profile } from "../../lib/api/types";
+import { AFFILIATION_IDS, type Profile } from "../../lib/api/types";
 import { notify } from "../../lib/notify";
 import { meQuery, profileQuery } from "../../lib/queries";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
@@ -21,12 +23,18 @@ import { useUpdateProfile } from "./api";
 import styles from "./MyDetailsPage.module.scss";
 
 const schema = z.object({
-  affiliation: z.string().min(1, "Choose your affiliation"),
+  // Any string in (the stored value may be blank), one of manuka's
+  // affiliations out, so the request carries an AffiliationId.
+  affiliation: z
+    .string()
+    .min(1, "Choose your affiliation")
+    .pipe(z.enum(AFFILIATION_IDS, { message: "Choose a listed affiliation" })),
   phone_number: z.string().trim().max(64, "At most 64 characters"),
   mobile_number: z.string().trim().max(64, "At most 64 characters"),
 });
 
-type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
+type FormValues = z.output<typeof schema>;
 
 function dash(value: string | null | undefined) {
   return value ? value : "-";
@@ -95,7 +103,7 @@ export function MyDetailsPage() {
 
 function DetailsForm({ profile }: { profile: Profile }) {
   const update = useUpdateProfile();
-  const form = useForm<FormValues>({
+  const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     values: {
       affiliation: profile.affiliation ?? "",
@@ -148,13 +156,13 @@ function DetailsForm({ profile }: { profile: Profile }) {
           maxLength={64}
         />
         <div>
-          {update.isPending ? (
-            <Button state="loading" loadingText="Saving..." isDisabled>
-              Save
-            </Button>
-          ) : (
-            <Button type="submit">Save</Button>
-          )}
+          <Button
+            type="submit"
+            isPending={update.isPending}
+            {...loadingProps(update.isPending, "Saving...")}
+          >
+            Save
+          </Button>
         </div>
       </form>
     </Panel>
@@ -183,9 +191,9 @@ function OrcidPanel({
         <>
           <p>
             <strong>Connected</strong> to{" "}
-            <a href={`${orcidUrl}/${profile.orcid}`}>
+            <ExternalLink href={`${orcidUrl}/${profile.orcid}`} wrap>
               {orcidUrl}/{profile.orcid}
-            </a>
+            </ExternalLink>
             .
           </p>
           {profile.orcid_unlink_url ? (
@@ -240,7 +248,10 @@ function OrcidPanel({
           )}
           <p className={styles.note}>
             Don&apos;t have an ORCID iD?{" "}
-            <a href={`${orcidUrl}/signin`}>Register or sign in at ORCID</a>.
+            <ExternalLink href={`${orcidUrl}/signin`}>
+              Register or sign in at ORCID
+            </ExternalLink>
+            .
           </p>
         </>
       )}

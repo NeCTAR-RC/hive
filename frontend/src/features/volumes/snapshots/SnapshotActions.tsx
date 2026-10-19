@@ -89,13 +89,13 @@ export function useSnapshotActions(projectId: string): {
         onClose={close}
       />
     );
-  } else if (dialog?.kind === "backup") {
+  } else if (dialog?.kind === "backup" && dialog.snapshot.volume_id) {
     dialogs = (
       <CreateBackupDialog
         projectId={projectId}
         volume={{
-          id: dialog.snapshot.volume_id ?? "",
-          name: dialog.snapshot.volume_name ?? dialog.snapshot.volume_id ?? "",
+          id: dialog.snapshot.volume_id,
+          name: dialog.snapshot.volume_name ?? dialog.snapshot.volume_id,
           status: "available",
         }}
         snapshotId={dialog.snapshot.id}

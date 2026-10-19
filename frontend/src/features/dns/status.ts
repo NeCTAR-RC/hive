@@ -45,3 +45,27 @@ export const ZONE_TYPES = [
   { id: "PRIMARY", label: "Primary" },
   { id: "SECONDARY", label: "Secondary" },
 ];
+
+/** One record per non-blank line of the records text area. */
+export function splitRecords(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The PUT body for a record set edit. A blank TTL is sent as null, which
+ * restores the zone default; leaving `ttl` out would keep the current one.
+ */
+export function recordSetUpdateBody(values: {
+  records: string;
+  ttl?: number | null | undefined;
+  description: string;
+}): { records: string[]; ttl: number | null; description: string } {
+  return {
+    records: splitRecords(values.records),
+    ttl: values.ttl ?? null,
+    description: values.description,
+  };
+}

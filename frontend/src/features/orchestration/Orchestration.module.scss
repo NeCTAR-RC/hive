@@ -6,11 +6,6 @@
   gap: var(--hive-space-4);
 }
 
-.nameLink {
-  color: inherit;
-  font-weight: var(--hive-font-weight-semibold);
-}
-
 .muted {
   margin: 0;
   color: var(--hive-color-text-muted);
@@ -74,8 +69,4 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--hive-space-2);
-}
-
-.description {
-  margin: 0 0 var(--hive-space-3);
 }

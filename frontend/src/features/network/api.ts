@@ -65,8 +65,9 @@ function pollWhileBusy<T extends { status: string | null }>(query: {
 export function networksQuery(projectId: string, purpose: NetworkPurpose) {
   return queryOptions({
     queryKey: networkKey(projectId, "networks", purpose),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<Network>>("/api/network/networks", {
+        signal,
         query: { purpose },
       }),
     staleTime: staleTimes.list,
@@ -78,8 +79,9 @@ export function networksQuery(projectId: string, purpose: NetworkPurpose) {
 export function panelNetworksQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "networks", "panel"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<Network>>("/api/network/networks", {
+        signal,
         query: { purpose: "any", external: "true" },
       }),
     staleTime: staleTimes.list,
@@ -91,8 +93,8 @@ export function panelNetworksQuery(projectId: string) {
 export function networkQuery(projectId: string, networkId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "networks", "detail", networkId),
-    queryFn: () =>
-      apiFetch<NetworkDetail>(`/api/network/networks/${networkId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<NetworkDetail>(`/api/network/networks/${networkId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -100,7 +102,8 @@ export function networkQuery(projectId: string, networkId: string) {
 export function subnetQuery(projectId: string, subnetId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "subnets", subnetId),
-    queryFn: () => apiFetch<SubnetDetail>(`/api/network/subnets/${subnetId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<SubnetDetail>(`/api/network/subnets/${subnetId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -108,7 +111,8 @@ export function subnetQuery(projectId: string, subnetId: string) {
 export function portQuery(projectId: string, portId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "ports", "detail", portId),
-    queryFn: () => apiFetch<Port>(`/api/network/ports/${portId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Port>(`/api/network/ports/${portId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -116,8 +120,9 @@ export function portQuery(projectId: string, portId: string) {
 export function attachablePortsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "ports", "boot"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<AttachablePort>>("/api/network/ports", {
+        signal,
         query: { purpose: "boot" },
       }),
     staleTime: staleTimes.list,
@@ -127,7 +132,8 @@ export function attachablePortsQuery(projectId: string) {
 export function networkOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "options"),
-    queryFn: () => apiFetch<NetworkOptions>("/api/network/options"),
+    queryFn: ({ signal }) =>
+      apiFetch<NetworkOptions>("/api/network/options", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -135,7 +141,8 @@ export function networkOptionsQuery(projectId: string) {
 export function networkExtensionsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "extensions"),
-    queryFn: () => apiFetch<NetworkExtensions>("/api/network/extensions"),
+    queryFn: ({ signal }) =>
+      apiFetch<NetworkExtensions>("/api/network/extensions", { signal }),
     staleTime: staleTimes.static,
   });
 }
@@ -143,7 +150,8 @@ export function networkExtensionsQuery(projectId: string) {
 export function networkQuotaQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "quota"),
-    queryFn: () => apiFetch<NetworkQuota>("/api/network/quota"),
+    queryFn: ({ signal }) =>
+      apiFetch<NetworkQuota>("/api/network/quota", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -151,7 +159,8 @@ export function networkQuotaQuery(projectId: string) {
 export function topologyQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "topology"),
-    queryFn: () => apiFetch<Topology>("/api/network/topology"),
+    queryFn: ({ signal }) =>
+      apiFetch<Topology>("/api/network/topology", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
   });
@@ -160,7 +169,8 @@ export function topologyQuery(projectId: string) {
 export function routersQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "routers"),
-    queryFn: () => apiFetch<Items<Router>>("/api/network/routers"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<Router>>("/api/network/routers", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
     refetchInterval: pollWhileBusy,
@@ -170,7 +180,8 @@ export function routersQuery(projectId: string) {
 export function routerQuery(projectId: string, routerId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "routers", routerId),
-    queryFn: () => apiFetch<RouterDetail>(`/api/network/routers/${routerId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<RouterDetail>(`/api/network/routers/${routerId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -178,9 +189,10 @@ export function routerQuery(projectId: string, routerId: string) {
 export function interfaceCandidatesQuery(projectId: string, routerId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "routers", routerId, "candidates"),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<InterfaceCandidate>>(
         `/api/network/routers/${routerId}/interface-candidates`,
+        { signal },
       ),
     staleTime: 0,
   });
@@ -189,7 +201,8 @@ export function interfaceCandidatesQuery(projectId: string, routerId: string) {
 export function floatingIpsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "floating-ips"),
-    queryFn: () => apiFetch<Items<FloatingIp>>("/api/network/floating-ips"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<FloatingIp>>("/api/network/floating-ips", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
   });
@@ -203,8 +216,9 @@ export function floatingIpTargetsQuery(projectId: string, instanceId?: string) {
       "targets",
       instanceId ?? "",
     ),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<FloatingIpTarget>>("/api/network/floating-ips/targets", {
+        signal,
         query: instanceId ? { instance_id: instanceId } : {},
       }),
     staleTime: 0,
@@ -214,8 +228,9 @@ export function floatingIpTargetsQuery(projectId: string, instanceId?: string) {
 export function portForwardingsQuery(projectId: string, floatingIpId?: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "port-forwardings", floatingIpId ?? ""),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Items<PortForwarding>>("/api/network/port-forwardings", {
+        signal,
         query: floatingIpId ? { floating_ip_id: floatingIpId } : {},
       }),
     staleTime: staleTimes.list,
@@ -225,7 +240,8 @@ export function portForwardingsQuery(projectId: string, floatingIpId?: string) {
 export function trunksQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "trunks"),
-    queryFn: () => apiFetch<Items<Trunk>>("/api/network/trunks"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<Trunk>>("/api/network/trunks", { signal }),
     staleTime: staleTimes.list,
     refetchOnWindowFocus: true,
   });
@@ -234,7 +250,8 @@ export function trunksQuery(projectId: string) {
 export function trunkQuery(projectId: string, trunkId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "trunks", trunkId),
-    queryFn: () => apiFetch<Trunk>(`/api/network/trunks/${trunkId}`),
+    queryFn: ({ signal }) =>
+      apiFetch<Trunk>(`/api/network/trunks/${trunkId}`, { signal }),
     staleTime: staleTimes.detail,
   });
 }
@@ -242,7 +259,8 @@ export function trunkQuery(projectId: string, trunkId: string) {
 export function trunkOptionsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "trunks", "options"),
-    queryFn: () => apiFetch<TrunkOptions>("/api/network/trunks/options"),
+    queryFn: ({ signal }) =>
+      apiFetch<TrunkOptions>("/api/network/trunks/options", { signal }),
     staleTime: 0,
   });
 }
@@ -250,8 +268,10 @@ export function trunkOptionsQuery(projectId: string) {
 export function securityGroupsQuery(projectId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "security-groups"),
-    queryFn: () =>
-      apiFetch<Items<SecurityGroup>>("/api/network/security-groups"),
+    queryFn: ({ signal }) =>
+      apiFetch<Items<SecurityGroup>>("/api/network/security-groups", {
+        signal,
+      }),
     staleTime: staleTimes.list,
   });
 }
@@ -259,9 +279,10 @@ export function securityGroupsQuery(projectId: string) {
 export function securityGroupQuery(projectId: string, groupId: string) {
   return queryOptions({
     queryKey: networkKey(projectId, "security-groups", groupId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<Required<SecurityGroup>>(
         `/api/network/security-groups/${groupId}`,
+        { signal },
       ),
     staleTime: staleTimes.detail,
   });
@@ -269,7 +290,8 @@ export function securityGroupQuery(projectId: string, groupId: string) {
 
 export const rulePresetsQuery = queryOptions({
   queryKey: ["security-group-presets"],
-  queryFn: () => apiFetch<RulePresets>("/api/network/security-group-presets"),
+  queryFn: ({ signal }) =>
+    apiFetch<RulePresets>("/api/network/security-group-presets", { signal }),
   staleTime: Infinity,
 });
 

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,7 +22,7 @@ import {
   useDeleteServerGroup,
 } from "../api";
 import { POLICY_LABELS } from "./policies";
-import styles from "./ServerGroupsPage.module.scss";
+import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const createSchema = z.object({
   name: z
@@ -69,13 +68,12 @@ export function ServerGroupsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouterLink
+          <RouteLink
             to="/compute/server-groups/$groupId"
             params={{ groupId: row.id }}
-            className={styles.nameLink}
           >
             {row.name}
-          </RouterLink>
+          </RouteLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,

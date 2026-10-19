@@ -289,6 +289,7 @@ export function PoolDetailPage() {
               <Button
                 size="xs"
                 onPress={() => setDialog({ kind: "member", member: null })}
+                isDisabled={tree.data.load_balancer.is_transitional}
               >
                 Add member
               </Button>

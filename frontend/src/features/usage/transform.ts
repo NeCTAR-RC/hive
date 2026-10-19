@@ -26,6 +26,24 @@ export const PRESETS: { id: string; label: string; days: number }[] = [
   { id: "1y", label: "Past year", days: 365 },
 ];
 
+/**
+ * The preset the range matches (ending today, starting the preset's days
+ * ago, or at `dataFrom` when that is later), or null for a custom range.
+ */
+export function activePreset(
+  begin: string,
+  end: string,
+  dataFrom: string,
+  today: Date = new Date(),
+): string | null {
+  if (end !== isoDate(today)) return null;
+  const match = PRESETS.find((preset) => {
+    const start = daysAgo(preset.days, today);
+    return begin === (start < dataFrom ? dataFrom : start);
+  });
+  return match?.id ?? null;
+}
+
 export interface DateRange {
   begin: string;
   end: string;
