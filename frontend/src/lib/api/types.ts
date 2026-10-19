@@ -275,7 +275,18 @@ export interface Flavor {
   flavor_class: string | null;
   su_rate: number | null;
   is_preemptible: boolean;
+  /** A Blazar reservation's private flavour (id == reservation id). */
+  is_reservation: boolean;
+  reservation_id: string | null;
   extra_specs: Record<string, string>;
+}
+
+/** A flavour class the launch wizard offers, as the backend describes it. */
+export interface FlavorClass {
+  id: string;
+  title: string;
+  description: string | null;
+  count: number;
 }
 
 export interface Address {
@@ -438,6 +449,9 @@ export interface LaunchVolumeSnapshot {
 
 export interface LaunchOptions {
   flavors: Flavor[] | null;
+  flavor_classes: FlavorClass[] | null;
+  volume_types: VolumeType[] | null;
+  has_zoned_types: boolean;
   images: Image[] | null;
   snapshots: Image[] | null;
   volumes: LaunchVolume[] | null;
@@ -476,6 +490,10 @@ export interface LaunchRequest {
   description: string | null;
   server_group_id: string | null;
   delete_volume_on_termination: boolean;
+  /** Boot an image or snapshot onto a new volume of this size and type. */
+  create_volume: boolean;
+  volume_size_gb: number | null;
+  volume_type: string | null;
 }
 
 export interface LaunchResult {

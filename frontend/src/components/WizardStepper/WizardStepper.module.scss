@@ -1,0 +1,167 @@
+// Drawn after the design system's Stepper (32px markers under connector
+// halves, titles below) with Hive's tokens, so the swap to the design
+// system's own non-linear stepper changes nothing on screen.
+@use "mixins" as *;
+
+.stepper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  width: 100%;
+}
+
+.list {
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.stepContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--hive-space-2) 0;
+  border: 0;
+  border-radius: var(--hive-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+
+.stepButton {
+  cursor: pointer;
+  transition: background-color var(--hive-transition-base);
+
+  &:hover {
+    background-color: var(--hive-color-gray-50);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.markerRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+
+  // The two halves of the connector, one out of each side of the marker.
+  &::before,
+  &::after {
+    content: "";
+    flex: 1 1 0;
+    height: 2px;
+    background-color: transparent;
+  }
+}
+
+.step:not(:first-child) .markerRow::before,
+.step:not(:last-child) .markerRow::after {
+  background-color: var(--hive-color-rule);
+}
+
+.step[data-state="complete"]:not(:last-child) .markerRow::after,
+.step[data-state="complete"]:not(:first-child) .markerRow::before,
+.step[data-state="current"]:not(:first-child) .markerRow::before {
+  background-color: var(--hive-color-brand-purple);
+}
+
+.marker {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--hive-color-gray-500);
+  border-radius: 50%;
+  background-color: var(--hive-color-surface);
+  color: var(--hive-color-gray-500);
+  font-size: var(--hive-font-size-sm);
+  font-weight: var(--hive-font-weight-bold);
+  line-height: 1;
+}
+
+.step[data-state="complete"] .marker,
+.step[data-state="current"] .marker {
+  border-color: var(--hive-color-brand-purple);
+  background-color: var(--hive-color-brand-purple);
+  color: var(--hive-color-white);
+}
+
+// The status sits on the marker's shoulder; the ring keeps it legible on
+// the filled disc. Its meaning is in the title's hidden words, not here.
+.statusDot {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--hive-color-surface);
+  border-radius: 50%;
+  background-color: var(--hive-color-gray-500);
+
+  &[data-status="invalid"] {
+    background-color: var(--hive-color-danger);
+  }
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hive-space-1);
+  box-sizing: border-box;
+  max-width: 100%;
+  margin-top: var(--hive-space-2);
+  padding-inline: var(--hive-space-1);
+  overflow-wrap: break-word;
+}
+
+.title {
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}
+
+.step[data-state="current"] .title {
+  font-weight: var(--hive-font-weight-bold);
+  color: var(--hive-color-text-heading);
+}
+
+.description {
+  font-size: var(--hive-font-size-xs);
+  color: var(--hive-color-text-muted);
+}
+
+.statusLabel {
+  @include visually-hidden;
+}
+
+// Too narrow for the titles side by side: only the current one stays on
+// screen; the rest stay in the accessibility tree.
+.stepper[data-compact] .step:not([data-state="current"]) .titleBlock {
+  @include visually-hidden;
+}
+
+.panel {
+  min-width: 0;
+}

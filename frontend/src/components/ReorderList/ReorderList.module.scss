@@ -1,0 +1,95 @@
+@use "mixins" as *;
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+  max-width: 32rem;
+  outline: none;
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+  padding: var(--hive-space-1) var(--hive-space-2);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius);
+  background: var(--hive-color-surface);
+  outline: none;
+  transition: background-color var(--hive-transition-fast);
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+
+  &[data-hovered] {
+    background: var(--hive-color-gray-50);
+  }
+
+  // The row being dragged stays in place, faded, while its preview
+  // follows the pointer.
+  &[data-dragging] {
+    opacity: 0.5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.handle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--hive-radius-sm);
+  background: none;
+  color: var(--hive-color-text-muted);
+  cursor: grab;
+  touch-action: none;
+
+  &[data-pressed] {
+    cursor: grabbing;
+  }
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+.position {
+  flex: none;
+  min-width: 1.5rem;
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-sm);
+  font-weight: var(--hive-font-weight-semibold);
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+// The line between two rows that marks where a drop would land: a hairline
+// kept in the layout so the rows do not jump, purple while it is the target.
+.dropIndicator {
+  height: 2px;
+  margin: 0;
+  border-radius: var(--hive-radius-sm);
+  background: transparent;
+  outline: none;
+
+  &[data-drop-target] {
+    background: var(--hive-color-brand-purple);
+  }
+}

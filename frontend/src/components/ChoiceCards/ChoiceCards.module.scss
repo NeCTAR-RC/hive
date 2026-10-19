@@ -1,0 +1,67 @@
+@use "mixins" as *;
+
+// Cards wrap into as many columns as fit, so every option is on screen at
+// once at any width: four across in the wizard's column, two on a phone.
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--hive-space-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+  padding: var(--hive-space-3);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius);
+  background: var(--hive-color-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--hive-transition-fast),
+    background-color var(--hive-transition-fast);
+
+  &[data-hovered] {
+    background: var(--hive-color-gray-50);
+  }
+
+  // The chosen card: the brand purple on its rule and a purple wash, the
+  // same pair the sidebar uses for the current page. The border keeps its
+  // width so the grid never shifts.
+  &[data-selected] {
+    border-color: var(--hive-color-brand-purple);
+    background: var(--hive-color-purple-50);
+  }
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+
+  &[data-disabled] {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.title {
+  font-weight: var(--hive-font-weight-semibold);
+  color: var(--hive-color-text-heading);
+}
+
+.card[data-selected] .title {
+  color: var(--hive-color-purple-700);
+}
+
+.meta {
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-muted);
+}
+
+.description {
+  font-size: var(--hive-font-size-xs);
+  color: var(--hive-color-text-muted);
+}

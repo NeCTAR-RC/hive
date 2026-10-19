@@ -4,6 +4,7 @@
 // searched, SU per hour and the preemptible notice on flavours) come from
 // the backend's launch options.
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import {
@@ -13,8 +14,6 @@ import {
   Column,
   Label,
   Row,
-  StepItem,
-  Stepper,
   Table,
   TableBody,
   TableHeader,
@@ -25,10 +24,11 @@ import {
   useController,
   useFieldArray,
   useForm,
+  useFormState,
   useWatch,
 } from "react-hook-form";
-import type { FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ChoiceCards } from "../../../components/ChoiceCards/ChoiceCards";
 import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import {
@@ -41,15 +41,22 @@ import {
 import { loadingProps } from "../../../components/buttonState";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
+import { ReorderList } from "../../../components/ReorderList/ReorderList";
 import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
+import {
+  StepItem,
+  Stepper,
+} from "../../../components/WizardStepper/WizardStepper";
 import type {
   Flavor,
   LaunchOptions,
   LaunchRequest,
   LaunchSourceType,
+  Network,
 } from "../../../lib/api/types";
 import {
+  formatDate,
   formatGb,
   formatMb,
   formatNumber,
@@ -60,50 +67,32 @@ import { useProjectId } from "../../../lib/useProject";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
 import { launchRoute } from "../../../app/router";
 import { attachablePortsQuery } from "../../network/api";
+import { reservationsQuery } from "../../reservations/api";
 import { launchOptionsQuery, useLaunch } from "../api";
 import {
   CreateKeyPairDialog,
   ImportKeyPairDialog,
 } from "../keypairs/KeyPairDialogs";
-import { defaultNetworkIds, flavorQuotaProblem } from "./launch";
+import {
+  defaultNetworkIds,
+  findImage,
+  findSourceItem,
+  flavorGroupId,
+  flavorDisplayName,
+  flavorGroups,
+  flavorQuotaProblem,
+} from "./launch";
 import {
   focusTarget,
   launchSchema,
+  useNewVolumeRules,
   useSourceTypeReset,
   type LaunchForm,
   type LaunchFormApi,
 } from "./launchForm";
+import { STEPS, stepStatuses } from "./launchSteps";
 import { SourceStep } from "./LaunchSourceStep";
 import styles from "./LaunchPage.module.scss";
-
-interface Step {
-  id: string;
-  title: string;
-  fields: FieldPath<LaunchForm>[];
-}
-
-const STEPS: Step[] = [
-  {
-    id: "details",
-    title: "Details",
-    fields: ["name", "description", "availability_zone", "count"],
-  },
-  { id: "source", title: "Source", fields: ["source_type", "source_id"] },
-  { id: "flavor", title: "Flavour", fields: ["flavor_id"] },
-  { id: "networks", title: "Networks", fields: ["networks", "ports"] },
-  { id: "security", title: "Security groups", fields: ["security_groups"] },
-  { id: "keypair", title: "Key pair", fields: ["key_name"] },
-  {
-    id: "config",
-    title: "Configuration",
-    fields: [
-      "user_data",
-      "server_group_id",
-      "metadata",
-      "delete_volume_on_termination",
-    ],
-  },
-];
 
 const NONE = "__none__";
 
@@ -111,6 +100,7 @@ const SECTION_LABELS: Record<string, string> = {
   flavors: "Flavours",
   images: "Images",
   volumes: "Volumes",
+  volume_types: "Volume types",
   networks: "Networks",
   key_pairs: "Key pairs",
   security_groups: "Security groups",
@@ -159,6 +149,11 @@ export function LaunchPage() {
       source_type: "image",
       source_id: "",
       delete_volume_on_termination: false,
+      create_volume: false,
+      volume_size_gb: undefined,
+      volume_size_min_gb: 1,
+      volume_type: "",
+      flavor_class: "",
       flavor_id: "",
       networks: [],
       ports: [],
@@ -172,6 +167,7 @@ export function LaunchPage() {
 
   const count = useWatch({ control: form.control, name: "count" });
   useSourceTypeReset(form);
+  useNewVolumeRules(form, options.data);
 
   // Once the options arrive, apply Nectar's defaults and any deep link.
   const applied = useRef(false);
@@ -181,14 +177,16 @@ export function LaunchPage() {
     applied.current = true;
     const source = parseSource(search.source);
     const keyPairs = data.key_pairs ?? [];
+    // A deep link (the reservation hand-off) names the flavour by id or
+    // name; one this project cannot see stays unselected, and the flavour
+    // step says why, rather than falling back to another flavour.
+    const linked = findFlavor(data, search.flavor);
     form.reset({
       ...form.getValues(),
       source_type: source?.type ?? "image",
       source_id: source?.id ?? "",
-      // A deep link (the reservation hand-off) names the flavour by id or
-      // name; one this project cannot see stays unselected, and the flavour
-      // step says why, rather than falling back to another flavour.
-      flavor_id: findFlavor(data, search.flavor)?.id ?? "",
+      flavor_id: linked?.id ?? "",
+      flavor_class: linked ? flavorGroupId(linked) : "",
       networks: defaultNetworkIds(data.networks),
       security_groups: data.security_groups?.some((g) => g.name === "default")
         ? ["default"]
@@ -215,6 +213,23 @@ export function LaunchPage() {
     if (valid) setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
   const back = () => setStep((s) => Math.max(s - 1, 0));
+  // A press on a step marker goes there whatever the state of the form, as
+  // Horizon's wizard does. The fields the user touched on the step being
+  // left are validated so its marker and its messages say what is wrong;
+  // untouched ones stay "incomplete" rather than shouting.
+  const jumpTo = (id: string) => {
+    const index = STEPS.findIndex((s) => s.id === id);
+    if (index < 0 || index === step) return;
+    const leaving = STEPS[step];
+    if (leaving) {
+      const touched = leaving.fields.filter((field) => {
+        const state = form.getFieldState(field);
+        return state.isTouched || state.isDirty;
+      });
+      if (touched.length) void form.trigger(touched);
+    }
+    setStep(index);
+  };
 
   const submit = form.handleSubmit(
     (values) => {
@@ -239,6 +254,14 @@ export function LaunchPage() {
             ? values.server_group_id
             : null,
         delete_volume_on_termination: values.delete_volume_on_termination,
+        create_volume: values.create_volume,
+        volume_size_gb: values.create_volume
+          ? (values.volume_size_gb ?? null)
+          : null,
+        volume_type:
+          values.create_volume && values.volume_type
+            ? values.volume_type
+            : null,
       };
       launch.mutate(request, {
         onSuccess: (result) => {
@@ -310,18 +333,14 @@ export function LaunchPage() {
               </Alert>
             )}
             <QuotaWarning data={data} count={count} />
-            <Stepper
-              activeStep={current.id}
-              onActiveStepChange={(key) => {
-                const index = STEPS.findIndex((s) => s.id === key);
-                if (index >= 0 && index < step) setStep(index);
-              }}
-              allowsJumping
-              aria-label="Launch steps"
-            >
-              {STEPS.map((s) => (
-                <StepItem key={s.id} id={s.id} title={s.title}>
-                  {options.isPending || !data ? (
+            <LaunchStepper
+              form={form}
+              current={current.id}
+              onJump={jumpTo}
+              panels={Object.fromEntries(
+                STEPS.map((s) => [
+                  s.id,
+                  options.isPending || !data ? (
                     <SkeletonLines lines={6} />
                   ) : (
                     <StepBody
@@ -332,10 +351,10 @@ export function LaunchPage() {
                       missingFlavor={missingFlavor}
                       onOpenKeyPairDialog={setKeyPairDialog}
                     />
-                  )}
-                </StepItem>
-              ))}
-            </Stepper>
+                  ),
+                ]),
+              )}
+            />
             {launch.isError && (
               <ErrorState error={launch.error} title="Launch failed" />
             )}
@@ -391,6 +410,43 @@ export function LaunchPage() {
 
 type FormApi = LaunchFormApi;
 
+/**
+ * The step indicator: every step is pressable, and a step whose required
+ * answers are missing or rejected says so. The statuses come from the form
+ * values (the panels unmount when left), watched here so a keystroke
+ * re-renders the indicator and not the panels LaunchPage created.
+ */
+function LaunchStepper({
+  form,
+  current,
+  onJump,
+  panels,
+}: {
+  form: FormApi;
+  current: string;
+  onJump: (id: string) => void;
+  panels: Record<string, ReactNode>;
+}) {
+  const values = useWatch({ control: form.control });
+  const { errors } = useFormState({ control: form.control });
+  const statuses = stepStatuses(STEPS, values, errors);
+  return (
+    <Stepper
+      activeStep={current}
+      onActiveStepChange={(key) => onJump(String(key))}
+      allowsJumping="any"
+      statusLabels={{ pending: "(incomplete)", invalid: "(has errors)" }}
+      aria-label="Launch steps"
+    >
+      {STEPS.map((s) => (
+        <StepItem key={s.id} id={s.id} title={s.title} status={statuses[s.id]}>
+          {panels[s.id]}
+        </StepItem>
+      ))}
+    </Stepper>
+  );
+}
+
 function QuotaWarning({
   data,
   count,
@@ -440,7 +496,12 @@ function StepBody({
       return <SourceStep form={form} data={data} />;
     case "flavor":
       return (
-        <FlavorStep form={form} data={data} missingFlavor={missingFlavor} />
+        <FlavorStep
+          form={form}
+          data={data}
+          projectId={projectId}
+          missingFlavor={missingFlavor}
+        />
       );
     case "networks":
       return <NetworksStep form={form} data={data} projectId={projectId} />;
@@ -505,10 +566,12 @@ function DetailsStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
 function FlavorStep({
   form,
   data,
+  projectId,
   missingFlavor,
 }: {
   form: FormApi;
   data: LaunchOptions;
+  projectId: string;
   missingFlavor: string | null;
 }) {
   const errorId = useId();
@@ -517,15 +580,17 @@ function FlavorStep({
     name: "flavor_id",
   });
   const chosen = field.value;
-  const count = useWatch({ control: form.control, name: "count" });
-  const sourceType = useWatch({ control: form.control, name: "source_type" });
-  const sourceId = useWatch({ control: form.control, name: "source_id" });
-  const image =
-    sourceType === "image" || sourceType === "snapshot"
-      ? [...(data.images ?? []), ...(data.snapshots ?? [])].find(
-          (i) => i.id === sourceId,
-        )
-      : undefined;
+  const [group, count, sourceType, sourceId, createVolume] = useWatch({
+    control: form.control,
+    name: [
+      "flavor_class",
+      "count",
+      "source_type",
+      "source_id",
+      "create_volume",
+    ],
+  });
+  const image = findImage(data, sourceType, sourceId);
   const flavors = useMemo(
     () =>
       [...(data.flavors ?? [])].sort(
@@ -536,11 +601,30 @@ function FlavorStep({
       ),
     [data.flavors],
   );
+  const groups = useMemo(
+    () => flavorGroups(data.flavor_classes, flavors),
+    [data.flavor_classes, flavors],
+  );
+  const selected = flavors.find((f) => f.id === chosen);
+  // The open class: the one the user opened, else the chosen (or
+  // deep-linked) flavour's, else the first on offer.
+  const activeGroup =
+    group || (selected ? flavorGroupId(selected) : (groups[0]?.id ?? ""));
+  // Reservation flavours are named after their warre reservation when the
+  // list is available; the raw nova name otherwise.
+  const hasReserved = flavors.some((f) => f.is_reservation);
+  const reservations = useQuery({
+    ...reservationsQuery(projectId),
+    enabled: hasReserved,
+  });
   const unavailable = (flavor: Flavor): string | null =>
     flavorQuotaProblem(flavor, data.limits, count) ?? tooSmall(flavor);
   const tooSmall = (flavor: Flavor): string | null => {
     if (!image) return null;
+    // A new volume carries the root disk, so the flavour's own disk does
+    // not have to hold the image.
     if (
+      !createVolume &&
       image.min_disk &&
       flavor.disk_gb !== null &&
       flavor.disk_gb > 0 &&
@@ -557,14 +641,16 @@ function FlavorStep({
     }
     return null;
   };
-  const disabled = flavors.filter((f) => unavailable(f)).map((f) => f.id);
-  const selected = flavors.find((f) => f.id === chosen);
+  const listed = flavors.filter((f) => flavorGroupId(f) === activeGroup);
+  const disabled = listed.filter((f) => unavailable(f)).map((f) => f.id);
   const error = fieldState.error?.message;
   const onSelectionChange = (keys: Selection) => {
     const key = keys === "all" ? null : [...keys][0];
     field.onChange(key ? String(key) : "");
     void form.trigger("flavor_id");
   };
+  const nameOf = (flavor: Flavor) =>
+    flavorDisplayName(flavor, reservations.data?.items, formatDate);
   return (
     <div className={styles.fields}>
       {missingFlavor && !chosen && (
@@ -576,8 +662,33 @@ function FlavorStep({
       )}
       <p className={styles.hint}>
         Service units (SU) are charged per hour the instance exists, whether it
-        is running or not.
+        is running or not. Choose a flavour class, then a flavour in it; a
+        flavour you chose stays chosen while you look at other classes.
       </p>
+      {/* Every class on screen at once, as cards: its count, its cheapest
+          rate and its sentence. The chosen flavour's row stays selected
+          whichever class is open. */}
+      <ChoiceCards
+        aria-label="Flavour class"
+        value={activeGroup}
+        onChange={(id) =>
+          form.setValue("flavor_class", id, { shouldDirty: true })
+        }
+        options={groups.map((g) => {
+          const rates = flavors
+            .filter((f) => flavorGroupId(f) === g.id && f.su_rate !== null)
+            .map((f) => f.su_rate as number);
+          const count = `${g.count} ${g.count === 1 ? "flavour" : "flavours"}`;
+          return {
+            id: g.id,
+            title: g.title,
+            meta: rates.length
+              ? `${count}, from ${formatSuRate(Math.min(...rates))}`
+              : count,
+            description: g.description,
+          };
+        })}
+      />
       <div ref={(el) => field.ref(focusTarget(el))}>
         <Table
           aria-label="Flavours"
@@ -598,10 +709,16 @@ function FlavorStep({
             <Column id="rate">SU/hour</Column>
             <Column id="notes">Notes</Column>
           </TableHeader>
-          <TableBody items={flavors}>
+          <TableBody
+            items={listed}
+            // React Aria renders a row once per item; the reservation names
+            // and the Notes column read state outside the item, so they
+            // are listed here or a row keeps its first rendering.
+            dependencies={[reservations.data, count, image, createVolume]}
+          >
             {(flavor) => (
               <Row id={flavor.id}>
-                <Cell>{flavor.name}</Cell>
+                <Cell>{nameOf(flavor)}</Cell>
                 <Cell>{flavor.vcpus ?? ""}</Cell>
                 <Cell>{formatMb(flavor.ram_mb)}</Cell>
                 <Cell>
@@ -648,9 +765,12 @@ function NetworksStep({
 }) {
   // Ports are only offered when the project has some to attach.
   const ports = useQuery(attachablePortsQuery(projectId));
+  const chosenIds = useWatch({ control: form.control, name: "networks" });
+  const nameOf = (network: Network) =>
+    `${network.name}${network.is_classic ? " (classic, public IP)" : ""}`;
   const networks = (data.networks ?? []).map((network) => ({
     id: network.id,
-    label: `${network.name}${network.is_classic ? " (classic, public IP)" : ""}${
+    label: `${nameOf(network)}${
       network.subnets.length
         ? `: ${network.subnets
             .map((s) => s.cidr)
@@ -659,6 +779,12 @@ function NetworksStep({
         : ""
     }`,
   }));
+  // The form keeps the networks in the order they were ticked (Horizon's
+  // transfer table does the same); the list below rearranges that order.
+  const chosen = (chosenIds ?? []).map((id) => {
+    const network = (data.networks ?? []).find((n) => n.id === id);
+    return { id, label: network ? nameOf(network) : id };
+  });
   const portOptions = (ports.data?.items ?? []).map((port) => ({
     id: port.id,
     label: `${port.name || port.id} (${port.network_name ?? "network"}: ${port.fixed_ips.join(", ") || "no address"})`,
@@ -672,6 +798,23 @@ function NetworksStep({
         description="The instance gets an interface on each network you choose. The classic network gives it a public IP address."
         options={networks}
       />
+      {chosen.length > 1 && (
+        <div className={styles.order}>
+          <p className={styles.hint}>
+            Interface order: drag a network up or down (or press its handle and
+            use the arrow keys). The first network becomes the instance's first
+            interface, and the operating system decides the interface names.
+            Ports are attached after the networks.
+          </p>
+          <ReorderList
+            aria-label="Interface order"
+            items={chosen}
+            onReorder={(ids) =>
+              form.setValue("networks", ids, { shouldDirty: true })
+            }
+          />
+        </div>
+      )}
       {portOptions.length > 0 && (
         <CheckboxesInput
           control={form.control}
@@ -868,22 +1011,32 @@ function Summary({
   const values = useWatch({ control: form.control });
   const count = Number.isFinite(values.count) ? (values.count ?? 1) : 1;
   const flavor = data?.flavors?.find((f) => f.id === values.flavor_id);
-  const sourceName = (() => {
-    switch (values.source_type) {
-      case "image":
-        return data?.images?.find((i) => i.id === values.source_id)?.name;
-      case "snapshot":
-        return data?.snapshots?.find((i) => i.id === values.source_id)?.name;
-      case "volume":
-        return data?.volumes?.find((v) => v.id === values.source_id)?.name;
-      default:
-        return data?.volume_snapshots?.find((v) => v.id === values.source_id)
-          ?.name;
-    }
-  })();
-  const networkNames = (data?.networks ?? [])
-    .filter((n) => (values.networks ?? []).includes(n.id))
-    .map((n) => n.name);
+  // A reservation flavour is named after its warre reservation here too.
+  const projectId = useProjectId();
+  const reservations = useQuery({
+    ...reservationsQuery(projectId),
+    enabled: Boolean(flavor?.is_reservation),
+  });
+  const flavorName = flavor
+    ? flavorDisplayName(flavor, reservations.data?.items, formatDate)
+    : undefined;
+  const source = data
+    ? findSourceItem(data, values.source_type, values.source_id)
+    : undefined;
+  const volume = values.create_volume
+    ? `New ${values.volume_size_gb ?? "?"} GB volume${
+        values.volume_type ? ` (${values.volume_type})` : ""
+      }${
+        values.delete_volume_on_termination ? ", deleted with the instance" : ""
+      }`
+    : "";
+  // In the order chosen: the first is the instance's first interface.
+  const networkName = new Map(
+    (data?.networks ?? []).map((n) => [n.id, n.name]),
+  );
+  const networkNames = (values.networks ?? []).map(
+    (id) => networkName.get(id) ?? id,
+  );
   const rate = flavor?.su_rate ?? null;
   return (
     <aside className={styles.summary} aria-label="Summary">
@@ -896,8 +1049,9 @@ function Summary({
               value: Number.isFinite(values.count) ? values.count : "",
             },
             { label: "Availability zone", value: values.availability_zone },
-            { label: "Source", value: sourceName ?? "" },
-            { label: "Flavour", value: flavor?.name },
+            { label: "Source", value: source?.name ?? "" },
+            { label: "Volume", value: volume },
+            { label: "Flavour", value: flavorName },
             {
               label: "Cost",
               value:

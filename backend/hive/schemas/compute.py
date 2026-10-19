@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from hive.nectar import secgroups as secgroup_rules
 
@@ -29,11 +29,30 @@ class LaunchRequest(BaseModel):
     description: str | None = None
     server_group_id: str | None = None
     delete_volume_on_termination: bool = False
+    # Horizon's "Create New Volume" toggle for image and snapshot sources
+    # (launch-instance-model.service.js setFinalSpecBootImageToVolume); the
+    # volume type is a Hive addition.
+    create_volume: bool = False
+    volume_size_gb: int | None = Field(default=None, ge=1)
+    volume_type: str | None = None
 
     @field_validator("networks", "ports")
     @classmethod
     def _unique(cls, value: list[str]) -> list[str]:
         return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def _new_volume_shape(self):
+        if self.create_volume:
+            if self.source.type not in ("image", "snapshot"):
+                raise ValueError(
+                    "create_volume applies to image and snapshot sources"
+                )
+            if self.volume_size_gb is None:
+                raise ValueError(
+                    "volume_size_gb is required when create_volume is set"
+                )
+        return self
 
 
 class ServerUpdate(BaseModel):

@@ -1,6 +1,9 @@
 // Launch one small instance on rctest (pt-50) through the real wizard, wait
 // for it to become ACTIVE, exercise the detail tabs, then delete it.
 //   node live-launch.mjs <one-shot login URL> [base] [outDir]
+// With HIVE_LIVE_NEW_VOLUME=1 the image boots onto a new volume (deleted
+// with the instance) and the networks are reordered when two are offered,
+// so the volume and interface order can be checked on the instance.
 // The delete step runs in a `finally`, so a failure after the Launch click
 // (a missing tab, a full disk for the screenshot) never leaves the instance
 // running on rctest.
@@ -18,6 +21,10 @@ if (!loginUrl) {
   console.error("usage: node live-launch.mjs <login URL> [base] [outDir]");
   process.exit(2);
 }
+const NEW_VOLUME = process.env.HIVE_LIVE_NEW_VOLUME === "1";
+// The one-shot login lands in the account's first project; the test
+// project is where the zone, networks and quota for the smoke run live.
+const PROJECT = process.env.HIVE_LIVE_PROJECT ?? "pt-50";
 const NAME = `hive-smoke-${Date.now().toString(36)}`;
 mkdirSync(outDir, { recursive: true });
 const browser = await chromium.launch();
@@ -27,6 +34,14 @@ const context = await browser.newContext({
 const page = await context.newPage();
 page.on("pageerror", (e) => console.log("PAGEERROR:", String(e).slice(0, 300)));
 
+/** A same-origin API call from inside the page, with its session cookie. */
+async function api(path) {
+  return page.evaluate(async (p) => {
+    const r = await fetch(p, { credentials: "same-origin" });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  }, path);
+}
+
 let launched = false;
 let failed = false;
 try {
@@ -35,7 +50,15 @@ try {
     timeout: 30_000,
   });
   await page.waitForSelector("main h1");
-  console.log("logged in");
+  const me = await api("/api/me");
+  const target = me.body.projects.find((p) => p.name === PROJECT);
+  if (!target) throw new Error(`project ${PROJECT} not available`);
+  if (me.body.project.id !== target.id) {
+    await page.goto(`${base}/auth/switch/${target.id}`);
+    await page.waitForURL(`${base}/`, { timeout: 30_000 });
+  }
+  const who = await api("/api/me");
+  console.log(`logged in as ${who.body.user.name} in ${who.body.project.name}`);
 
   await page.goto(`${base}/compute/instances/launch`);
   await page
@@ -73,22 +96,108 @@ try {
     .getByText(/Ubuntu 24\.04/)
     .first()
     .click();
+  console.log(
+    "selected row:",
+    (
+      await page
+        .getByText(/^Selected:/)
+        .locator("..")
+        .innerText()
+    ).replace(/\s+/g, " "),
+  );
+  if (NEW_VOLUME) {
+    await page.getByText("Create a new volume from the image").click();
+    const size = page.getByRole("textbox", { name: /Volume size/ });
+    await size.waitFor();
+    console.log("volume size:", await size.inputValue());
+    await page.getByRole("button", { name: /Volume type/ }).click();
+    const types = await page.getByRole("option").allInnerTexts();
+    console.log("volume types:", types.join(" | "));
+    await page.getByRole("option").first().click();
+    await page
+      .getByText("Delete the volume when the instance is deleted")
+      .click();
+  }
   await page.getByRole("button", { name: "Next" }).click();
 
+  // The class tabs first, then the cheapest non-preemptible flavour.
+  // The class cards are React Aria radios whose label is the card.
+  const classes = page.getByRole("radiogroup", { name: "Flavour class" });
+  console.log(
+    "flavour classes:",
+    (
+      await classes
+        .getByRole("radio")
+        .evaluateAll((inputs) =>
+          inputs.map(
+            (i) => i.closest("label")?.innerText.replace(/\n/g, " - ") ?? "?",
+          ),
+        )
+    ).join(" | "),
+  );
+  await classes
+    .getByText(/Balanced|standard/)
+    .first()
+    .click();
   const flavourRow = page
     .getByRole("row")
     .filter({ hasText: /^(?!.*Preemptible)/ })
     .nth(1);
   console.log("flavour:", (await flavourRow.innerText()).replace(/\s+/g, " "));
   await flavourRow.click();
+  if (NEW_VOLUME) {
+    console.log(
+      "summary volume:",
+      (
+        await page.getByRole("complementary", { name: "Summary" }).innerText()
+      ).match(/Volume\s*\n?[^\n]*/)?.[0],
+    );
+  }
   await page.getByRole("button", { name: "Next" }).click();
   console.log(
     "networks checked:",
     await page.getByRole("checkbox", { checked: true }).count(),
   );
+  if (NEW_VOLUME) {
+    // Tick a second network when one is offered and make it the first
+    // interface.
+    const unchecked = page.getByRole("checkbox", { checked: false }).first();
+    if (await unchecked.count()) {
+      // RAC checkboxes are hidden inputs: click the label around it.
+      await page.locator("label").filter({ has: unchecked }).first().click();
+      // Drag the new row to the top from the keyboard: the handle lifts
+      // it, ArrowUp picks the drop point before the first row, Enter drops.
+      await page
+        .getByRole("button", { name: /^Drag / })
+        .last()
+        .focus();
+      await page.keyboard.press("Enter");
+      // The drop targets appear once the drag starts; wait for the one
+      // before the first row, move to it, then drop.
+      const before = page
+        .getByRole("button", { name: /^Insert before / })
+        .first();
+      await before.waitFor({ timeout: 10_000 });
+      await page.keyboard.press("ArrowUp");
+      await page.waitForTimeout(300);
+      await page.keyboard.press("Enter");
+      console.log(
+        "interface order:",
+        (
+          await page.getByRole("grid", { name: "Interface order" }).innerText()
+        ).replace(/\s+/g, " "),
+      );
+    }
+  }
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Next" }).click();
-  await page.getByRole("button", { name: /Key pair/ }).click();
+  // The step list also has a "Key pair" button, and the select is named by
+  // its value (a sole key pair is preselected) and its label, so look inside
+  // the step's own panel.
+  await page
+    .getByRole("group", { name: "Key pair" })
+    .getByRole("button", { name: /Key pair/ })
+    .click();
   await page.getByRole("option").nth(1).click();
   await page.getByRole("button", { name: "Next" }).click();
   console.log(
@@ -127,6 +236,23 @@ try {
     "status:",
     await page.locator("main [data-tone]").first().innerText(),
   );
+  // The detail route carries the instance id; its API detail has the fault
+  // and the boot volume, which the tabs below do not spell out.
+  const instanceId = page
+    .url()
+    .split("/compute/instances/")[1]
+    ?.split(/[/?#]/)[0];
+  if (instanceId) {
+    const detail = await api(`/api/compute/instances/${instanceId}`);
+    const body = detail.body ?? {};
+    if (body.fault)
+      console.log("fault:", JSON.stringify(body.fault).slice(0, 400));
+    const volumes = await api(`/api/compute/instances/${instanceId}/volumes`);
+    console.log(
+      "volumes:",
+      JSON.stringify(volumes.body?.items ?? volumes.body).slice(0, 300),
+    );
+  }
   await page.getByRole("tab", { name: "Interfaces" }).click();
   await page
     .waitForLoadState("networkidle", { timeout: 60_000 })

@@ -137,6 +137,81 @@ class TestFlavorRules:
         assert r.summary(embedded)["name"] == "m3.medium"
         assert r.summary(embedded)["su_rate"] == 1.0
 
+    def test_reservation_flavors(self):
+        r = FlavorRules()
+        # Blazar copies the source flavour's specs, so a class may be
+        # present; the reservation still wins.
+        by_spec = {
+            "id": "res-1",
+            "name": "reservation:res-1",
+            "os-flavor-access:is_public": False,
+            "extra_specs": {
+                "flavor_class:name": "standard-v3",
+                "aggregate_instance_extra_specs:reservation": "res-1",
+                "resources:CUSTOM_RESERVATION_RES_1": "1",
+            },
+        }
+        assert r.is_reservation(by_spec)
+        assert r.reservation_id(by_spec) == "res-1"
+        summary = r.summary(by_spec)
+        assert summary["is_reservation"] is True
+        assert summary["reservation_id"] == "res-1"
+        assert summary["flavor_class"] == "standard-v3"
+        by_name = {"id": "x", "name": "reservation:res-2", "extra_specs": {}}
+        assert r.reservation_id(by_name) == "res-2"
+        plain = {"id": "f", "name": "m3.small", "extra_specs": {}}
+        assert not r.is_reservation(plain)
+        assert r.summary(plain)["reservation_id"] is None
+        custom = FlavorRules(reservation_spec="nectar:reservation")
+        assert (
+            custom.reservation_id(
+                {"name": "x", "extra_specs": {"nectar:reservation": "r"}}
+            )
+            == "r"
+        )
+
+    def test_flavor_classes_known_then_unknown(self):
+        r = FlavorRules()
+
+        def flavor(name, cls=None, reservation=None):
+            specs = {}
+            if cls:
+                specs["flavor_class:name"] = cls
+            if reservation:
+                specs["aggregate_instance_extra_specs:reservation"] = (
+                    reservation
+                )
+            return r.summary({"id": name, "name": name, "extra_specs": specs})
+
+        summaries = [
+            flavor("zz.small", "zzz-class"),
+            flavor("m3.small", "standard-v3"),
+            flavor("m3.medium", "standard-v3"),
+            flavor("aa.small", "aaa-class"),
+            flavor("t3.small", "tiny-v3"),
+            flavor("c1.xxlarge"),
+            flavor("reservation:res-1", "standard-v3", reservation="res-1"),
+        ]
+        classes = r.flavor_classes(summaries)
+        assert [c["id"] for c in classes] == [
+            "standard-v3",
+            "tiny-v3",
+            "aaa-class",
+            "zzz-class",
+        ]
+        balanced = classes[0]
+        assert balanced["title"] == "Balanced (m3)"
+        assert balanced["description"].startswith("Suited to most")
+        assert balanced["count"] == 2
+        unknown = classes[2]
+        assert unknown == {
+            "id": "aaa-class",
+            "title": "aaa-class",
+            "description": None,
+            "count": 1,
+        }
+        assert r.flavor_classes([]) == []
+
 
 class TestImageRules:
     def test_community_hidden_until_search(self):

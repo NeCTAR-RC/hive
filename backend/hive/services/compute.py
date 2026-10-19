@@ -9,6 +9,7 @@ from hive.nectar.flavors import PREEMPTIBLE_NOTICE
 from hive.nectar.networks import PURPOSE_BOOT
 from hive.services.context import Context
 from hive.services import network as network_service
+from hive.services import volumes as volume_service
 
 FLAVORS_TTL = 600
 FLAVORS_STALE = 3600
@@ -598,6 +599,7 @@ async def launch_options(ctx: Context) -> dict:
         guarded("availability_zones", availability_zones(ctx)),
         guarded("server_groups", server_groups_section()),
         guarded("limits", ctx.nova.limits()),
+        guarded("volume_types", volume_service.volume_types(ctx)),
     )
     payload: dict = {"errors": {}}
     for name, value, error in results:
@@ -614,6 +616,17 @@ async def launch_options(ctx: Context) -> dict:
             )
         else:
             payload[name] = value
+    # The new-volume type picker filters by zone the way the create volume
+    # form does (nectar/volumes.py).
+    payload["has_zoned_types"] = any(
+        t.get("zones") for t in payload.get("volume_types") or []
+    )
+    flavors_loaded = payload.get("flavors")
+    payload["flavor_classes"] = (
+        ctx.flavor_rules.flavor_classes(flavors_loaded)
+        if flavors_loaded is not None
+        else None
+    )
     payload["defaults"] = {
         "create_volume": False,
         "config_drive": False,
@@ -633,8 +646,26 @@ def launch_body(ctx: Context, req) -> tuple[dict, dict]:
         "min_count": req.count,
         "max_count": req.count,
     }
-    if req.source.type in ("image", "snapshot"):
+    if req.source.type in ("image", "snapshot") and not req.create_volume:
         server["imageRef"] = req.source.id
+    elif req.source.type in ("image", "snapshot"):
+        # Horizon's "Create New Volume": the image (an instance snapshot
+        # is a glance image too) becomes a new bootable volume of the
+        # chosen size (launch-instance-model.service.js
+        # setFinalSpecBootImageToVolume). Horizon sends no volume type;
+        # Hive offers the zone's types (nova 2.67+).
+        mapping: dict = {
+            "boot_index": 0,
+            "uuid": req.source.id,
+            "source_type": "image",
+            "destination_type": "volume",
+            "volume_size": req.volume_size_gb,
+            "delete_on_termination": req.delete_volume_on_termination,
+        }
+        if req.volume_type:
+            mapping["volume_type"] = req.volume_type
+        server["imageRef"] = ""
+        server["block_device_mapping_v2"] = [mapping]
     else:
         server["imageRef"] = ""
         server["block_device_mapping_v2"] = [

@@ -1,0 +1,7 @@
+---
+features:
+  - |
+    The networks chosen for a new instance can be reordered on the
+    Networks step. The order is the order of the instance's interfaces
+    (the first network becomes the first interface; the operating system
+    decides the names), and ports follow the networks as before.

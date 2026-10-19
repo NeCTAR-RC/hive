@@ -1,16 +1,33 @@
-// The launch wizard's source step: the boot-source type and the image,
-// snapshot or volume to boot from. Changing the type clears the chosen
-// source (useSourceTypeReset in launchForm.ts, applied by the wizard).
-import { useId, useMemo, useState } from "react";
-import { RadioGroup, RadioGroupItem, SearchField } from "@ardc-ui/react";
+// The launch wizard's source step: the boot-source type, the image,
+// snapshot or volume to boot from, and, for an image or snapshot, Horizon's
+// "Create New Volume" fields. Changing the type clears the chosen source
+// and the new-volume fields (useSourceTypeReset in launchForm.ts, applied
+// by the wizard).
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  Button,
+  RadioGroup,
+  RadioGroupItem,
+  SearchField,
+} from "@ardc-ui/react";
 import { useController, useWatch } from "react-hook-form";
-import { RadioInput, SwitchInput } from "../../../components/Form/fields";
-import type {
-  Image,
-  LaunchOptions,
-  LaunchSourceType,
-} from "../../../lib/api/types";
-import { formatBytes, formatGb, formatMb } from "../../../lib/format";
+import {
+  NumberInput,
+  RadioInput,
+  SelectInput,
+  SwitchInput,
+} from "../../../components/Form/fields";
+import type { LaunchOptions, LaunchSourceType } from "../../../lib/api/types";
+import { formatGb } from "../../../lib/format";
+import { typesForZone } from "../../volumes/volumes/rules";
+import {
+  findImage,
+  findSourceItem,
+  GIB,
+  imageMeta,
+  volumeMeta,
+  type SourceItem,
+} from "./launch";
 import { focusTarget, type LaunchFormApi } from "./launchForm";
 import styles from "./LaunchPage.module.scss";
 
@@ -32,52 +49,80 @@ export function SourceStep({
 }) {
   const [query, setQuery] = useState("");
   const errorId = useId();
-  const type = useWatch({ control: form.control, name: "source_type" });
-  const zone = useWatch({ control: form.control, name: "availability_zone" });
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [type, zone, flavorId, createVolume, floor] = useWatch({
+    control: form.control,
+    name: [
+      "source_type",
+      "availability_zone",
+      "flavor_id",
+      "create_volume",
+      "volume_size_min_gb",
+    ],
+  });
   const { field, fieldState } = useController({
     control: form.control,
     name: "source_id",
   });
   const needle = query.trim().toLowerCase();
+  const selected = findSourceItem(data, type, field.value);
 
   const items = useMemo(() => {
     const matches = (name: string | null | undefined) =>
       !needle || (name ?? "").toLowerCase().includes(needle);
+    // The chosen item is always listed, whatever the search says and even
+    // when it is a community image that only a search would show.
+    const chosen = (id: string) => id === field.value;
+    let list: SourceItem[];
     if (type === "image" || type === "snapshot") {
-      const list = (type === "image" ? data.images : data.snapshots) ?? [];
-      return list
-        .filter((image) => (needle ? true : !image.hidden_until_search))
-        .filter((image) => matches(image.name))
+      const images = (type === "image" ? data.images : data.snapshots) ?? [];
+      list = images
+        .filter(
+          (image) =>
+            chosen(image.id) ||
+            ((needle ? true : !image.hidden_until_search) &&
+              matches(image.name)),
+        )
         .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
         .map((image) => ({
           id: image.id,
           name: image.name ?? image.id,
           meta: imageMeta(image),
         }));
-    }
-    if (type === "volume") {
-      return (data.volumes ?? [])
+    } else if (type === "volume") {
+      list = (data.volumes ?? [])
         .filter(
           (volume) =>
-            !zone ||
-            !volume.availability_zone ||
-            volume.availability_zone === zone,
+            chosen(volume.id) ||
+            ((!zone ||
+              !volume.availability_zone ||
+              volume.availability_zone === zone) &&
+              matches(volume.name)),
         )
-        .filter((volume) => matches(volume.name))
         .map((volume) => ({
           id: volume.id,
           name: volume.name,
-          meta: `${formatGb(volume.size_gb)}${volume.availability_zone ? `, ${volume.availability_zone}` : ""}`,
+          meta: volumeMeta(volume),
+        }));
+    } else {
+      list = (data.volume_snapshots ?? [])
+        .filter((snapshot) => chosen(snapshot.id) || matches(snapshot.name))
+        .map((snapshot) => ({
+          id: snapshot.id,
+          name: snapshot.name,
+          meta: formatGb(snapshot.size_gb),
         }));
     }
-    return (data.volume_snapshots ?? [])
-      .filter((snapshot) => matches(snapshot.name))
-      .map((snapshot) => ({
-        id: snapshot.id,
-        name: snapshot.name,
-        meta: formatGb(snapshot.size_gb),
-      }));
-  }, [type, needle, zone, data]);
+    return list;
+  }, [type, needle, zone, data, field.value]);
+
+  // Coming back to the step: the list box scrolls to the checked item so a
+  // choice below its fold is in view (jsdom has no scrollIntoView).
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLElement>("input:checked")
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, []);
 
   const listed = items.slice(0, MAX_LISTED);
   const hiddenCommunity =
@@ -85,6 +130,24 @@ export function SourceStep({
     !needle &&
     (data.images ?? []).some((i) => i.hidden_until_search);
   const error = fieldState.error?.message;
+  const fromImage = type === "image" || type === "snapshot";
+
+  // Why the size floor is what it is, for the field's description.
+  const image = findImage(data, type, field.value);
+  const flavor = data.flavors?.find((f) => f.id === flavorId);
+  const reasons = [
+    image
+      ? `the image needs ${Math.max(
+          Math.ceil((image.size ?? 0) / GIB),
+          image.min_disk ?? 0,
+          1,
+        )} GB`
+      : "",
+    flavor?.disk_gb
+      ? `the ${flavor.name} root disk is ${flavor.disk_gb} GB`
+      : "",
+  ].filter(Boolean);
+  const types = typesForZone(data, zone);
 
   return (
     <div className={styles.fields}>
@@ -100,6 +163,30 @@ export function SourceStep({
             (option.id === "snapshot" && !data.snapshots),
         }))}
       />
+      <p className={styles.selectedRow}>
+        {selected ? (
+          <>
+            <span>
+              Selected: <strong>{selected.name}</strong>
+            </span>
+            {selected.meta && (
+              <span className={styles.selectedMeta}>{selected.meta}</span>
+            )}
+            <Button
+              variant="link"
+              size="xs"
+              onPress={() => {
+                field.onChange("");
+                form.clearErrors("source_id");
+              }}
+            >
+              Clear
+            </Button>
+          </>
+        ) : (
+          <span className={styles.hint}>No source selected yet.</span>
+        )}
+      </p>
       <SearchField
         size="sm"
         aria-label="Search sources"
@@ -118,7 +205,12 @@ export function SourceStep({
           for them.
         </p>
       )}
-      <div ref={(el) => field.ref(focusTarget(el))}>
+      <div
+        ref={(el) => {
+          listRef.current = el;
+          field.ref(focusTarget(el));
+        }}
+      >
         <RadioGroup
           aria-label="Source"
           value={field.value || null}
@@ -152,7 +244,60 @@ export function SourceStep({
           {error}
         </p>
       )}
-      {(type === "volume" || type === "volume_snapshot") && (
+      {fromImage && (
+        <>
+          {/* Horizon hides the toggle until a zone is chosen (Nectar patch
+              216995ea1); it is disabled here instead, since the steps can
+              be visited in any order. */}
+          <SwitchInput
+            control={form.control}
+            name="create_volume"
+            label="Create a new volume from the image"
+            isDisabled={!zone}
+          />
+          {!zone && (
+            <p className={styles.hint}>
+              Choose an availability zone on the Details step first; the volume
+              is created in that zone.
+            </p>
+          )}
+          {createVolume && (
+            <>
+              <NumberInput
+                control={form.control}
+                name="volume_size_gb"
+                label="Volume size (GB)"
+                description={`At least ${floor} GB${
+                  reasons.length ? ` (${reasons.join("; ")})` : ""
+                }.`}
+                minValue={floor}
+                step={1}
+                isRequired
+              />
+              <SelectInput
+                control={form.control}
+                name="volume_type"
+                label="Volume type"
+                options={[
+                  { id: "", label: "Default volume type" },
+                  ...types.map((t) => ({
+                    id: t.name,
+                    label: t.description
+                      ? `${t.name} (${t.description})`
+                      : t.name,
+                  })),
+                ]}
+                description={
+                  data.has_zoned_types
+                    ? `Showing the types available in ${zone}.`
+                    : undefined
+                }
+              />
+            </>
+          )}
+        </>
+      )}
+      {(type === "volume" || type === "volume_snapshot" || createVolume) && (
         <SwitchInput
           control={form.control}
           name="delete_volume_on_termination"
@@ -161,14 +306,4 @@ export function SourceStep({
       )}
     </div>
   );
-}
-
-function imageMeta(image: Image): string {
-  const parts = [
-    image.is_snapshot ? "snapshot" : image.visibility,
-    formatBytes(image.size),
-    image.min_disk ? `min disk ${image.min_disk} GB` : "",
-    image.min_ram ? `min RAM ${formatMb(image.min_ram)}` : "",
-  ];
-  return parts.filter(Boolean).join(", ");
 }

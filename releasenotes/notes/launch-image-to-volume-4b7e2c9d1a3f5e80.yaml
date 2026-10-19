@@ -1,0 +1,10 @@
+---
+features:
+  - |
+    The launch wizard can boot an image or instance snapshot onto a new
+    volume, as Horizon's "Create New Volume" does. The size starts at the
+    image's own floor (its size rounded up to whole gigabytes, or its
+    minimum disk) and rises to the chosen flavour's root disk; the zone's
+    volume types are offered with the default first; and the volume can
+    be deleted with the instance. The option is available once an
+    availability zone has been chosen on the Details step.

@@ -6,6 +6,7 @@ import type {
   AttachablePort,
   ComputeLimits,
   Flavor,
+  FlavorClass,
   Image,
   Instance,
   InstanceAction,
@@ -21,6 +22,7 @@ import type {
   SecurityGroupRule,
   ServerGroup,
 } from "../lib/api/types";
+import { volumeTypes } from "./volumes";
 
 const CLASSIC = "00000000-0000-0000-0000-000000000000";
 const PROJECT = "p1";
@@ -38,10 +40,12 @@ export const flavors: Flavor[] = [
     ephemeral_gb: 0,
     swap_mb: 0,
     is_public: true,
-    flavor_class: "m3",
+    flavor_class: "standard-v3",
     su_rate: 0.5,
     is_preemptible: false,
-    extra_specs: { "nectar:rate": "0.5", "flavor_class:name": "m3" },
+    is_reservation: false,
+    reservation_id: null,
+    extra_specs: { "nectar:rate": "0.5", "flavor_class:name": "standard-v3" },
   },
   {
     id: "f-medium",
@@ -52,10 +56,12 @@ export const flavors: Flavor[] = [
     ephemeral_gb: 0,
     swap_mb: 0,
     is_public: true,
-    flavor_class: "m3",
+    flavor_class: "standard-v3",
     su_rate: 1,
     is_preemptible: false,
-    extra_specs: { "nectar:rate": "1", "flavor_class:name": "m3" },
+    is_reservation: false,
+    reservation_id: null,
+    extra_specs: { "nectar:rate": "1", "flavor_class:name": "standard-v3" },
   },
   {
     id: "f-pre",
@@ -69,7 +75,65 @@ export const flavors: Flavor[] = [
     flavor_class: "preemptible",
     su_rate: 0.1,
     is_preemptible: true,
+    is_reservation: false,
+    reservation_id: null,
     extra_specs: { "nectar:rate": "0.1", "flavor_class:name": "preemptible" },
+  },
+  // No flavour class: the wizard lists it under "Other".
+  {
+    id: "f-test",
+    name: "test.large",
+    vcpus: 8,
+    ram_mb: 8192,
+    disk_gb: 30,
+    ephemeral_gb: 0,
+    swap_mb: 0,
+    is_public: true,
+    flavor_class: null,
+    su_rate: 0.134,
+    is_preemptible: false,
+    is_reservation: false,
+    reservation_id: null,
+    extra_specs: { "nectar:rate": "0.134" },
+  },
+  // The Blazar flavour of the mock reservation res-1 (mocks/nectar.ts):
+  // the source flavour's specs copied plus the reservation spec.
+  {
+    id: "r-f1",
+    name: "reservation:r-f1",
+    vcpus: 16,
+    ram_mb: 16384,
+    disk_gb: 10,
+    ephemeral_gb: 0,
+    swap_mb: 0,
+    is_public: false,
+    flavor_class: "standard-v3",
+    su_rate: 5.562,
+    is_preemptible: false,
+    is_reservation: true,
+    reservation_id: "r-f1",
+    extra_specs: {
+      "nectar:rate": "5.562",
+      "flavor_class:name": "standard-v3",
+      "aggregate_instance_extra_specs:reservation": "r-f1",
+    },
+  },
+];
+
+export const flavorClasses: FlavorClass[] = [
+  {
+    id: "standard-v3",
+    title: "Balanced (m3)",
+    description:
+      "Suited to most workloads, with 2 GB of RAM per vCPU and a 30 GB root disk.",
+    count: 2,
+  },
+  {
+    id: "preemptible",
+    title: "Preemptible (p3)",
+    description:
+      "Extra compute for a short period at a quarter of the SU cost of the matching m3 flavour; instances are stopped within 24 hours and may be stopped at any time.",
+    count: 1,
   },
 ];
 
@@ -480,6 +544,9 @@ const actionLog: InstanceAction[] = [
 
 export const launchOptions = (): LaunchOptions => ({
   flavors,
+  flavor_classes: flavorClasses,
+  volume_types: volumeTypes,
+  has_zoned_types: true,
   images: images
     .filter((i) => !i.is_snapshot)
     .map((i) => ({

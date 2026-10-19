@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     resize_hidden_flavor_classes: CommaList = []
     preemptible_flavor_class: str = "preemptible"
     su_rate_extra_spec: str = "nectar:rate"
+    # The extra spec Blazar's flavour plugin puts on a reservation's flavour.
+    reservation_flavor_extra_spec: str = (
+        "aggregate_instance_extra_specs:reservation"
+    )
     image_reserved_properties: CommaList = [
         "os_hash_algo",
         "os_hash_value",

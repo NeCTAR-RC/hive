@@ -1,9 +1,18 @@
+import type { Page } from "@playwright/test";
 import {
   expect,
   expectNoHorizontalScroll,
   expectNoSeriousA11yIssues,
   test,
 } from "./fixtures";
+
+/** A flavour class card: a React Aria radio whose label is the card. */
+function classTab(page: Page, name: RegExp) {
+  return page
+    .getByRole("radiogroup", { name: "Flavour class" })
+    .getByText(name)
+    .first();
+}
 
 test.describe("instances", () => {
   test("lists instances with status and search", async ({ page }) => {
@@ -77,27 +86,67 @@ test.describe("instances", () => {
       .click();
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Flavour: the preemptible row carries the notice once chosen.
+    // Flavour: a tab per class with its flavours inside; Reserved opens
+    // first because the mock project has a reservation flavour, the
+    // preemptible row carries the notice once chosen, and the choice
+    // survives a look at another class until a row replaces it.
+    // The reservation flavour is named after its warre reservation once
+    // the reservations list arrives.
+    await expect(
+      page.getByRole("row", { name: /ardc.g3.xlarge reservation/ }),
+    ).toBeVisible();
+    await classTab(page, /Balanced \(m3\)/).click();
+    await expect(page.getByRole("row", { name: /m3.small/ })).toBeVisible();
+    await classTab(page, /Preemptible \(p3\)/).click();
     await page.getByRole("row", { name: /p3.small/ }).click();
     await expect(page.getByText(/maximum lifetime of 24 hours/)).toBeVisible();
+    await classTab(page, /Balanced \(m3\)/).click();
+    await expect(page.getByRole("row", { name: /p3.small/ })).toHaveCount(0);
+    await expect(page.getByText(/maximum lifetime of 24 hours/)).toBeVisible();
     await page.getByRole("row", { name: /m3.small/ }).click();
+    await expect(page.getByText(/maximum lifetime of 24 hours/)).toHaveCount(0);
+    await expectNoSeriousA11yIssues(page);
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Networks: classic is preselected.
+    // Networks: classic is preselected; a second network can be dragged to
+    // become the first interface. The keyboard path: the handle lifts the
+    // row, the arrow keys pick the drop point, Enter drops.
     await expect(page.getByRole("checkbox", { name: /classic/ })).toBeChecked();
+    // RAC checkboxes are hidden inputs: click the label text. A port on
+    // that network is also offered, so anchor to the network's own label.
+    await page
+      .getByText(/^private-net/)
+      .first()
+      .click();
+    await expect(
+      page.getByRole("checkbox", { name: /^private-net/ }),
+    ).toBeChecked();
+    const order = page.getByRole("grid", { name: "Interface order" });
+    await expect(order.getByRole("row")).toHaveCount(2);
+    await page.getByRole("button", { name: "Drag private-net" }).focus();
+    await page.keyboard.press("Enter");
+    // React Aria renders the drop targets once the drag starts; wait for
+    // them before moving, or the keys land before they exist.
+    const before = page.getByRole("button", { name: /^Insert before classic/ });
+    await expect(before).toBeVisible();
+    await page.keyboard.press("ArrowUp");
+    await expect(before).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(order.getByRole("row").first()).toContainText("private-net");
+    const summary = page.getByRole("complementary", { name: "Summary" });
+    await expect(summary).toContainText("private-net, classic");
+    await expectNoSeriousA11yIssues(page);
     await page.getByRole("button", { name: "Next" }).click();
     await expect(
       page.getByRole("checkbox", { name: /^default/ }),
     ).toBeChecked();
     await page.getByRole("button", { name: "Next" }).click();
-    await page.getByRole("button", { name: /Key pair/ }).click();
+    // The step list also has a "Key pair" button; the select is named by
+    // its placeholder and label.
+    await page.getByRole("button", { name: /Choose a key pair/ }).click();
     await page.getByRole("option", { name: /ada-laptop/ }).click();
     await page.getByRole("button", { name: "Next" }).click();
-    await expect(
-      page
-        .getByRole("complementary", { name: "Summary" })
-        .getByText("0.5 SU/hour"),
-    ).toBeVisible();
+    await expect(summary.getByText("0.5 SU/hour")).toBeVisible();
     await page.getByRole("button", { name: "Launch", exact: true }).click();
     await expect(page).toHaveURL(/\/compute\/instances$/);
     await expect(
@@ -108,6 +157,67 @@ test.describe("instances", () => {
         .getByRole("grid", { name: "Instances" })
         .getByRole("link", { name: "e2e-test" }),
     ).toBeVisible();
+  });
+
+  test("jumps between launch steps and marks the incomplete ones", async ({
+    page,
+  }) => {
+    await page.goto("/compute/instances/launch");
+    const steps = page.getByRole("list", { name: "Launch steps" });
+    const source = steps.getByRole("listitem").filter({ hasText: "Source" });
+    await expect(source).toHaveAttribute("data-status", "pending");
+    // The status is part of the step's name, so a screen reader hears it.
+    await steps.getByRole("button", { name: /^Key pair/ }).click();
+    await expect(
+      page.getByRole("button", { name: /Choose a key pair/ }),
+    ).toBeVisible();
+    await expectNoSeriousA11yIssues(page);
+    await steps
+      .getByRole("button", { name: /^Source\s*\(incomplete\)/ })
+      .click();
+    await page
+      .getByText(/NeCTAR Ubuntu 24\.04/)
+      .first()
+      .click();
+    await expect(source).not.toHaveAttribute("data-status", "pending");
+    await expect(
+      steps.getByRole("listitem").filter({ hasText: "Details" }),
+    ).toHaveAttribute("data-status", "pending");
+  });
+
+  test("boots an image onto a new volume", async ({ page }) => {
+    await page.goto("/compute/instances/launch");
+    await page.getByRole("textbox", { name: "Instance name" }).fill("e2e-bfv");
+    await page.getByRole("button", { name: /Availability zone/ }).click();
+    await page.getByRole("option", { name: "melbourne-qh2" }).click();
+    await page.getByRole("button", { name: "Next" }).click();
+    await page
+      .getByText(/NeCTAR Ubuntu 24\.04/)
+      .first()
+      .click();
+    await expect(
+      page
+        .getByText(/^Selected:/)
+        .locator("..")
+        .getByText(/NeCTAR Ubuntu/),
+    ).toBeVisible();
+    // A RAC Switch's input is visually hidden: click its label.
+    await page.getByText("Create a new volume from the image").click();
+    // The mock image has min_disk 10.
+    await expect(
+      page.getByRole("textbox", { name: /Volume size/ }),
+    ).toHaveValue("10");
+    await page.getByRole("button", { name: /Volume type/ }).click();
+    await page.getByRole("option", { name: /qh2-ssd/ }).click();
+    const summary = page.getByRole("complementary", { name: "Summary" });
+    await expect(summary).toContainText("New 10 GB volume (qh2-ssd)");
+    await expectNoSeriousA11yIssues(page);
+    await page.getByRole("button", { name: "Next" }).click();
+    // The root disk of a flavour no longer has to hold the image, but a
+    // flavour raises the size to its own root disk.
+    await classTab(page, /Balanced \(m3\)/).click();
+    await page.getByRole("row", { name: /m3.small/ }).click();
+    await expect(summary).toContainText("New 30 GB volume (qh2-ssd)");
   });
 });
 

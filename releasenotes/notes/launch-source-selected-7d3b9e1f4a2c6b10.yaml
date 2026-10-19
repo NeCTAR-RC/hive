@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    The launch wizard's Source step names the chosen image, snapshot or
+    volume above the list, keeps it listed whatever the search shows, and
+    scrolls the list to it when the step is revisited, so a choice no
+    longer hides below the fold of a long image list.

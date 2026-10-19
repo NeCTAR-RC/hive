@@ -59,7 +59,10 @@ FLAVORS = [
         "disk": 30,
         "OS-FLV-EXT-DATA:ephemeral": 0,
         "os-flavor-access:is_public": True,
-        "extra_specs": {"nectar:rate": "0.5"},
+        "extra_specs": {
+            "nectar:rate": "0.5",
+            "flavor_class:name": "standard-v3",
+        },
     },
     {
         "id": "f-pre",
@@ -71,6 +74,31 @@ FLAVORS = [
             "flavor_class:name": "preemptible",
             "nectar:rate": "0.1",
         },
+    },
+    # A Blazar reservation flavour: the source flavour's specs copied plus
+    # the reservation spec, private to the project.
+    {
+        "id": "res-1",
+        "name": "reservation:res-1",
+        "vcpus": 2,
+        "ram": 4096,
+        "disk": 30,
+        "os-flavor-access:is_public": False,
+        "extra_specs": {
+            "flavor_class:name": "standard-v3",
+            "aggregate_instance_extra_specs:reservation": "res-1",
+            "resources:CUSTOM_RESERVATION_RES_1": "1",
+            "nectar:rate": "0.5",
+        },
+    },
+]
+
+VOLUME_TYPES = [
+    {"id": "t-std", "name": "standard", "extra_specs": {}},
+    {
+        "id": "t-qh2",
+        "name": "qh2-ssd",
+        "extra_specs": {"RESKEY:availability_zones": "melbourne-qh2"},
     },
 ]
 
@@ -197,6 +225,9 @@ def nova(upstream, compute_catalog):
     upstream.get(f"{NOVA}/os-server-groups").mock(
         return_value=httpx.Response(200, json={"server_groups": []})
     )
+    upstream.get(f"{CINDER}/types").mock(
+        return_value=httpx.Response(200, json={"volume_types": VOLUME_TYPES})
+    )
     upstream.get(f"{NOVA}/limits").mock(
         return_value=httpx.Response(
             200,
@@ -257,8 +288,9 @@ async def test_instance_detail_and_resize_flavors(user, nova):
     flavors = (
         await user.get("/api/compute/instances/srv-1/resize-flavors")
     ).json()
-    # The current flavour and the hidden p3.* family are excluded.
-    assert flavors["items"] == []
+    # The current flavour and the hidden p3.* family are excluded; a
+    # reservation flavour stays a resize target, as in Horizon.
+    assert [f["id"] for f in flavors["items"]] == ["res-1"]
 
 
 async def test_actions(user, nova):
@@ -437,6 +469,22 @@ async def test_launch_options_applies_nectar_rules(user, nova):
     flavors = {f["id"]: f for f in body["flavors"]}
     assert flavors["f-pre"]["is_preemptible"] is True
     assert flavors["f-small"]["su_rate"] == 0.5
+    assert flavors["f-small"]["is_reservation"] is False
+    assert flavors["res-1"]["is_reservation"] is True
+    assert flavors["res-1"]["reservation_id"] == "res-1"
+    # Classes: table order, counts without the reservation flavour.
+    assert [(c["id"], c["count"]) for c in body["flavor_classes"]] == [
+        ("standard-v3", 1),
+        ("preemptible", 1),
+    ]
+    assert body["flavor_classes"][0]["title"] == "Balanced (m3)"
+    assert body["flavor_classes"][0]["description"]
+    assert [t["name"] for t in body["volume_types"]] == [
+        "qh2-ssd",
+        "standard",
+    ]
+    assert body["volume_types"][0]["zones"] == ["melbourne-qh2"]
+    assert body["has_zoned_types"] is True
     images = {i["id"]: i for i in body["images"]}
     assert images["img-comm"]["hidden_until_search"] is True
     assert images["img-mine"]["hidden_until_search"] is False
@@ -468,10 +516,17 @@ async def test_launch_options_reports_partial_failures(user, nova):
     nova.get(f"{CINDER}/snapshots/detail").mock(
         return_value=httpx.Response(200, json={"snapshots": []})
     )
+    nova.get(f"{CINDER}/types").mock(
+        return_value=httpx.Response(503, text="down")
+    )
     body = (await user.get("/api/compute/launch-options")).json()
     assert body["networks"] is None
     assert body["errors"]["networks"]["error"] == "upstream_error"
     assert body["flavors"]
+    assert body["flavor_classes"]
+    assert body["volume_types"] is None
+    assert body["has_zoned_types"] is False
+    assert body["errors"]["volume_types"]["error"] == "upstream_error"
 
 
 async def test_launch_builds_nova_body(user, nova):
@@ -524,6 +579,83 @@ async def test_launch_builds_nova_body(user, nova):
         "block_device_mapping_v2"
     ]
     assert bdm[0]["source_type"] == "volume" and bdm[0]["uuid"] == "vol-boot"
+
+    # Horizon's "Create New Volume": the image becomes a new volume.
+    image_to_volume = await user.post(
+        "/api/compute/instances",
+        json={
+            "name": "on-new-volume",
+            "source": {"type": "image", "id": "img-ubuntu"},
+            "flavor_id": "f-small",
+            "availability_zone": "melbourne-qh2",
+            "networks": ["net-b", CLASSIC],
+            "create_volume": True,
+            "volume_size_gb": 20,
+            "volume_type": "qh2-ssd",
+            "delete_volume_on_termination": True,
+        },
+        headers=csrf_headers(user),
+    )
+    assert image_to_volume.status_code == 202, image_to_volume.text
+    server = json.loads(route.calls.last.request.content)["server"]
+    assert server["imageRef"] == ""
+    assert server["block_device_mapping_v2"] == [
+        {
+            "boot_index": 0,
+            "uuid": "img-ubuntu",
+            "source_type": "image",
+            "destination_type": "volume",
+            "volume_size": 20,
+            "delete_on_termination": True,
+            "volume_type": "qh2-ssd",
+        }
+    ]
+    # The chosen network order is the interface order.
+    assert server["networks"] == [{"uuid": "net-b"}, {"uuid": CLASSIC}]
+
+    default_type = await user.post(
+        "/api/compute/instances",
+        json={
+            "name": "on-new-volume",
+            "source": {"type": "snapshot", "id": "img-snap"},
+            "flavor_id": "f-small",
+            "availability_zone": "melbourne-qh2",
+            "networks": [CLASSIC],
+            "create_volume": True,
+            "volume_size_gb": 30,
+        },
+        headers=csrf_headers(user),
+    )
+    assert default_type.status_code == 202
+    mapping = json.loads(route.calls.last.request.content)["server"][
+        "block_device_mapping_v2"
+    ][0]
+    assert mapping["source_type"] == "image"
+    assert "volume_type" not in mapping
+    assert mapping["delete_on_termination"] is False
+
+    for bad in (
+        # No size for the new volume.
+        {"source": {"type": "image", "id": "img-ubuntu"}},
+        # A volume source cannot also create a volume.
+        {
+            "source": {"type": "volume", "id": "vol-boot"},
+            "volume_size_gb": 20,
+        },
+    ):
+        rejected = await user.post(
+            "/api/compute/instances",
+            json={
+                "name": "x",
+                "flavor_id": "f-small",
+                "availability_zone": "melbourne-qh2",
+                "networks": [CLASSIC],
+                "create_volume": True,
+                **bad,
+            },
+            headers=csrf_headers(user),
+        )
+        assert rejected.status_code == 422, rejected.text
 
     no_network = await user.post(
         "/api/compute/instances",
@@ -1127,7 +1259,7 @@ async def test_flavors_are_cached_per_project(user, nova, redis):
         return_value=httpx.Response(200, json={"flavors": FLAVORS})
     )
     first = (await user.get("/api/compute/flavors")).json()
-    assert {f["id"] for f in first["items"]} == {"f-small", "f-pre"}
+    assert {f["id"] for f in first["items"]} == {"f-small", "f-pre", "res-1"}
     assert flavors.call_count == 1
     keys = await redis.keys("*flavors*")
     assert keys and all(":p:p1:" in k for k in keys)

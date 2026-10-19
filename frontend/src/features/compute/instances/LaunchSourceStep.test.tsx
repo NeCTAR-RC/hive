@@ -2,11 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { stubResizeObserver } from "../../../components/testing/resizeObserver";
 import type { Image, LaunchOptions } from "../../../lib/api/types";
 import {
   launchSchema,
+  useNewVolumeRules,
   useSourceTypeReset,
   type LaunchForm,
 } from "./launchForm";
@@ -16,16 +17,45 @@ const image = {
   id: "img-1",
   name: "Ubuntu 24.04",
   visibility: "public",
-  size: 1024,
-  min_disk: 0,
+  size: 650 * 1024 ** 2,
+  min_disk: 10,
   min_ram: 0,
   is_snapshot: false,
   hidden_until_search: false,
 } as unknown as Image;
 
+const community = {
+  ...image,
+  id: "img-comm",
+  name: "Someone's bioinformatics image",
+  visibility: "community",
+  hidden_until_search: true,
+} as unknown as Image;
+
 const DATA = {
-  flavors: [],
-  images: [image],
+  flavors: [
+    {
+      id: "f-small",
+      name: "m3.small",
+      vcpus: 2,
+      ram_mb: 4096,
+      disk_gb: 30,
+      is_reservation: false,
+    },
+  ],
+  flavor_classes: [],
+  volume_types: [
+    { id: "t-std", name: "standard", description: null, zones: null },
+    {
+      id: "t-qh2",
+      name: "qh2-ssd",
+      description: "Local SSD",
+      zones: ["melbourne-qh2"],
+    },
+    { id: "t-mon", name: "monash-ssd", description: null, zones: ["monash"] },
+  ],
+  has_zoned_types: true,
+  images: [image, community],
   snapshots: [],
   volumes: [
     {
@@ -52,38 +82,66 @@ const DATA = {
   },
 } as unknown as LaunchOptions;
 
-function Harness() {
+const DEFAULTS: LaunchForm = {
+  name: "",
+  description: "",
+  availability_zone: "",
+  count: 1,
+  source_type: "image",
+  source_id: "",
+  delete_volume_on_termination: false,
+  create_volume: false,
+  volume_size_gb: undefined,
+  volume_size_min_gb: 1,
+  volume_type: "",
+  flavor_class: "",
+  flavor_id: "",
+  networks: [],
+  ports: [],
+  security_groups: [],
+  key_name: "",
+  user_data: "",
+  server_group_id: "",
+  metadata: [],
+};
+
+function Harness({ initial = {} }: { initial?: Partial<LaunchForm> }) {
   const form = useForm<LaunchForm>({
     resolver: zodResolver(launchSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      availability_zone: "",
-      count: 1,
-      source_type: "image",
-      source_id: "",
-      delete_volume_on_termination: false,
-      flavor_id: "",
-      networks: [],
-      ports: [],
-      security_groups: [],
-      key_name: "",
-      user_data: "",
-      server_group_id: "",
-      metadata: [],
-    },
+    defaultValues: { ...DEFAULTS, ...initial },
   });
   useSourceTypeReset(form);
-  const sourceId = useWatch({ control: form.control, name: "source_id" });
-  const deleteVolume = useWatch({
+  useNewVolumeRules(form, DATA);
+  const [sourceId, deleteVolume, size, volumeType] = useWatch({
     control: form.control,
-    name: "delete_volume_on_termination",
+    name: [
+      "source_id",
+      "delete_volume_on_termination",
+      "volume_size_gb",
+      "volume_type",
+    ],
   });
   return (
     <>
       <SourceStep form={form} data={DATA} />
+      <button
+        type="button"
+        onClick={() => form.setValue("availability_zone", "melbourne-qh2")}
+      >
+        Set zone
+      </button>
+      <button
+        type="button"
+        onClick={() => form.setValue("flavor_id", "f-small")}
+      >
+        Set flavour
+      </button>
       <output aria-label="Source id">{sourceId}</output>
       <output aria-label="Delete volume">{String(deleteVolume)}</output>
+      <output aria-label="Volume size">
+        {size === undefined ? "" : String(size)}
+      </output>
+      <output aria-label="Volume type">{volumeType}</output>
     </>
   );
 }
@@ -91,6 +149,7 @@ function Harness() {
 describe("SourceStep", () => {
   beforeAll(() => {
     stubResizeObserver();
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   it("clears the chosen source when the boot-source type changes", async () => {
@@ -115,5 +174,73 @@ describe("SourceStep", () => {
     expect(
       screen.getByRole("radio", { name: /Ubuntu 24.04/ }),
     ).not.toBeChecked();
+  });
+
+  it("names the chosen source above the list and keeps it listed", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    expect(screen.getByText("No source selected yet.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: /Ubuntu 24.04/ }));
+    expect(
+      screen.getByText("Ubuntu 24.04", { selector: "strong" }),
+    ).toBeVisible();
+
+    // A search that misses the chosen image still lists it, checked, and
+    // nothing else.
+    await user.type(screen.getByRole("searchbox"), "zzz");
+    expect(screen.getByRole("radio", { name: /Ubuntu 24.04/ })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /bioinformatics/ })).toBeNull();
+    expect(screen.queryByText("Nothing matches.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.getByLabelText("Source id")).toBeEmptyDOMElement();
+    expect(screen.getByText("No source selected yet.")).toBeInTheDocument();
+  });
+
+  it("lists a preselected community image and scrolls to it", () => {
+    render(<Harness initial={{ source_id: "img-comm" }} />);
+    expect(screen.getByRole("radio", { name: /bioinformatics/ })).toBeChecked();
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("offers a new volume once a zone is chosen, sized from the image and flavour", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const toggle = screen.getByRole("switch", { name: /Create a new volume/ });
+    expect(toggle).toBeDisabled();
+    expect(
+      screen.getByText(/Choose an availability zone on the Details step/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Set zone" }));
+    expect(toggle).toBeEnabled();
+    await user.click(screen.getByRole("radio", { name: /Ubuntu 24.04/ }));
+    await user.click(toggle);
+
+    // The floor is the image's min_disk (its 650 MB round up to 1 GB).
+    expect(screen.getByLabelText("Volume size")).toHaveTextContent("10");
+    expect(screen.getByRole("textbox", { name: /Volume size/ })).toHaveValue(
+      "10",
+    );
+    expect(screen.getByText(/At least 10 GB/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Volume type/ }),
+    ).toHaveTextContent("Default volume type");
+    expect(
+      screen.getByRole("switch", { name: /Delete the volume/ }),
+    ).toBeInTheDocument();
+
+    // A flavour with a larger root disk raises the size.
+    await user.click(screen.getByRole("button", { name: "Set flavour" }));
+    expect(screen.getByLabelText("Volume size")).toHaveTextContent("30");
+    expect(screen.getByText(/m3.small root disk is 30 GB/)).toBeInTheDocument();
+
+    // Changing the boot source drops the new-volume fields.
+    await user.click(screen.getByRole("radio", { name: "Volume" }));
+    expect(screen.getByLabelText("Volume size")).toBeEmptyDOMElement();
+    expect(
+      screen.queryByRole("switch", { name: /Create a new volume/ }),
+    ).toBeNull();
   });
 });

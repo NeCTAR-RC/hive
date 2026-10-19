@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    Every step of the launch wizard can be reached from the step list, in
+    either direction, so a step can be skipped and come back to. A step
+    whose required answers are missing is marked "incomplete", and one
+    whose answers were rejected "has errors", in the list and to screen
+    readers.

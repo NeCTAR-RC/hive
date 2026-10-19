@@ -4,6 +4,7 @@ import type {
   VolumeLimits,
   VolumeOptions,
   VolumeSourceType,
+  VolumeType,
 } from "../../../lib/api/types";
 
 const GIB = 1024 ** 3;
@@ -15,8 +16,15 @@ export function gigabytesAvailable(limits: VolumeLimits | undefined) {
   return Math.max(0, max - (limits?.totalGigabytesUsed ?? 0));
 }
 
-/** The types offered for a zone: every type when none names a zone. */
-export function typesForZone(options: VolumeOptions | undefined, zone: string) {
+/**
+ * The types offered for a zone: every type when none names a zone. The
+ * launch wizard's new-volume picker passes its launch options here too.
+ */
+export function typesForZone(
+  options:
+    { volume_types: VolumeType[] | null; has_zoned_types: boolean } | undefined,
+  zone: string,
+) {
   const types = options?.volume_types ?? [];
   if (!options?.has_zoned_types) return types;
   return types.filter((t) => !t.zones || t.zones.includes(zone));

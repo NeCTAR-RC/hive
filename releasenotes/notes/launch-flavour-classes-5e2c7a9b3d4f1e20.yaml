@@ -1,0 +1,11 @@
+---
+features:
+  - |
+    The launch wizard's Flavour step asks for a flavour class first (from
+    the ``flavor_class:name`` extra spec), with a sentence describing each
+    class, then lists the flavours of that class. Flavours without a class
+    sit under "Other" and the flavours of the project's Blazar
+    reservations under "Reserved", named after the reservation where the
+    reservation list is available. The reservation flavour is recognised
+    by the ``aggregate_instance_extra_specs:reservation`` extra spec,
+    configurable with ``HIVE_RESERVATION_FLAVOR_EXTRA_SPEC``.

@@ -83,6 +83,27 @@
   width: 100%;
 }
 
+// The chosen source, named above the list so it never hides below the fold.
+.selectedRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--hive-space-1) var(--hive-space-2);
+  margin: 0;
+  font-size: var(--hive-font-size-sm);
+}
+
+.selectedMeta {
+  color: var(--hive-color-text-muted);
+  font-size: var(--hive-font-size-xs);
+}
+
+.order {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+}
+
 .metadata {
   display: flex;
   flex-direction: column;

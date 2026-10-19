@@ -77,6 +77,7 @@ class Context:
             s.preemptible_flavor_class,
             s.resize_hidden_flavor_classes,
             s.resize_hidden_flavor_prefixes,
+            reservation_spec=s.reservation_flavor_extra_spec,
         )
 
     @cached_property
