@@ -21,18 +21,11 @@
   min-width: 0;
 }
 
+// Layout only: a 44px touch target; the DS link button draws the rest.
 .navToggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   margin-left: calc(-1 * var(--hive-space-2));
-  background: none;
-  border: 0;
-  border-radius: var(--hive-radius);
-  color: var(--hive-color-text-heading);
-  cursor: pointer;
 }
 
 .logo {
@@ -60,15 +53,6 @@
     margin: 0;
     padding: 0;
     font-size: var(--hive-font-size-sm);
-  }
-
-  a {
-    color: var(--hive-color-text-body);
-    text-decoration: none;
-
-    &:hover {
-      text-decoration: underline;
-    }
   }
 }
 

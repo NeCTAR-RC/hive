@@ -1,0 +1,29 @@
+---
+fixes:
+  - |
+    The Usage summary and Limit summary links in the sidebar project box,
+    and the Nectar Dashboard Home and Terms of Service links in the footer,
+    now navigate inside the dashboard instead of reloading the whole page.
+  - |
+    A delete dialog that asks for the resource name no longer opens with
+    the name typed for the previous delete.
+  - |
+    Keyboard focus stays on a dialog's submit or confirm button, and on the
+    project selector, while the action runs, instead of dropping to the
+    page.
+  - |
+    The session timeout warning appears as soon as the session details
+    load, rather than up to 30 seconds later.
+  - |
+    Saved table column choices that are malformed no longer break the
+    table, and a column added in a later release now shows by default
+    instead of staying hidden.
+  - |
+    The sidebar no longer opens a dashboard section for a page whose path
+    only starts with the same letters as one of its panels.
+  - |
+    The ARDC header's Nectar services menu is now the design-system menu
+    used in the dashboard bar, with full keyboard support. Header,
+    sidebar, dashboard bar and footer controls and links use the
+    design-system button and link styles, and external links show the
+    design-system external-link icon.

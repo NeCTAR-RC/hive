@@ -1,0 +1,27 @@
+// Every Hive style that reaches into @ardc-ui/react's internal class names,
+// in one place. The design system's policy forbids this: "Consumer overrides
+// are out of scope (no runtime theming)" (ardc-ui-react CLAUDE.md), and the
+// README keeps state-based styling private. Each rule below is a known
+// breach kept until the design system answers the ask named with it, and
+// src/styles/ds-overrides.test.tsx fails if a DS release renames a class
+// these selectors rely on. Add nothing here without an upstream ask.
+
+// Modal stacking. The DS dialog backdrop is position: fixed with no
+// z-index, so the sticky dashboard bar and the drawers would paint above
+// it. Lift it above the drawer layer and keep it under toasts.
+// Ask: a z-index token on Modal (new designer question).
+[class*="Dialog-module__overlay"] {
+  z-index: var(--hive-z-modal);
+}
+
+// Quota warning tones. The DS Meter draws a single brand fill; QuotaMeter
+// marks a meter at 80% or more with data-hive-tone so the fill turns to
+// warning, and at 100% to danger.
+// Ask: add Hive's quota case to designer question 55 (Meter tones).
+[data-hive-tone="warning"] [class*="Meter-module__fill"] {
+  background: var(--hive-color-warning-strong);
+}
+
+[data-hive-tone="danger"] [class*="Meter-module__fill"] {
+  background: var(--hive-color-danger);
+}

@@ -42,7 +42,6 @@
 
 .utility ul,
 .main ul,
-.serviceList,
 .drawerList,
 .drawerList ul {
   list-style: none;
@@ -109,6 +108,11 @@
   @extend %navLink;
 }
 
+// Layout only: the DS link button keeps its own colour and states.
+.megaTrigger {
+  margin-inline: var(--hive-space-3);
+}
+
 .megaPanel {
   position: absolute;
   left: 0;
@@ -159,45 +163,6 @@
   }
 }
 
-.serviceMenu {
-  position: relative;
-}
-
-.serviceButton {
-  @extend %navLink;
-
-  padding-inline: var(--hive-space-4);
-  border: var(--hive-border-width) solid var(--hive-color-brand-purple);
-  border-radius: 100px;
-  color: var(--hive-color-brand-purple);
-  padding-block: var(--hive-space-2);
-}
-
-.serviceList {
-  position: absolute;
-  right: 0;
-  top: calc(100% + var(--hive-space-2));
-  min-width: 16rem;
-  z-index: var(--hive-z-sticky);
-  background: var(--hive-color-surface);
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius);
-  box-shadow: var(--hive-shadow-sm);
-  padding: var(--hive-space-2) 0;
-
-  a {
-    display: block;
-    padding: var(--hive-space-2) var(--hive-space-4);
-    color: var(--hive-color-text-body);
-    text-decoration: none;
-
-    &:hover {
-      background: var(--hive-color-sidebar-active);
-      color: var(--hive-color-brand-purple);
-    }
-  }
-}
-
 .mobileButton {
   gap: var(--hive-space-2);
 }
@@ -206,7 +171,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--hive-z-drawer);
-  background: rgb(0 0 0 / 40%);
+  background: var(--hive-color-backdrop);
 }
 
 .drawer {

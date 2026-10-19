@@ -1,3 +1,12 @@
+// Placeholders shaped like the content they stand in for. Use them where
+// the layout is known before the data: table rows (DataTable), page shells
+// and detail panels, so the page does not jump when the data lands.
+//
+// For a dialog body or another small content area whose shape is not worth
+// drawing, use the design system's Loading instead: a role="status" spinner
+// with a message, e.g. <Loading>Loading flavours...</Loading> from
+// @ardc-ui/react. Skeletons are aria-hidden; pair them with a live region
+// (DataTable has one) or a Loading so assistive tech hears the wait.
 import styles from "./Skeleton.module.scss";
 
 export function Skeleton({

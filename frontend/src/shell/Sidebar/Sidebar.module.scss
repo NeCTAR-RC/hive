@@ -16,23 +16,11 @@
   width: var(--hive-sidebar-rail);
 }
 
+// Layout only: a 44px touch target; the DS link button draws the rest.
 .collapse {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   margin: var(--hive-space-1);
-  background: none;
-  border: 0;
-  border-radius: var(--hive-radius);
-  color: var(--hive-color-text-muted);
-  cursor: pointer;
-
-  &:hover {
-    color: var(--hive-color-brand-purple);
-    background: var(--hive-color-sidebar-active);
-  }
 }
 
 .content {
@@ -58,7 +46,6 @@
 }
 
 .home,
-.dashboardButton,
 .panel,
 .panelLinkout {
   display: flex;
@@ -84,23 +71,17 @@
   }
 }
 
-.home,
-.dashboardButton {
+.home {
   font-weight: var(--hive-font-weight-semibold);
   color: var(--hive-color-text-heading);
 }
 
+// A DS link button: only the layout and the chevron's turn are Hive's.
 .dashboardButton {
-  width: 100%;
-  justify-content: space-between;
-  background: none;
-  border: 0;
-  font-family: inherit;
-  cursor: pointer;
+  min-height: 2.75rem;
+  margin-inline: var(--hive-space-3);
 
   svg {
-    width: 1em;
-    height: 1em;
     transition: transform var(--hive-transition-fast);
   }
 
@@ -144,7 +125,7 @@
   position: fixed;
   inset: 0;
   z-index: var(--hive-z-drawer);
-  background: rgb(0 0 0 / 40%);
+  background: var(--hive-color-backdrop);
 }
 
 .drawer {

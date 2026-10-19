@@ -19,17 +19,23 @@ export function SessionTimeoutWarning({
   config: PublicConfig | undefined;
 }) {
   const expiresAt = me?.session.expires_at;
-  const [remaining, setRemaining] = useState<number | null>(() =>
-    expiresAt ? Math.round(expiresAt - Date.now() / 1000) : null,
-  );
+  const [remaining, setRemaining] = useState<number | null>(null);
 
+  // Restart the countdown whenever the expiry changes (it is undefined
+  // until `me` arrives), reading the clock at once rather than waiting for
+  // the first tick.
   useEffect(() => {
-    if (!expiresAt) return;
-    const timer = window.setInterval(
-      () => setRemaining(Math.round(expiresAt - Date.now() / 1000)),
-      30_000,
-    );
-    return () => window.clearInterval(timer);
+    const tick = () =>
+      setRemaining(
+        expiresAt ? Math.round(expiresAt - Date.now() / 1000) : null,
+      );
+    const first = window.setTimeout(tick, 0);
+    if (!expiresAt) return () => window.clearTimeout(first);
+    const timer = window.setInterval(tick, 30_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
   }, [expiresAt]);
 
   if (remaining === null || remaining > WARN_BEFORE) return null;

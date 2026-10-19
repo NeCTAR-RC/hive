@@ -1,6 +1,11 @@
 // The one place Hive reads the ARDC design-system tokens. Everything else
 // consumes the --hive-* custom properties, so a dark palette can be added
 // under [data-theme="dark"] later without touching a component.
+
+// Caveat: that only re-themes Hive's own styles. The design system's tokens
+// are compile-time and "Consumer overrides are out of scope (no runtime
+// theming)", so DS components inside a Hive page would stay light. A dark
+// mode needs the design system to ship one; do not plan it on this bridge.
 @use "@ardc-ui/react/styles/variables" as ardc;
 
 :root,
@@ -50,6 +55,8 @@
   --hive-color-rule: #{ardc.$neutral-gray-100};
   --hive-color-sidebar: #{ardc.$neutral-white};
   --hive-color-sidebar-active: #{ardc.$secondary-purple-50};
+  // The scrim behind Hive's drawers, the same as the DS Modal's.
+  --hive-color-backdrop: #{ardc.$dialog-overlay-bg};
 
   // Spacing (4px scale)
   --hive-space-1: #{ardc.$spacing-1};

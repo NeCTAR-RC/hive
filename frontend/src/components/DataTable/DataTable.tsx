@@ -13,6 +13,7 @@ import {
   MenuItem,
   MenuTrigger,
   Pagination,
+  Rotate,
   Row,
   SearchField,
   Select,
@@ -22,12 +23,17 @@ import {
   TableHeader,
 } from "@ardc-ui/react";
 import type { Key, Selection, SortDescriptor } from "@ardc-ui/react";
-import { RefreshCw } from "lucide-react";
 import { readLocal, writeLocal } from "../../lib/storage";
 import { DESKTOP, TABLET, useMediaQuery } from "../../lib/useMediaQuery";
 import { EmptyState } from "../EmptyState/EmptyState";
 import { ErrorState } from "../ErrorState/ErrorState";
 import { Skeleton } from "../Skeleton/Skeleton";
+import {
+  parseStoredColumns,
+  resolveVisibleColumns,
+  type ParsedColumns,
+  type StoredColumns,
+} from "./columns";
 import styles from "./DataTable.module.scss";
 
 export interface ColumnDef<T> {
@@ -138,23 +144,23 @@ export function DataTable<T>({
   const tablet = useMediaQuery(TABLET);
   const desktop = useMediaQuery(DESKTOP);
 
-  // Column choices: the stored list wins; otherwise the responsive defaults.
-  const [storedColumns, setStoredColumns] = useState<string[] | null>(() =>
-    readLocal<string[] | null>(`table.${id}.columns`, null),
+  // Column choices: the stored list wins (validated, and picking up columns
+  // added since it was saved); otherwise the responsive defaults.
+  const [storedColumns, setStoredColumns] = useState<ParsedColumns | null>(() =>
+    parseStoredColumns(readLocal<unknown>(`table.${id}.columns`, null)),
   );
   const visibleIds = useMemo(() => {
-    if (storedColumns) {
-      return new Set(storedColumns);
-    }
-    return new Set(
-      columns
-        .filter((column) => {
-          if (column.defaultHidden) return false;
-          if (column.hideBelow === "md") return tablet;
-          if (column.hideBelow === "lg") return desktop;
-          return true;
-        })
-        .map((column) => column.id),
+    const isDefaultVisible = (columnId: string) => {
+      const column = columns.find((c) => c.id === columnId);
+      if (!column || column.defaultHidden) return false;
+      if (column.hideBelow === "md") return tablet;
+      if (column.hideBelow === "lg") return desktop;
+      return true;
+    };
+    const ids = columns.map((column) => column.id);
+    return (
+      resolveVisibleColumns(storedColumns, ids, isDefaultVisible) ??
+      new Set(ids.filter(isDefaultVisible))
     );
   }, [columns, storedColumns, tablet, desktop]);
   const visible = columns.filter((column) => visibleIds.has(column.id));
@@ -216,10 +222,12 @@ export function DataTable<T>({
       writeLocal(`table.${id}.columns`, null);
       return;
     }
-    const chosen = columns
-      .map((column) => column.id)
-      .filter((columnId) => keys.has(columnId));
-    setStoredColumns(chosen);
+    const known = columns.map((column) => column.id);
+    const chosen: StoredColumns = {
+      shown: known.filter((columnId) => keys.has(columnId)),
+      known,
+    };
+    setStoredColumns({ ...chosen, legacy: false });
     writeLocal(`table.${id}.columns`, chosen);
   };
 
@@ -284,9 +292,9 @@ export function DataTable<T>({
               isDisabled={isFetching}
               aria-label="Refresh"
             >
-              <RefreshCw
+              <Rotate
                 aria-hidden="true"
-                size={14}
+                size="0.875rem"
                 className={isFetching ? styles.spinning : undefined}
               />
             </Button>

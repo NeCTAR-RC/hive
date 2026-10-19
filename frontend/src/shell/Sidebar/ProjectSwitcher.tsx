@@ -10,10 +10,22 @@ import { Button, ChevronDown, SearchField } from "@ardc-ui/react";
 import type { Me } from "../../lib/api/types";
 import { useSwitchProject } from "../../lib/queries";
 import { notify } from "../../lib/notify";
+import { loadingProps } from "../../components/buttonState";
 import styles from "./ProjectSwitcher.module.scss";
 
 const SEARCH_THRESHOLD = 8;
 
+/**
+ * The sidebar's project selector: a button showing the current project that
+ * opens a filterable, single-selection list, with the filter focused.
+ *
+ * Built from react-aria's Popover and ListBox around DS Button and
+ * SearchField because @ardc-ui/react 5.1.0 has no filterable selection
+ * menu: DS Menu renders its own Popover, so a SearchField cannot sit inside
+ * it, and DS Combobox would replace the button with a text input holding
+ * the project name. A design-system gap (review 2026-10, section 5.4);
+ * swap to the DS part once one exists.
+ */
 export function ProjectSwitcher({ me }: { me: Me }) {
   const switchProject = useSwitchProject();
   const [filter, setFilter] = useState("");
@@ -25,22 +37,17 @@ export function ProjectSwitcher({ me }: { me: Me }) {
     <div className={styles.switcher}>
       <p className={styles.label}>Project</p>
       <DialogTrigger>
-        {switchProject.isPending ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            className={styles.trigger}
-            state="loading"
-            loadingText="Switching project"
-          >
-            <span className={styles.triggerName}>{me.project.name}</span>
-          </Button>
-        ) : (
-          <Button variant="secondary" size="sm" className={styles.trigger}>
-            <span className={styles.triggerName}>{me.project.name}</span>
-            <ChevronDown aria-hidden="true" />
-          </Button>
-        )}
+        {/* One element throughout, so focus stays on it while pending. */}
+        <Button
+          variant="secondary"
+          size="sm"
+          className={styles.trigger}
+          isPending={switchProject.isPending}
+          {...loadingProps(switchProject.isPending, "Switching project")}
+        >
+          <span className={styles.triggerName}>{me.project.name}</span>
+          <ChevronDown aria-hidden="true" />
+        </Button>
         <Popover placement="bottom start" className={styles.popover}>
           <AriaDialog aria-label="Switch project" className={styles.dialog}>
             {({ close }) => (

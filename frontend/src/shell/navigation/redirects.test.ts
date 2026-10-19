@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchRedirect } from "./redirects";
+import { fillTokens, matchRedirect } from "./redirects";
 import { allPanels } from "./panels";
 
 describe("matchRedirect", () => {
@@ -37,5 +37,14 @@ describe("matchRedirect", () => {
       expect(match, panel.horizonPath).not.toBeNull();
       expect(match?.to).toBe(panel.to);
     }
+  });
+});
+
+describe("fillTokens", () => {
+  it("replaces whole tokens only", () => {
+    expect(fillTokens("/a/:id/b/:id_2", { id: "x", id_2: "y z" })).toBe(
+      "/a/x/b/y%20z",
+    );
+    expect(fillTokens("/a/:id_2/:id", { id: "x" })).toBe("/a/:id_2/x");
   });
 });

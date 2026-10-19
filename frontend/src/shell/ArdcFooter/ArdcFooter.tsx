@@ -1,8 +1,9 @@
+import { Link } from "@ardc-ui/react";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import styles from "./ArdcFooter.module.scss";
 
+// The dashboard's own pages route in the app; the rest leave it.
 const QUICK_LINKS = [
-  { label: "Nectar Dashboard Home", href: "/" },
-  { label: "Terms of Service", href: "/terms" },
   { label: "Nectar Support Centre", href: "https://support.ehelp.edu.au/" },
   {
     label: "Nectar System Status",
@@ -26,6 +27,10 @@ const LEGAL_LINKS = [
     label: "Accessibility Statement",
     href: "https://ardc.edu.au/accessibility-statement-for-ardc/",
   },
+  {
+    label: "ACN 633 798 857",
+    href: "https://www.acnc.gov.au/charity/charities/eca273f3-f5be-e911-a98a-000d3ad02a61/profile",
+  },
 ];
 
 // Wording to be confirmed with ARDC communications before launch.
@@ -38,7 +43,10 @@ const NCRIS =
   "Infrastructure Strategy (NCRIS) to support national digital research " +
   "infrastructure for Australian researchers.";
 
-/** The ARDC footer, built locally from the Figma footer spec. */
+/**
+ * The ARDC footer, built locally from the Figma footer spec. Links are the
+ * design system's, in their on-dark treatment.
+ */
 export function ArdcFooter() {
   return (
     <footer className={styles.footer}>
@@ -55,9 +63,21 @@ export function ArdcFooter() {
         <nav aria-label="Quick links" className={styles.quick}>
           <h2 className={styles.heading}>Quick links</h2>
           <ul>
+            <li>
+              <RouteLink to="/" size="sm" onDark>
+                Nectar Dashboard Home
+              </RouteLink>
+            </li>
+            <li>
+              <RouteLink to="/terms" size="sm" onDark>
+                Terms of Service
+              </RouteLink>
+            </li>
             {QUICK_LINKS.map((link) => (
               <li key={link.href}>
-                <a href={link.href}>{link.label}</a>
+                <Link href={link.href} size="sm" onDark>
+                  {link.label}
+                </Link>
               </li>
             ))}
           </ul>
@@ -71,14 +91,11 @@ export function ArdcFooter() {
           <ul className={styles.legal}>
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                <a href={link.href}>{link.label}</a>
+                <Link href={link.href} size="sm" onDark>
+                  {link.label}
+                </Link>
               </li>
             ))}
-            <li>
-              <a href="https://www.acnc.gov.au/charity/charities/eca273f3-f5be-e911-a98a-000d3ad02a61/profile">
-                ACN 633 798 857
-              </a>
-            </li>
           </ul>
         </div>
       </div>

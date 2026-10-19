@@ -21,7 +21,17 @@
   color: var(--hive-color-text-muted);
 }
 
+// On a tinted surface (an info or warning panel) the muted grey falls
+// under 4.5:1, so the label takes the body colour there.
+.labelOnTint {
+  font-size: var(--hive-font-size-sm);
+  color: var(--hive-color-text-body);
+}
+
 .value {
   margin: 0;
+  // A grid item's minimum width is its content, so a value that cannot
+  // wrap (a long URL in a link) would widen the page; let it shrink.
+  min-width: 0;
   overflow-wrap: anywhere;
 }

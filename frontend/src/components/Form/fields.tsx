@@ -7,6 +7,8 @@ import { parseDate } from "@internationalized/date";
 import {
   CheckboxGroup,
   CheckboxGroupItem,
+  Combobox,
+  ComboboxItem,
   DatePicker,
   FieldError,
   Label,
@@ -229,6 +231,60 @@ export function SelectInput<T extends FieldValues>({
           ))}
           <FieldError>{fieldState.error?.message}</FieldError>
         </Select>
+      )}
+    />
+  );
+}
+
+/**
+ * SelectInput's shape for a long list the user filters by typing (the DS
+ * idiom for a searchable list, as nectar-eligibility's organisation
+ * picker). The value is the chosen option's id, or null.
+ */
+export function ComboboxInput<T extends FieldValues>({
+  control,
+  name,
+  label,
+  description,
+  isRequired,
+  isDisabled,
+  className,
+  options,
+  placeholder,
+}: BaseProps<T> & { options: Option[]; placeholder?: string }) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field, fieldState }) => (
+        <Combobox
+          name={field.name}
+          selectedKey={(field.value as Key | null | undefined) ?? null}
+          onSelectionChange={(key) =>
+            field.onChange(key === null ? null : String(key))
+          }
+          onBlur={field.onBlur}
+          isInvalid={fieldState.invalid}
+          isRequired={isRequired ?? false}
+          isDisabled={isDisabled ?? false}
+          validationBehavior="aria"
+          disabledKeys={options.filter((o) => o.isDisabled).map((o) => o.id)}
+          {...(placeholder ? { placeholder } : {})}
+          {...(className ? { className } : {})}
+        >
+          <Label>{label}</Label>
+          {description && <Text slot="description">{description}</Text>}
+          {options.map((option) => (
+            <ComboboxItem
+              key={option.id}
+              id={option.id}
+              textValue={option.label}
+            >
+              {option.label}
+            </ComboboxItem>
+          ))}
+          <FieldError>{fieldState.error?.message}</FieldError>
+        </Combobox>
       )}
     />
   );

@@ -1,13 +1,22 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Button, Menu, MenuItem, MenuTrigger } from "@ardc-ui/react";
+import {
+  Button,
+  ChevronDown,
+  Close,
+  Link,
+  Menu,
+  MenuItem,
+  MenuTrigger,
+} from "@ardc-ui/react";
+import type { Key } from "@ardc-ui/react";
 import { Link as AriaLink } from "react-aria-components";
-import { Menu as MenuIcon, X } from "lucide-react";
-import { ChevronDown } from "@ardc-ui/react";
+import { Menu as MenuIcon } from "lucide-react";
 import type { Me, PublicConfig } from "../../lib/api/types";
 import { openHelpWidget } from "../../lib/help";
 import { useLogout } from "../../lib/queries";
 import { notify } from "../../lib/notify";
-import { SERVICE_MENU, SUPPORT_LINKS } from "../ArdcHeader/menu-data";
+import { SUPPORT_LINKS } from "../ArdcHeader/menu-data";
+import { ServicesMenu } from "../ServicesMenu/ServicesMenu";
 import styles from "./DashboardBar.module.scss";
 
 /**
@@ -30,7 +39,7 @@ export function DashboardBar({
   const navigate = useNavigate();
   const logout = useLogout();
 
-  const onUserAction = (key: React.Key) => {
+  const onUserAction = (key: Key) => {
     if (key === "logout") {
       logout.mutate(undefined, {
         onSuccess: () => void navigate({ to: "/auth/signed-out" }),
@@ -45,21 +54,23 @@ export function DashboardBar({
     <div className={styles.bar}>
       <div className={styles.left}>
         {showNavToggle && (
-          <button
-            type="button"
+          <Button
+            variant="link"
             className={styles.navToggle}
+            aria-label="Dashboard navigation"
             aria-expanded={navOpen}
             aria-controls="hive-sidebar"
-            onClick={onNavToggle}
+            onPress={onNavToggle}
           >
             {navOpen ? (
-              <X aria-hidden="true" size={22} />
+              <Close aria-hidden="true" size="1.375rem" />
             ) : (
               <MenuIcon aria-hidden="true" size={22} />
             )}
-            <span className="visually-hidden">Dashboard navigation</span>
-          </button>
+          </Button>
         )}
+        {/* A bare image link: the DS Link would draw its state line under
+            the logo. It still routes in the app through the RouterProvider. */}
         <AriaLink href="/" className={styles.logo}>
           <img src="/logo.svg" alt={config?.site_name ?? "Nectar Dashboard"} />
         </AriaLink>
@@ -67,27 +78,20 @@ export function DashboardBar({
       <nav aria-label="Support" className={styles.support}>
         <ul>
           <li>
-            <a href={config?.help_url ?? SUPPORT_LINKS.supportCentre}>
+            <Link
+              size="sm"
+              href={config?.help_url ?? SUPPORT_LINKS.supportCentre}
+            >
               Support Centre
-            </a>
+            </Link>
           </li>
           <li>
-            <MenuTrigger>
-              <Button variant="link" size="sm">
-                Services
-                <ChevronDown aria-hidden="true" />
-              </Button>
-              <Menu aria-label="Nectar services">
-                {SERVICE_MENU.map((link) => (
-                  <MenuItem key={link.href} id={link.href} href={link.href}>
-                    {link.label}
-                  </MenuItem>
-                ))}
-              </Menu>
-            </MenuTrigger>
+            <ServicesMenu label="Services" />
           </li>
           <li>
-            <a href={SUPPORT_LINKS.tutorials}>Tutorials</a>
+            <Link size="sm" href={SUPPORT_LINKS.tutorials}>
+              Tutorials
+            </Link>
           </li>
           <li>
             <Button

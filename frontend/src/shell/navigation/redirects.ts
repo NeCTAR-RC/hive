@@ -45,15 +45,26 @@ export interface Redirect {
   to: string;
 }
 
+/**
+ * Put the captured values into a target's ":name" tokens. Whole tokens
+ * only, so ":id" never replaces the head of ":id_2".
+ */
+export function fillTokens(
+  target: string,
+  values: Record<string, string | undefined>,
+): string {
+  return target.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, (token, name: string) => {
+    const value = values[name];
+    return value === undefined ? token : encodeURIComponent(value);
+  });
+}
+
 export function matchRedirect(pathname: string, search = ""): Redirect | null {
   for (const rule of RULES) {
     const found = rule.pattern.exec(pathname);
     if (!found) continue;
     if (rule.kind === "gone") return { status: 410, to: "" };
-    let target = rule.to;
-    for (const [name, value] of Object.entries(found.groups ?? {})) {
-      target = target.replace(`:${name}`, encodeURIComponent(value));
-    }
+    let target = fillTokens(rule.to, found.groups ?? {});
     const query = search.replace(/^\?/, "");
     if (rule.preserveQuery && query) {
       target += (target.includes("?") ? "&" : "?") + query;

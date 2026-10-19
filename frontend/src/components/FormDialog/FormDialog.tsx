@@ -2,6 +2,7 @@ import { useId, type FormEvent, type ReactNode } from "react";
 import { Button, Dialog, Modal } from "@ardc-ui/react";
 import type { ModalSize } from "@ardc-ui/react";
 import { ErrorState } from "../ErrorState/ErrorState";
+import { loadingProps } from "../buttonState";
 import styles from "./FormDialog.module.scss";
 
 export interface FormDialogProps {
@@ -52,25 +53,18 @@ export function FormDialog({
             <Button variant="secondary" slot="close" isDisabled={isPending}>
               Cancel
             </Button>
-            {isPending ? (
-              <Button
-                {...(submitTone ? { tone: submitTone } : {})}
-                state="loading"
-                loadingText="Saving..."
-                isDisabled
-              >
-                {submitLabel}
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                form={formId}
-                isDisabled={isSubmitDisabled}
-                {...(submitTone ? { tone: submitTone } : {})}
-              >
-                {submitLabel}
-              </Button>
-            )}
+            {/* One element throughout, so focus stays on it while pending;
+                RAC turns a pending submit into type="button". */}
+            <Button
+              type="submit"
+              form={formId}
+              {...(submitTone ? { tone: submitTone } : {})}
+              {...loadingProps(isPending, "Saving...")}
+              isPending={isPending}
+              isDisabled={!isPending && isSubmitDisabled}
+            >
+              {submitLabel}
+            </Button>
           </>
         }
       >

@@ -2,14 +2,6 @@
   width: 100%;
 }
 
-.warning [class*="fill"] {
-  background: var(--hive-color-warning-strong);
-}
-
-.danger [class*="fill"] {
-  background: var(--hive-color-danger);
-}
-
 .unlimited {
   display: flex;
   justify-content: space-between;

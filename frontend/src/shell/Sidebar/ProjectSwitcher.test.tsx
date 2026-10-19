@@ -9,8 +9,10 @@ function project(id: string, name: string) {
   return { id, name, domain_id: null, enabled: true };
 }
 
+const alpha = project("p1", "Alpha project");
+
 const projects = [
-  project("p1", "Alpha project"),
+  alpha,
   project("p2", "Beta project"),
   project("p3", "Gamma project"),
   project("p4", "Delta project"),
@@ -23,7 +25,7 @@ const projects = [
 
 const me: Me = {
   user: { id: "u1", name: "sam", domain_id: null },
-  project: { ...projects[0], is_trial: false },
+  project: { ...alpha, is_trial: false },
   roles: ["Member"],
   projects,
   capabilities: {

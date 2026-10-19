@@ -7,7 +7,7 @@ import {
   ModalOverlay,
   Link as AriaLink,
 } from "react-aria-components";
-import { ArrowUpRightFromSquare, ChevronDown } from "@ardc-ui/react";
+import { ArrowUpRightFromSquare, Button, ChevronDown } from "@ardc-ui/react";
 import { Home, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type {
   AllocationSummary,
@@ -78,10 +78,11 @@ function DockedSidebar(props: SidebarProps) {
       className={collapsed ? styles.rail : styles.sidebar}
       aria-label="Dashboard navigation"
     >
-      <button
-        type="button"
+      <Button
+        variant="link"
         className={styles.collapse}
-        onClick={toggle}
+        onPress={toggle}
+        aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
         aria-expanded={!collapsed}
         aria-controls="hive-sidebar-nav"
       >
@@ -90,10 +91,7 @@ function DockedSidebar(props: SidebarProps) {
         ) : (
           <PanelLeftClose aria-hidden="true" size={20} />
         )}
-        <span className="visually-hidden">
-          {collapsed ? "Expand navigation" : "Collapse navigation"}
-        </span>
-      </button>
+      </Button>
       {!collapsed && <SidebarContent {...props} collapsed={collapsed} />}
     </aside>
   );
@@ -152,10 +150,15 @@ function SidebarContent({
   );
 }
 
+/** The path is the panel's route or below it ("/a" holds "/a/b", not "/ab"). */
+function underPath(pathname: string, to: string): boolean {
+  return pathname === to || pathname.startsWith(to + "/");
+}
+
 function containsPath(dashboard: Dashboard, pathname: string): boolean {
   return dashboard.groups.some((group) =>
     group.panels.some(
-      (panel) => panel.to && panel.to !== "/" && pathname.startsWith(panel.to),
+      (panel) => panel.to && panel.to !== "/" && underPath(pathname, panel.to),
     ),
   );
 }
@@ -197,16 +200,17 @@ function DashboardSection({
 
   return (
     <li className={styles.dashboard}>
-      <button
-        type="button"
+      <Button
+        variant="link"
+        size="sm"
         className={styles.dashboardButton}
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((value) => !value)}
+        onPress={() => setOpen((value) => !value)}
       >
         {dashboard.label}
         <ChevronDown aria-hidden="true" />
-      </button>
+      </Button>
       <div id={panelId} hidden={!open}>
         {groups.map((group) => (
           <div key={group.id} className={styles.group}>
@@ -241,8 +245,7 @@ function PanelLink({
   pathname: string;
 }) {
   if (panel.status === "built" && panel.to) {
-    const current =
-      pathname === panel.to || pathname.startsWith(panel.to + "/");
+    const current = underPath(pathname, panel.to);
     return (
       <AriaLink
         href={panel.to}

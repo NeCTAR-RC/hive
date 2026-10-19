@@ -8,6 +8,7 @@ import {
   TextField,
 } from "@ardc-ui/react";
 import { ErrorState } from "../ErrorState/ErrorState";
+import { loadingProps } from "../buttonState";
 import styles from "./ConfirmDialog.module.scss";
 
 export interface ConfirmDialogProps {
@@ -41,10 +42,17 @@ export function ConfirmDialog({
   confirmText,
 }: ConfirmDialogProps) {
   const [typed, setTyped] = useState("");
+  // Clear the typed text whenever the dialog closes, including when the
+  // parent closes it after a successful confirm (derived state, set during
+  // render), so the next dialog never opens pre-filled.
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (!isOpen) setTyped("");
+  }
   const typedOk = !confirmText || typed.trim() === confirmText;
   const close = (open: boolean) => {
     if (isPending) return;
-    if (!open) setTyped("");
     onOpenChange(open);
   };
   return (
@@ -57,24 +65,16 @@ export function ConfirmDialog({
             <Button variant="secondary" slot="close" isDisabled={isPending}>
               Cancel
             </Button>
-            {isPending ? (
-              <Button
-                {...(tone === "danger" ? { tone: "danger" as const } : {})}
-                state="loading"
-                loadingText="Working..."
-                isDisabled
-              >
-                {confirmLabel}
-              </Button>
-            ) : (
-              <Button
-                {...(tone === "danger" ? { tone: "danger" as const } : {})}
-                isDisabled={!typedOk}
-                onPress={onConfirm}
-              >
-                {confirmLabel}
-              </Button>
-            )}
+            {/* One element throughout, so focus stays on it while pending. */}
+            <Button
+              {...(tone === "danger" ? { tone: "danger" as const } : {})}
+              {...loadingProps(isPending, "Working...")}
+              isPending={isPending}
+              isDisabled={!isPending && !typedOk}
+              onPress={onConfirm}
+            >
+              {confirmLabel}
+            </Button>
           </>
         }
       >

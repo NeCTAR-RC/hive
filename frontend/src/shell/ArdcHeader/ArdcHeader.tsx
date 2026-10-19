@@ -9,6 +9,7 @@ import {
 import { Button, ChevronDown, Close } from "@ardc-ui/react";
 import { Menu as MenuIcon } from "lucide-react";
 import { DESKTOP, useMediaQuery } from "../../lib/useMediaQuery";
+import { ServicesMenu } from "../ServicesMenu/ServicesMenu";
 import {
   ARDC_HOME,
   MAIN_ITEMS,
@@ -68,7 +69,7 @@ export function ArdcHeader() {
                 )}
               </ul>
             </nav>
-            <ServiceMenu />
+            <ServicesMenu label="Nectar services" variant="secondary" />
           </div>
         </div>
       )}
@@ -76,6 +77,12 @@ export function ArdcHeader() {
   );
 }
 
+/**
+ * One mega-menu entry: a disclosure button over a multi-column panel of
+ * links. The design system has no mega menu (a gap to raise with the DS
+ * team, see the 2026-10 review), so the panel is local; the trigger is a
+ * DS Button.
+ */
 function MegaMenuItem({ item }: { item: MainItem }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -99,16 +106,16 @@ function MegaMenuItem({ item }: { item: MainItem }) {
 
   return (
     <li ref={ref} className={styles.megaItem}>
-      <button
-        type="button"
-        className={styles.mainLink}
+      <Button
+        variant="link"
+        className={styles.megaTrigger}
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((value) => !value)}
+        onPress={() => setOpen((value) => !value)}
       >
         {item.label}
         <ChevronDown aria-hidden="true" />
-      </button>
+      </Button>
       <div
         id={panelId}
         className={styles.megaPanel}
@@ -141,50 +148,6 @@ function MegaMenuItem({ item }: { item: MainItem }) {
         </div>
       </div>
     </li>
-  );
-}
-
-function ServiceMenu() {
-  const [open, setOpen] = useState(false);
-  const panelId = useId();
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointer = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className={styles.serviceMenu}>
-      <button
-        type="button"
-        className={styles.serviceButton}
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((value) => !value)}
-      >
-        Nectar services
-        <ChevronDown aria-hidden="true" />
-      </button>
-      <ul id={panelId} className={styles.serviceList} hidden={!open}>
-        {SERVICE_MENU.map((link) => (
-          <li key={link.href}>
-            <a href={link.href}>{link.label}</a>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

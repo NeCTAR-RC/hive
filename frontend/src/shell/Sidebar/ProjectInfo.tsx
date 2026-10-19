@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { InfoButton, Tooltip, TooltipTrigger } from "@ardc-ui/react";
+import { InfoButton, Link, Tooltip, TooltipTrigger } from "@ardc-ui/react";
 import { QuotaMeter } from "../../components/QuotaMeter/QuotaMeter";
+import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { Skeleton } from "../../components/Skeleton/Skeleton";
 import type { Me } from "../../lib/api/types";
 import { formatSu } from "../../lib/format";
@@ -23,7 +24,9 @@ export function ProjectInfo({ me }: { me: Me }) {
     return (
       <div className={styles.box}>
         <p className={styles.small}>
-          <a href={TRIAL_HELP}>Learn more about project trials</a>
+          <Link href={TRIAL_HELP} size="xs">
+            Learn more about project trials
+          </Link>
         </p>
       </div>
     );
@@ -36,7 +39,9 @@ export function ProjectInfo({ me }: { me: Me }) {
   return (
     <div className={styles.box}>
       <p className={styles.small}>
-        <a href={ALLOCATION_HELP}>Learn more about allocations</a>
+        <Link href={ALLOCATION_HELP} size="xs">
+          Learn more about allocations
+        </Link>
       </p>
       <h2 className={styles.heading}>
         Resource bundle
@@ -80,9 +85,13 @@ export function ProjectInfo({ me }: { me: Me }) {
         />
       )}
       <p className={styles.small}>
-        <a href="/usage/allocation">Usage summary</a>
+        <RouteLink to="/usage/allocation" size="xs">
+          Usage summary
+        </RouteLink>
         {" | "}
-        <a href="/compute/overview">Limit summary</a>
+        <RouteLink to="/compute/overview" size="xs">
+          Limit summary
+        </RouteLink>
       </p>
     </div>
   );

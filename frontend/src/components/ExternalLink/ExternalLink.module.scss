@@ -1,10 +1,10 @@
-.link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hive-space-1);
-
-  svg {
-    width: 0.75em;
-    height: 0.75em;
-  }
+// The design-system link keeps its label on one line, which is right for a
+// short label but pushes the page wider than the viewport when the label
+// is a long URL (an ORCID iD, a public container URL). `wrap` lets such a
+// label break anywhere; it is a layout override on the root, which the
+// design system allows through className.
+.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
