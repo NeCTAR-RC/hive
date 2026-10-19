@@ -1,0 +1,9 @@
+---
+upgrade:
+  - |
+    The login page now has a single "Log in" button. manuka asks the user
+    for their identity federation (AAF or Tuakiri), so the separate Tuakiri
+    button, the ``HIVE_LOGIN_URL_NZ`` setting, the ``idp`` parameter of
+    ``/auth/start`` and the ``login_url_nz`` and ``login_base_url_nz``
+    fields of ``/api/config`` have been removed. A leftover
+    ``HIVE_LOGIN_URL_NZ`` is ignored.

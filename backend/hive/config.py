@@ -72,7 +72,6 @@ class Settings(BaseSettings):
 
     # manuka (accounts) and the token receiver
     login_url: str = "https://accounts.test.rc.nectar.org.au/login"
-    login_url_nz: str | None = None
     websso_allowed_origins: CommaList = []
     receiver_path: str = "/auth/websso/"
 
@@ -213,18 +212,16 @@ class Settings(BaseSettings):
     def keystone_public(self) -> str:
         return self.keystone_public_url or self.keystone_url
 
-    def login_start_url(self, next_path: str = "", nz: bool = False) -> str:
+    def login_start_url(self, next_path: str = "") -> str:
         """Build the manuka login URL that returns the user to Hive.
 
         Mirrors the Horizon theme: ``<login_url>/?return-path=<receiver>``,
         with ``?next=`` folded into the receiver URL so it survives manuka's
         exact-match whitelist (the query string is ignored by the match).
+        manuka asks the user for their identity federation itself.
         """
         receiver = self.receiver_url
         if next_path:
             receiver += "?next=" + quote(next_path, safe="")
-        base = (
-            self.login_url_nz if nz and self.login_url_nz else self.login_url
-        )
-        separator = "&" if "?" in base else "?"
-        return f"{base}{separator}return-path={quote(receiver, safe='')}"
+        separator = "&" if "?" in self.login_url else "?"
+        return f"{self.login_url}{separator}return-path={quote(receiver, safe='')}"

@@ -6,9 +6,7 @@ export interface PublicConfig {
   env: "dev" | "test" | "prod";
   version: string;
   login_url: string;
-  login_url_nz: string | null;
   login_base_url: string;
-  login_base_url_nz: string | null;
   receiver_url: string;
   horizon_url: string;
   help_url: string;

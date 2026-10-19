@@ -51,18 +51,8 @@ def test_login_start_url_folds_next_into_return_path():
     )
 
 
-def test_login_start_url_nz_appends_to_existing_query():
-    settings = make(
-        login_url_nz="https://accounts.test/Shibboleth.sso/DS?return-path=/login/",
-    )
-    url = settings.login_start_url(nz=True)
-    assert url.startswith(
-        "https://accounts.test/Shibboleth.sso/DS?return-path=/login/&return-path="
-    )
-
-
-def test_login_start_url_nz_falls_back_to_aaf():
-    settings = make(login_url="https://accounts.test/login")
-    assert settings.login_start_url(nz=True).startswith(
-        "https://accounts.test/login?return-path="
+def test_login_start_url_appends_to_existing_query():
+    settings = make(login_url="https://accounts.test/login?x=1")
+    assert settings.login_start_url().startswith(
+        "https://accounts.test/login?x=1&return-path="
     )

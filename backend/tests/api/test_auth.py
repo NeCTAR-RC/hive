@@ -209,12 +209,10 @@ async def test_tampered_cookie_is_ignored(logged_in):
 
 
 async def test_auth_start_redirects_to_manuka(client):
-    response = await client.get(
-        "/auth/start", params={"next": "/x", "idp": "nz"}
-    )
+    response = await client.get("/auth/start", params={"next": "/x"})
     assert response.status_code == 302
     location = urlparse(response.headers["location"])
-    assert location.path == "/Shibboleth.sso/DS-Tuakiri"
+    assert location.path == "/login"
     assert parse_qs(location.query)["return-path"][-1].startswith(
         "http://testserver/auth/websso/?next="
     )

@@ -20,10 +20,7 @@ export const config: PublicConfig = {
   version: "0.0.0-mock",
   login_url:
     "https://accounts.test.rc.nectar.org.au/login?return-path=http%3A%2F%2Flocalhost%3A4173%2Fauth%2Fwebsso%2F",
-  login_url_nz: null,
   login_base_url: "https://accounts.test.rc.nectar.org.au/login",
-  login_base_url_nz:
-    "https://accounts.test.rc.nectar.org.au/Shibboleth.sso/DS-Tuakiri?return-path=/login/",
   receiver_url: "http://localhost:4173/auth/websso/",
   horizon_url: "https://dashboard.rctest.nectar.org.au",
   help_url: "https://support.ehelp.edu.au/support/home",

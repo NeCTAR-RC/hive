@@ -146,7 +146,6 @@ def settings(static_dir):
         public_url="http://testserver",
         cookie_secure=False,
         login_url=f"{ACCOUNTS}/login",
-        login_url_nz=f"{ACCOUNTS}/Shibboleth.sso/DS-Tuakiri?return-path=/login/",
         websso_allowed_origins=[ACCOUNTS, "http://127.0.0.1:8765"],
         horizon_url=HORIZON,
         allocation_api_url=f"{HORIZON}/rest_api",

@@ -3,8 +3,6 @@ import { buildLoginUrl, safeNext } from "./login";
 
 const config = {
   login_base_url: "https://accounts.test/login",
-  login_base_url_nz:
-    "https://accounts.test/Shibboleth.sso/DS-Tuakiri?return-path=/login/",
   receiver_url: "https://hive.test/auth/websso/",
 };
 
@@ -23,20 +21,14 @@ describe("buildLoginUrl", () => {
     expect(url.searchParams.get("return-path")).toBe(config.receiver_url);
   });
 
-  it("appends to the existing query of the Tuakiri URL", () => {
-    const url = buildLoginUrl(config, "/", true);
-    expect(url.startsWith(config.login_base_url_nz + "&return-path=")).toBe(
-      true,
-    );
-  });
-
-  it("falls back to AAF when no Tuakiri URL is configured", () => {
+  it("appends to an existing query on the login URL", () => {
     const url = buildLoginUrl(
-      { ...config, login_base_url_nz: null },
+      { ...config, login_base_url: "https://accounts.test/login?x=1" },
       "/",
+    );
+    expect(url.startsWith("https://accounts.test/login?x=1&return-path=")).toBe(
       true,
     );
-    expect(url.startsWith("https://accounts.test/login?")).toBe(true);
   });
 });
 

@@ -6,21 +6,19 @@ import {
 } from "./fixtures";
 
 test.describe("login page", () => {
-  test("offers AAF and Tuakiri logins that return to Hive", async ({
-    page,
-  }) => {
+  test("offers a single login that returns to Hive", async ({ page }) => {
     await page.goto("/auth/login?next=%2Faccount%2Fmy-details");
     await expect(
       page.getByRole("heading", { name: "Welcome to the Dashboard." }),
     ).toBeVisible();
-    const aaf = page.getByRole("link", { name: "Log in via AAF (Australia)" });
-    const href = await aaf.getAttribute("href");
+    const login = page.getByRole("link", { name: "Log in", exact: true });
+    const href = await login.getAttribute("href");
     expect(href).toContain("accounts.test.rc.nectar.org.au/login?return-path=");
     const returnPath = new URL(href!).searchParams.get("return-path")!;
     expect(returnPath).toContain("/auth/websso/?next=%2Faccount%2Fmy-details");
-    await expect(
-      page.getByRole("link", { name: "Log in via Tuakiri (NZ)" }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: /Tuakiri|AAF/ })).toHaveCount(
+      0,
+    );
     await expectNoSeriousA11yIssues(page);
     await expectNoHorizontalScroll(page);
   });

@@ -57,16 +57,7 @@ export function LoginPage() {
           alt="ARDC Nectar Research Cloud"
         />
         <h1 className={styles.title}>Welcome to the Dashboard.</h1>
-        <p>
-          Please choose your identity federation to log in to ARDC&apos;s Nectar
-          Research Cloud.
-        </p>
-        <p>
-          Australian users can log in with the Australian Access Federation
-          (AAF).
-          {config?.login_base_url_nz &&
-            " New Zealand users can log in with Tuakiri."}
-        </p>
+        <p>Log in to ARDC&apos;s Nectar Research Cloud.</p>
         {banner && (
           <Alert tone={banner.tone} role="status">
             {banner.text}
@@ -81,19 +72,9 @@ export function LoginPage() {
           {isPending || !config ? (
             <Skeleton height="2.75rem" width="14rem" />
           ) : (
-            <>
-              <Link variant="primary" href={buildLoginUrl(config, target)}>
-                Log in via AAF (Australia)
-              </Link>
-              {config.login_base_url_nz && (
-                <Link
-                  variant="secondary"
-                  href={buildLoginUrl(config, target, true)}
-                >
-                  Log in via Tuakiri (NZ)
-                </Link>
-              )}
-            </>
+            <Link variant="primary" href={buildLoginUrl(config, target)}>
+              Log in
+            </Link>
           )}
         </div>
         <p className={styles.help}>

@@ -16,13 +16,7 @@ async def config(settings: Settings = Depends(get_settings)):
         "env": settings.env,
         "version": __version__,
         "login_url": settings.login_start_url("/"),
-        "login_url_nz": (
-            settings.login_start_url("/", nz=True)
-            if settings.login_url_nz
-            else None
-        ),
         "login_base_url": settings.login_url,
-        "login_base_url_nz": settings.login_url_nz,
         "receiver_url": settings.receiver_url,
         "horizon_url": settings.horizon_url,
         "help_url": settings.help_url,

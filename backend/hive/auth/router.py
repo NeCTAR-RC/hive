@@ -97,13 +97,10 @@ def clear_session_cookies(response, settings: Settings) -> None:
 @router.get("/auth/start", include_in_schema=False)
 async def start(
     next: str = "",
-    idp: str = "aaf",
     settings: Settings = Depends(get_settings),
 ):
     """Send the browser to manuka, coming back to ``next``."""
-    url = settings.login_start_url(
-        safe_next(next, default=""), nz=(idp == "nz")
-    )
+    url = settings.login_start_url(safe_next(next, default=""))
     return RedirectResponse(url, status_code=302)
 
 

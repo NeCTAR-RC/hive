@@ -6,21 +6,14 @@ import type { PublicConfig } from "./api/types";
  * `return-path`, and manuka's whitelist ignores the query string.
  */
 export function buildLoginUrl(
-  config: Pick<
-    PublicConfig,
-    "login_base_url" | "login_base_url_nz" | "receiver_url"
-  >,
+  config: Pick<PublicConfig, "login_base_url" | "receiver_url">,
   next: string | undefined,
-  nz = false,
 ): string {
   let receiver = config.receiver_url;
   if (next) {
     receiver += `?next=${encodeURIComponent(next)}`;
   }
-  const base =
-    nz && config.login_base_url_nz
-      ? config.login_base_url_nz
-      : config.login_base_url;
+  const base = config.login_base_url;
   const separator = base.includes("?") ? "&" : "?";
   return `${base}${separator}return-path=${encodeURIComponent(receiver)}`;
 }

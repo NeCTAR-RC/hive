@@ -39,7 +39,6 @@ HIVE_LOG_FORMAT=console
 HIVE_KEYSTONE_URL=$auth_url
 HIVE_REGION=Melbourne
 HIVE_LOGIN_URL=$accounts/login
-HIVE_LOGIN_URL_NZ=$accounts/Shibboleth.sso/DS-Tuakiri?return-path=/login/
 HIVE_WEBSSO_ALLOWED_ORIGINS=$accounts,http://127.0.0.1:8765,http://localhost:8765
 HIVE_REDIS_URL=redis://localhost:6379/0
 HIVE_SECRET_KEY=$secret
