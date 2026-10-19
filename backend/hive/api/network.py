@@ -4,8 +4,8 @@ groups compute shares."""
 
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
-from hive.errors import BadRequest
+from hive.deps import get_context
+from hive.errors import BadRequest, NotFound
 from hive.nectar import secgroups as secgroup_rules
 from hive.nectar.networks import PURPOSE_ANY, PURPOSE_BOOT, PURPOSE_ROUTER
 from hive.schemas.compute import (
@@ -463,5 +463,10 @@ async def create_rule(
 async def delete_rule(
     group_id: str, rule_id: str, ctx: Context = Depends(get_context)
 ):
+    group = await ctx.neutron.security_group(group_id)
+    if not any(
+        r.get("id") == rule_id for r in group.get("security_group_rules") or []
+    ):
+        raise NotFound("the rule is not in this security group")
     await ctx.neutron.delete_security_group_rule(rule_id)
     return Response(status_code=204)

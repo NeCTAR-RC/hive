@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.orchestration import StackCreate, StackUpdate, TemplateSource
 from hive.services.context import Context
 from hive.services import orchestration
@@ -71,8 +71,8 @@ async def delete_stack(identity: str, ctx: Context = Depends(get_context)):
 async def stack_action(
     identity: str, action: str, ctx: Context = Depends(get_context)
 ):
-    if action not in ("suspend", "resume", "check", "cancel_update"):
-        return Response(status_code=404)
+    """``suspend``, ``resume``, ``check`` or ``cancel_update``; any other
+    action is a 404 in the usual error envelope."""
     return await orchestration.stack_action(ctx, identity, action)
 
 

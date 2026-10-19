@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from hive.services import databases as database_service
 from tests.conftest import csrf_headers, SWIFT, TROVE
 
 NOVA = "https://nova.test/v2.1"
@@ -604,11 +605,12 @@ async def test_root_users_databases(logged_in, upstream):
             200, json={"user": {"name": "root", "password": "generated"}}
         )
     )
-    enabled = (
-        await logged_in.post(
-            "/api/databases/instances/db-1/root", headers=headers
-        )
-    ).json()
+    enabled_response = await logged_in.post(
+        "/api/databases/instances/db-1/root", headers=headers
+    )
+    # The body carries the generated root password.
+    assert enabled_response.headers["cache-control"] == "no-store"
+    enabled = enabled_response.json()
     assert enabled["password"] == "generated"
     busy = await logged_in.post(
         "/api/databases/instances/db-2/root", headers=headers
@@ -657,14 +659,24 @@ async def test_root_users_databases(logged_in, upstream):
             }
         ]
     }
-    delete_user = upstream.delete(
-        f"{TROVE}/instances/db-1/users/bob@10%2e0%2e0%2e5"
-    ).mock(return_value=httpx.Response(202))
+    deleted_paths = []
+
+    def delete_user(request):
+        deleted_paths.append(request.url.raw_path.decode())
+        return httpx.Response(202)
+
+    upstream.delete(url__regex=r"/instances/db-1/users/bob[^/]*$").mock(
+        side_effect=delete_user
+    )
     response = await logged_in.delete(
         "/api/databases/instances/db-1/users/bob?host=10.0.0.5",
         headers=headers,
     )
-    assert response.status_code == 204 and delete_user.called
+    # troveclient quote_user_host: percent-encoded, then dots as %2e.
+    assert response.status_code == 204
+    assert deleted_paths == [
+        "/v1.0/p1/instances/db-1/users/bob%4010%2e0%2e0%2e5"
+    ]
 
     upstream.get(f"{TROVE}/instances/db-1/users/app/databases").mock(
         return_value=httpx.Response(200, json={"databases": [{"name": "app"}]})
@@ -802,6 +814,22 @@ async def test_backups(logged_in, upstream):
         headers=headers,
     )
     assert bad_parent.status_code == 400
+    # A completed parent of another instance would chain the incremental
+    # backup onto the wrong database.
+    upstream.get(f"{TROVE}/backups/bk-1").mock(
+        return_value=httpx.Response(
+            200, json={"backup": {**BACKUP, "instance_id": "db-other"}}
+        )
+    )
+    creates = create.call_count
+    other_parent = await logged_in.post(
+        "/api/databases/backups",
+        json={"name": "x", "instance_id": "db-1", "parent_id": "bk-1"},
+        headers=headers,
+    )
+    assert other_parent.status_code == 400
+    assert "same instance" in other_parent.json()["message"]
+    assert create.call_count == creates
     delete = upstream.delete(f"{TROVE}/backups/bk-1").mock(
         return_value=httpx.Response(202)
     )
@@ -917,7 +945,10 @@ async def test_configurations(logged_in, upstream):
         json={"values": {"max_connections": "1"}},
         headers=headers,
     )
-    assert rejected.status_code == 400
+    # The failed spec call surfaces as an upstream error, not as every
+    # value being "not a parameter of this datastore version".
+    assert rejected.status_code == 502
+    assert "not a parameter" not in rejected.json()["message"]
 
     delete = upstream.delete(f"{TROVE}/configurations/cfg-1").mock(
         return_value=httpx.Response(202)
@@ -1049,7 +1080,7 @@ SYS_LOG = {
 }
 
 
-async def test_logs(logged_in, upstream):
+async def test_logs(logged_in, upstream, monkeypatch):
     mock_trove(upstream)
     headers = csrf_headers(logged_in)
     upstream.get(f"{TROVE}/instances/db-1/log").mock(
@@ -1167,6 +1198,26 @@ async def test_logs(logged_in, upstream):
         == 'attachment; filename="db-1-general.log"'
     )
 
+    # The viewer stops at the cap and never reads the parts past it.
+    monkeypatch.setattr(database_service, "LOG_VIEW_MAX_CHARS", 4)
+    second = upstream.get(f"{SWIFT}/database_logs/db-1/mysql-general-2").mock(
+        return_value=httpx.Response(200, content=b"d\ne\n")
+    )
+    reads = second.call_count
+    capped = (
+        await logged_in.get(
+            "/api/databases/instances/db-1/logs/general/contents?lines=0"
+        )
+    ).json()
+    assert capped["text"] == "a\nb\n" and capped["truncated"] is True
+    assert second.call_count == reads
+    monkeypatch.undo()
+
+    bad_name = await logged_in.get(
+        "/api/databases/instances/db-1/logs/gen%20eral/download"
+    )
+    assert bad_name.status_code == 422
+
     upstream.get(f"{SWIFT}/database_logs/db-1/mysql-general-2").mock(
         return_value=httpx.Response(404)
     )
@@ -1182,3 +1233,47 @@ async def test_logs(logged_in, upstream):
         "/api/databases/instances/db-1/logs/error/contents"
     )
     assert unpublished.status_code == 409
+
+
+async def test_trove_lists_follow_next_links(logged_in, upstream):
+    """Trove pages lists (20 by default) with ``links[rel=next]``."""
+    mock_trove(upstream)
+    second = {**BACKUP, "id": "bk-21", "name": "older"}
+
+    def backups(request):
+        if request.url.params.get("marker") == "bk-1":
+            return httpx.Response(200, json={"backups": [second], "links": []})
+        return httpx.Response(
+            200,
+            json={
+                "backups": [BACKUP],
+                "links": [
+                    {
+                        "rel": "next",
+                        "href": f"{TROVE}/backups?limit=1&marker=bk-1",
+                    }
+                ],
+            },
+        )
+
+    route = upstream.get(f"{TROVE}/backups").mock(side_effect=backups)
+    body = (await logged_in.get("/api/databases/backups")).json()
+    assert sorted(b["id"] for b in body["items"]) == ["bk-1", "bk-21"]
+    assert route.call_count == 2
+
+
+async def test_trove_ids_are_percent_encoded_upstream(logged_in, upstream):
+    """A ``?`` in an id must not become an upstream query string."""
+    seen = []
+
+    def trove(request):
+        seen.append(request.url.raw_path.decode())
+        return httpx.Response(202)
+
+    upstream.route(host="trove.test", method="DELETE").mock(side_effect=trove)
+    response = await logged_in.delete(
+        "/api/databases/backups/b%3Fall_tenants=1",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 204
+    assert seen == ["/v1.0/p1/backups/b%3Fall_tenants%3D1"]

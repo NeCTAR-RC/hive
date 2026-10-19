@@ -33,6 +33,9 @@ class RecordSetCreate(BaseModel):
 
 
 class RecordSetUpdate(BaseModel):
+    """``ttl`` omitted keeps the current TTL; ``null`` restores the zone
+    default."""
+
     records: list[str] = Field(min_length=1, max_length=100)
     ttl: int | None = Field(default=None, ge=0)
     description: str | None = Field(default=None, max_length=160)

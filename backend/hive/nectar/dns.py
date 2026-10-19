@@ -8,7 +8,8 @@ designate-dashboard ones).
   email and a default TTL. Status is ACTIVE, PENDING or ERROR with the
   pending ``action`` (CREATE, UPDATE, DELETE).
 - Record sets: a name under the zone (``www.example.com.``), a type, a
-  TTL, a description and one or more records. The SOA and the apex NS
+  TTL (``null`` uses the zone's default), a description and one or more
+  records. The SOA and the apex NS
   record sets are managed by Designate and cannot be edited or deleted.
 - Record formats the dashboard validates: A is an IPv4 address, AAAA an
   IPv6 address, CNAME, NS and PTR an absolute name, MX ``priority host.``,
@@ -139,6 +140,12 @@ def validate_record(rtype: str, record: str) -> str | None:
     return None
 
 
+def in_zone(name: str, zone_name: str) -> bool:
+    """The apex or a name under it; ``notexample.com.`` is not in
+    ``example.com.``."""
+    return name == zone_name or name.endswith("." + zone_name)
+
+
 def validate_recordset(
     zone_name: str, name: str, rtype: str, records: list[str], ttl: int | None
 ) -> str | None:
@@ -147,7 +154,7 @@ def validate_recordset(
     problem = validate_fqdn(name, "record set name")
     if problem:
         return problem
-    if not name.endswith(zone_name):
+    if not in_zone(name, zone_name):
         return f"The name must end with the zone name {zone_name}"
     if not records:
         return "Add at least one record."

@@ -7,12 +7,15 @@ failures onto the error envelope. Clients never apply Nectar policy; that
 lives in ``hive.nectar``.
 """
 
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Awaitable, Callable
+from contextvars import ContextVar
 import re
 import time
+from urllib.parse import quote
 import uuid
 
 import httpx
+import structlog
 
 from hive.config import Settings
 from hive.errors import (
@@ -31,6 +34,8 @@ from hive.errors import (
 )
 from hive.observability import metrics
 from hive.session.model import ScopedToken
+
+log = structlog.get_logger("hive.upstream")
 
 OK_STATUSES = (200, 201, 202, 203, 204)
 # A 413 whose message reads like one of these is a quota, not a rate limit.
@@ -55,6 +60,30 @@ FLAT_MESSAGE_KEYS = (
     "description",
     "faultstring",
 )
+
+
+# Rescopes the request's project token from the unscoped token. Called at
+# most once per client request when an upstream answers 401, so a service
+# rejecting a token (a keystonemiddleware cache blip) does not end the whole
+# session. ``hive.deps`` binds one per request; a client may also be given
+# one explicitly.
+Refresh = Callable[[], Awaitable[ScopedToken]]
+_refresh: ContextVar[Refresh | None] = ContextVar("hive_refresh", default=None)
+
+
+def bind_refresh(refresh: Refresh | None) -> None:
+    """Make ``refresh`` the fallback for clients built in this context."""
+    _refresh.set(refresh)
+
+
+def seg(value: str) -> str:
+    """Percent-encode one URL path segment built from user input.
+
+    Starlette decodes ``%2F`` and ``%3F`` in path parameters, so an id such
+    as ``x?all_tenants=1`` or ``../other`` would otherwise rewrite the
+    upstream path or query. Every client builds its paths through this.
+    """
+    return quote(str(value), safe="")
 
 
 def catalog_endpoint(
@@ -150,11 +179,13 @@ class ServiceClient:
         scoped: ScopedToken,
         *,
         microversion: str | None = None,
+        refresh: Refresh | None = None,
     ):
         self._http = http
         self.settings = settings
         self.scoped = scoped
         self.microversion = microversion
+        self.refresh = refresh
         self._endpoint: str | None = None
 
     @property
@@ -180,10 +211,12 @@ class ServiceClient:
         return self._endpoint
 
     def headers(self) -> dict[str, str]:
+        # Hive's own request id, so upstream logs correlate with ours.
+        rid = structlog.contextvars.get_contextvars().get("request_id")
         hdrs = {
             "X-Auth-Token": self.scoped.token,
             "Accept": "application/json",
-            "X-OpenStack-Request-ID": f"req-{uuid.uuid4()}",
+            "X-OpenStack-Request-ID": rid or f"req-{uuid.uuid4()}",
         }
         if self.microversion and self.microversion_header:
             value = self.microversion
@@ -206,6 +239,51 @@ class ServiceClient:
         follow_redirects: bool = False,
     ) -> httpx.Response:
         url = path if path.startswith("http") else self.endpoint + path
+        resp = await self._send(
+            method,
+            url,
+            params,
+            json,
+            content,
+            headers,
+            timeout,
+            follow_redirects,
+        )
+        refresh = self.refresh or _refresh.get()
+        # A streamed body cannot be replayed, so only bytes are retried.
+        replayable = content is None or isinstance(content, bytes)
+        if (
+            resp.status_code == 401
+            and 401 not in ok
+            and refresh is not None
+            and replayable
+        ):
+            self.scoped = await refresh()
+            resp = await self._send(
+                method,
+                url,
+                params,
+                json,
+                content,
+                headers,
+                timeout,
+                follow_redirects,
+            )
+        if resp.status_code not in ok:
+            raise map_upstream_error(self.label, resp)
+        return resp
+
+    async def _send(
+        self,
+        method: str,
+        url: str,
+        params: dict | None,
+        json: dict | None,
+        content: bytes | AsyncIterable[bytes] | None,
+        headers: dict | None,
+        timeout: float | None,
+        follow_redirects: bool,
+    ) -> httpx.Response:
         hdrs = self.headers()
         if headers:
             hdrs.update(headers)
@@ -241,8 +319,15 @@ class ServiceClient:
                 f"{self.label} request failed: {exc}", service=self.label
             ) from exc
         self._observe(method, str(resp.status_code), started)
-        if resp.status_code not in ok:
-            raise map_upstream_error(self.label, resp)
+        # Method, path and status only: never headers, query or bodies.
+        log.debug(
+            "upstream",
+            service=self.label,
+            method=method,
+            path=httpx.URL(url).path,
+            status=resp.status_code,
+            upstream_request_id=resp.headers.get("x-openstack-request-id"),
+        )
         return resp
 
     async def get_json(self, path: str, **kwargs):

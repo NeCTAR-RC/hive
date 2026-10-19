@@ -173,18 +173,20 @@ async def allocation_usage(
         if budget == allocation_rules.UNLIMITED:
             base["reason"] = "This project's SU budget is unlimited."
             return base
-        start = date.fromisoformat(allocation["start_date"])
-        end = date.fromisoformat(allocation["end_date"])
+        begin_text = allocation.get("start_date")
+        end_text = allocation.get("end_date")
+        if not begin_text or not end_text:
+            # As fetch_allocation_summary: no dates, nothing to chart.
+            base["reason"] = "This project's allocation has no dates."
+            return base
+        start = date.fromisoformat(begin_text)
+        end = date.fromisoformat(end_text)
         client = CloudKittyClient(http, settings, scoped)
         try:
             daily = await client.summary_rows(
-                allocation["start_date"],
-                allocation["end_date"],
-                groupby="time-1d",
+                begin_text, end_text, groupby="time-1d"
             )
-            totals = await client.summary(
-                allocation["start_date"], allocation["end_date"]
-            )
+            totals = await client.summary(begin_text, end_text)
         except ServiceNotEnabled:
             raise
         except HiveError as exc:

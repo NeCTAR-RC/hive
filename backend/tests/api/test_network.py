@@ -1458,6 +1458,17 @@ async def test_security_group_routes(user, neutron):
         headers=csrf_headers(user),
     )
     assert response.status_code == 400
+    neutron.get(f"{NEUTRON}/v2.0/security-groups/sg-9").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "security_group": {
+                    **group,
+                    "security_group_rules": [{"id": "r-1"}],
+                }
+            },
+        )
+    )
     rule_gone = neutron.delete(
         f"{NEUTRON}/v2.0/security-group-rules/r-1"
     ).mock(return_value=httpx.Response(204))
@@ -1466,6 +1477,16 @@ async def test_security_group_routes(user, neutron):
         headers=csrf_headers(user),
     )
     assert response.status_code == 204 and rule_gone.called
+    # A rule of another group is not deleted through this one.
+    other_gone = neutron.delete(
+        f"{NEUTRON}/v2.0/security-group-rules/r-other"
+    ).mock(return_value=httpx.Response(204))
+    response = await user.delete(
+        "/api/network/security-groups/sg-9/rules/r-other",
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 404
+    assert not other_gone.called
     gone = neutron.delete(f"{NEUTRON}/v2.0/security-groups/sg-9").mock(
         return_value=httpx.Response(204)
     )
@@ -1473,3 +1494,185 @@ async def test_security_group_routes(user, neutron):
         "/api/network/security-groups/sg-9", headers=csrf_headers(user)
     )
     assert response.status_code == 204 and gone.called
+
+
+def created_rule(neutron):
+    return neutron.post(f"{NEUTRON}/v2.0/security-group-rules").mock(
+        side_effect=lambda request: httpx.Response(
+            201,
+            json={
+                "security_group_rule": {
+                    "id": "r-new",
+                    **json.loads(request.content)["security_group_rule"],
+                }
+            },
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        # ICMP echo with no code: the type only, no port_range_max.
+        (
+            {
+                "protocol": "icmp",
+                "port_range_min": 8,
+                "port_range_max": -1,
+                "remote_ip_prefix": "10.0.0.0/8",
+            },
+            {"protocol": "icmp", "ethertype": "IPv4", "port_range_min": 8},
+        ),
+        # Any ICMP type: no range at all.
+        (
+            {
+                "protocol": "icmp",
+                "port_range_min": -1,
+                "port_range_max": -1,
+                "remote_ip_prefix": "10.0.0.0/8",
+            },
+            {"protocol": "icmp", "ethertype": "IPv4"},
+        ),
+        # A single TCP port fills the top of the range.
+        (
+            {
+                "protocol": "TCP",
+                "port_range_min": 8080,
+                "remote_ip_prefix": "10.0.0.0/8",
+            },
+            {
+                "protocol": "tcp",
+                "ethertype": "IPv4",
+                "port_range_min": 8080,
+                "port_range_max": 8080,
+            },
+        ),
+        # An IPv6 CIDR makes the rule IPv6, and ICMP becomes ipv6-icmp.
+        (
+            {
+                "protocol": "icmp",
+                "ethertype": "IPv4",
+                "remote_ip_prefix": "2001:db8::/32",
+            },
+            {"protocol": "ipv6-icmp", "ethertype": "IPv6"},
+        ),
+        # A protocol number passes through, without ports.
+        (
+            {
+                "protocol": "47",
+                "port_range_min": 1,
+                "remote_ip_prefix": "10.0.0.0/8",
+            },
+            {"protocol": "47", "ethertype": "IPv4"},
+        ),
+    ],
+)
+async def test_rule_create_bodies(user, neutron, body, expected):
+    created = created_rule(neutron)
+    response = await user.post(
+        "/api/network/security-groups/sg-9/rules",
+        json=body,
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 201, response.text
+    sent = json.loads(created.calls.last.request.content)[
+        "security_group_rule"
+    ]
+    picked = {
+        k: sent[k]
+        for k in ("protocol", "ethertype", "port_range_min", "port_range_max")
+        if k in sent
+    }
+    assert picked == expected
+
+
+@pytest.mark.parametrize(
+    "body, status",
+    [
+        ({"protocol": "bogus", "remote_ip_prefix": "10.0.0.0/8"}, 422),
+        ({"protocol": "256", "remote_ip_prefix": "10.0.0.0/8"}, 422),
+        ({"protocol": "tcp", "remote_ip_prefix": "not-a-cidr"}, 400),
+    ],
+)
+async def test_rule_create_rejections(user, neutron, body, status):
+    created = created_rule(neutron)
+    response = await user.post(
+        "/api/network/security-groups/sg-9/rules",
+        json=body,
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == status, response.text
+    assert not created.called
+
+
+async def test_subnet_update_checks_the_gateway_against_the_subnet(
+    user, neutron
+):
+    v6 = {
+        "id": "sub-v6",
+        "network_id": "net-priv",
+        "cidr": "2001:db8::/64",
+        "ip_version": 6,
+        "gateway_ip": "2001:db8::1",
+    }
+    neutron.get(f"{NEUTRON}/v2.0/subnets/sub-v6").mock(
+        return_value=httpx.Response(200, json={"subnet": v6})
+    )
+    updated = neutron.put(f"{NEUTRON}/v2.0/subnets/sub-v6").mock(
+        return_value=httpx.Response(200, json={"subnet": v6})
+    )
+    response = await user.patch(
+        "/api/network/subnets/sub-v6",
+        json={"gateway_ip": "2001:db8::fe"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(updated.calls.last.request.content) == {
+        "subnet": {"gateway_ip": "2001:db8::fe"}
+    }
+    response = await user.patch(
+        "/api/network/subnets/sub-v6",
+        json={"gateway_ip": "10.0.0.1"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 400
+    assert "inconsistent" in response.json()["message"]
+
+
+async def test_classic_network_failure_is_not_cached(user, neutron, redis):
+    classic = neutron.get(f"{NEUTRON}/v2.0/networks/{CLASSIC}").mock(
+        return_value=httpx.Response(503, text="down")
+    )
+    response = await user.get("/api/network/networks?purpose=boot")
+    assert response.status_code == 200, response.text
+    assert CLASSIC not in [n["id"] for n in response.json()["items"]]
+    assert not await redis.keys("*networks:boot*")
+    classic.mock(
+        return_value=httpx.Response(200, json={"network": CLASSIC_NET})
+    )
+    response = await user.get("/api/network/networks?purpose=boot")
+    assert CLASSIC in [n["id"] for n in response.json()["items"]]
+    assert await redis.keys("*networks:boot*")
+
+
+async def test_instance_associate_fip_uses_the_first_target(user, neutron):
+    updated = neutron.put(f"{NEUTRON}/v2.0/floatingips/fip-2").mock(
+        return_value=httpx.Response(200, json={"floatingip": FIPS[1]})
+    )
+    response = await user.post(
+        "/api/compute/instances/srv-1/actions/associate-fip",
+        json={"floating_ip_id": "fip-2"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 202, response.text
+    # The IPv4 address on a subnet behind the floating gateway router.
+    assert json.loads(updated.calls.last.request.content) == {
+        "floatingip": {"port_id": "vp-1", "fixed_ip_address": "192.168.1.20"}
+    }
+    response = await user.post(
+        "/api/compute/instances/srv-none/actions/associate-fip",
+        json={"floating_ip_id": "fip-2"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 400
+    assert "no port" in response.json()["message"]

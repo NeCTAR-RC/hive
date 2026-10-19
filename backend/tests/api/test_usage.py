@@ -166,3 +166,37 @@ async def test_allocation_usage_partial_when_cloudkitty_fails(
     assert body["available"] is False
     assert body["partial"] is True
     assert body["reason"] == "Usage data is unavailable at the moment."
+
+
+async def test_usage_summary_allowlists_type_and_groupby(logged_in, upstream):
+    route = upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
+        side_effect=cloudkitty
+    )
+    for params in (
+        {"type": "instance,project_id:x"},
+        {"groupby": "user_id"},
+    ):
+        response = await logged_in.get("/api/usage/summary", params=params)
+        assert response.status_code == 400, params
+        assert response.json()["error"] == "bad_request"
+    assert not route.called
+    response = await logged_in.get(
+        "/api/usage/summary", params={"type": "instance", "groupby": "id"}
+    )
+    assert response.status_code == 200
+    assert route.calls.last.request.url.params["filters"] == "type:instance"
+
+
+async def test_allocation_usage_without_dates(logged_in, upstream):
+    undated = {**ALLOCATION, "start_date": None, "end_date": None}
+    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(
+        return_value=httpx.Response(
+            200, json={"results": [undated], "next": None}
+        )
+    )
+    upstream.get(f"{CLOUDKITTY}/v2/summary").mock(side_effect=cloudkitty)
+    response = await logged_in.get("/api/usage/allocation")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["available"] is False
+    assert body["reason"] == "This project's allocation has no dates."

@@ -4,6 +4,10 @@ Listings use ``format=json``; metadata travels in headers as the Swift
 API defines it. Large objects are static large objects (SLO): segments in
 ``<container>_segments`` and a manifest uploaded with
 ``multipart-manifest=put``. Nothing here applies Nectar policy.
+
+Container names never contain ``/`` and go through ``seg``; object names
+may (pseudo folders), so ``object_path`` keeps the slashes and encodes
+everything else.
 """
 
 from collections.abc import AsyncIterable
@@ -11,14 +15,19 @@ from urllib.parse import quote
 
 import httpx
 
-from hive.clients.base import ServiceClient
+from hive.clients.base import map_upstream_error, seg, ServiceClient
 
 LISTING_LIMIT = 1000
 MAX_PAGES = 50
+BULK_DELETE_LIMIT = 1000
+
+
+def container_path(container: str) -> str:
+    return f"/{seg(container)}"
 
 
 def object_path(container: str, name: str) -> str:
-    return f"/{quote(container, safe='')}/{quote(name, safe='/')}"
+    return f"{container_path(container)}/{quote(name, safe='/')}"
 
 
 class SwiftClient(ServiceClient):
@@ -41,26 +50,35 @@ class SwiftClient(ServiceClient):
     async def update_account(self, metadata: dict[str, str]) -> None:
         await self.request("POST", "", headers=metadata, ok=(200, 202, 204))
 
-    async def containers(self) -> list[dict]:
+    async def _listing(
+        self, path: str, params: dict
+    ) -> tuple[list[dict], bool]:
+        """Every entry of a listing, following markers for at most
+        ``MAX_PAGES`` pages; the flag is ``True`` when it stopped there
+        with more to come."""
         items: list[dict] = []
         marker = None
         for _ in range(MAX_PAGES):
-            params: dict = {"format": "json", "limit": LISTING_LIMIT}
+            page_params = {**params, "format": "json", "limit": LISTING_LIMIT}
             if marker:
-                params["marker"] = marker
-            body = await self.get_json("", params=params) or []
+                page_params["marker"] = marker
+            body = await self.get_json(path, params=page_params) or []
             items.extend(body)
             if len(body) < LISTING_LIMIT:
-                break
-            marker = body[-1].get("name")
-        return items
+                return items, False
+            last = body[-1]
+            marker = last.get("name") or last.get("subdir")
+        return items, True
+
+    async def containers(self) -> tuple[list[dict], bool]:
+        """The account's containers and whether the listing was cut
+        short."""
+        return await self._listing("", {})
 
     # --- containers ----------------------------------------------------------
 
     async def container(self, name: str) -> dict[str, str]:
-        resp = await self.request(
-            "HEAD", f"/{quote(name, safe='')}", ok=(200, 204)
-        )
+        resp = await self.request("HEAD", container_path(name), ok=(200, 204))
         return {k.lower(): v for k, v in resp.headers.items()}
 
     async def create_container(
@@ -68,7 +86,7 @@ class SwiftClient(ServiceClient):
     ) -> None:
         await self.request(
             "PUT",
-            f"/{quote(name, safe='')}",
+            container_path(name),
             headers=metadata,
             ok=(201, 202, 204),
         )
@@ -76,15 +94,13 @@ class SwiftClient(ServiceClient):
     async def update_container(self, name: str, metadata: dict[str, str]):
         await self.request(
             "POST",
-            f"/{quote(name, safe='')}",
+            container_path(name),
             headers=metadata,
             ok=(200, 202, 204),
         )
 
     async def delete_container(self, name: str) -> None:
-        await self.request(
-            "DELETE", f"/{quote(name, safe='')}", ok=(200, 202, 204)
-        )
+        await self.request("DELETE", container_path(name), ok=(200, 202, 204))
 
     async def objects(
         self,
@@ -102,23 +118,17 @@ class SwiftClient(ServiceClient):
             params["delimiter"] = delimiter
         if marker:
             params["marker"] = marker
-        body = await self.get_json(
-            f"/{quote(container, safe='')}", params=params
-        )
+        body = await self.get_json(container_path(container), params=params)
         return body or []
 
-    async def all_objects(self, container: str, prefix: str | None = None):
+    async def all_objects(
+        self, container: str, prefix: str | None = None
+    ) -> tuple[list[dict], bool]:
         """Every object under a prefix, following markers (for recursive
-        folder deletes)."""
-        items: list[dict] = []
-        marker = None
-        for _ in range(MAX_PAGES):
-            page = await self.objects(container, prefix=prefix, marker=marker)
-            items.extend(page)
-            if len(page) < LISTING_LIMIT:
-                break
-            marker = page[-1].get("name")
-        return items
+        folder deletes), and whether the listing was cut short at
+        ``MAX_PAGES``."""
+        params = {"prefix": prefix} if prefix else {}
+        return await self._listing(container_path(container), params)
 
     # --- objects -------------------------------------------------------------
 
@@ -137,8 +147,9 @@ class SwiftClient(ServiceClient):
         content_type: str | None = None,
         content_length: int | None = None,
         timeout: float | None = None,
+        metadata: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        headers = {}
+        headers = dict(metadata or {})
         if content_type:
             headers["Content-Type"] = content_type
         if content_length is not None:
@@ -194,7 +205,9 @@ class SwiftClient(ServiceClient):
         )
 
     async def bulk_delete(self, paths: list[str]) -> dict:
-        """``POST ?bulk-delete`` with one ``/container/object`` per line."""
+        """``POST ?bulk-delete`` with one percent-encoded
+        ``/container/object`` per line. Swift answers 200 with the outcome
+        in the body (``Response Status``, ``Number Deleted``, ``Errors``)."""
         if not paths:
             return {}
         body = "\n".join(paths).encode()
@@ -216,7 +229,8 @@ class SwiftClient(ServiceClient):
             return {}
 
     async def get_object(self, container: str, name: str) -> httpx.Response:
-        """A streaming GET; the caller closes the response."""
+        """A streaming GET; the caller closes the response. An error
+        status is read, closed and raised as the usual error."""
         url = self.endpoint + object_path(container, name)
         req = self._http.build_request(
             "GET",
@@ -226,7 +240,14 @@ class SwiftClient(ServiceClient):
                 600, connect=self.settings.upstream_connect_timeout
             ),
         )
-        return await self._http.send(req, stream=True)
+        resp = await self._http.send(req, stream=True)
+        if resp.status_code >= 400:
+            try:
+                await resp.aread()
+            finally:
+                await resp.aclose()
+            raise map_upstream_error(self.label, resp)
+        return resp
 
     async def info(self) -> dict:
         """Cluster capabilities from ``/info`` next to the account URL."""

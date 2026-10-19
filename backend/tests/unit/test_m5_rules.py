@@ -1,10 +1,13 @@
 """Rules behind the object store, Kubernetes and load balancer panels."""
 
 import base64
+import hashlib
+import hmac
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
-from hive.nectar import loadbalancer, magnum, objectstore
+from hive.nectar import dns, loadbalancer, magnum, objectstore, orchestration
 
 # --- object store ----------------------------------------------------------------
 
@@ -16,6 +19,12 @@ def test_container_and_object_name_rules():
     assert objectstore.validate_object_name("a/b.txt") is None
     assert objectstore.validate_object_name("/a") is not None
     assert objectstore.validate_object_name("a//b") is not None
+    for bad in ("../other/x", "a/./b", "a/..", ".", ".."):
+        assert "folders" in objectstore.validate_object_name(bad), bad
+    assert objectstore.validate_object_name("a/..b/.c") is None
+    assert objectstore.validate_prefix(None) is None
+    assert objectstore.validate_prefix("/notes/") is None
+    assert objectstore.validate_prefix("notes/../x") is not None
     assert objectstore.folder_name("docs/", "notes") == "docs/notes/"
     assert objectstore.folder_name("", "/x/") == "x/"
 
@@ -67,6 +76,19 @@ def test_object_summaries_and_folders():
     )
 
 
+def _signed(url: str, key: str, method: str, account_path: str) -> bool:
+    """Check a TempURL the way Swift's tempurl middleware does: HMAC over
+    the decoded request path."""
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    expires = query["temp_url_expires"][0]
+    body = f"{method}\n{expires}\n{unquote(parts.path)}".encode()
+    assert unquote(parts.path).startswith(account_path)
+    digest = hmac.new(key.encode(), body, hashlib.sha256).digest()
+    expected = "sha256:" + base64.urlsafe_b64encode(digest).decode()
+    return query["temp_url_sig"][0] == expected
+
+
 def test_temp_url_signature_and_url():
     sig = objectstore.temp_url_signature(
         "key", "GET", 1000, "/v1/AUTH_p/c/o", "sha1"
@@ -100,6 +122,13 @@ def test_temp_url_signature_and_url():
     )
     assert "temp_url_expires=1060" in url and "multipart-manifest=put" in url
     assert "temp_url_sig=sha256:" in url
+    # The HMAC body is the decoded path, as Swift's tempurl middleware
+    # rebuilds it from PATH_INFO; the URL alone is percent-encoded.
+    unquoted = objectstore.temp_url_signature(
+        "key", "PUT", 1060, "/swift/v1/my container/docs/a b.txt"
+    )
+    assert parse_qs(urlsplit(url).query)["temp_url_sig"][0] == unquoted
+    assert _signed(url, "key", "PUT", "/swift/v1")
     classic = objectstore.temp_url(
         "https://swift.test/v1/AUTH_p",
         "c",
@@ -110,6 +139,66 @@ def test_temp_url_signature_and_url():
         now=0,
     )
     assert classic.startswith("https://swift.test/v1/AUTH_p/c/o?")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["My Thesis.pdf", "r\u00e9sum\u00e9.pdf", "\u8ad6\u6587/a+b#c%d&e.txt"],
+)
+def test_temp_url_signs_names_that_need_encoding(name):
+    url = objectstore.temp_url(
+        "https://swift.test/v1/AUTH_p",
+        "docs",
+        name,
+        key="k",
+        method="GET",
+        ttl=60,
+        now=0,
+        query={"filename": name.rsplit("/", 1)[-1]},
+    )
+    parts = urlsplit(url)
+    assert parts.path.isascii() and " " not in parts.path
+    assert unquote(parts.path) == f"/v1/AUTH_p/docs/{name}"
+    assert _signed(url, "k", "GET", "/v1/AUTH_p")
+
+
+def test_file_names_and_keys():
+    assert (
+        objectstore.temp_url_key({objectstore.TEMP_URL_KEY_2_HEADER: "two"})
+        == "two"
+    )
+    assert (
+        objectstore.temp_url_key(
+            {
+                objectstore.TEMP_URL_KEY_HEADER: "one",
+                objectstore.TEMP_URL_KEY_2_HEADER: "two",
+            }
+        )
+        == "one"
+    )
+    assert objectstore.temp_url_key({}) is None
+    encoded = objectstore.encode_orig_filename("r\u00e9sum\u00e9\r\n.pdf")
+    assert encoded.isascii() and "\n" not in encoded
+    assert objectstore.decode_orig_filename(encoded) == (
+        "r\u00e9sum\u00e9\r\n.pdf"
+    )
+    # Horizon stored the raw ASCII name; it decodes unchanged.
+    assert objectstore.decode_orig_filename("a b.txt") == "a b.txt"
+    assert objectstore.decode_orig_filename(None) is None
+    assert objectstore.download_filename("notes/report", "report.pdf") == (
+        "report.pdf"
+    )
+    assert objectstore.download_filename("notes/a.txt", "x.pdf") == "a.txt"
+    assert objectstore.download_filename("notes/report", None) == "report"
+    disposition = objectstore.content_disposition(
+        '\u8ad6\u6587 "a";b\\c\r\n.pdf'
+    )
+    assert disposition.isascii() and "\r" not in disposition
+    assert disposition.startswith('attachment; filename="__ _a__b_c__.pdf";')
+    assert disposition.endswith(
+        "filename*=UTF-8''%E8%AB%96%E6%96%87%20%22a%22%3Bb%5Cc%0D%0A.pdf"
+    )
+    assert 'filename="download"' in objectstore.content_disposition("")
 
 
 def test_segment_plan_and_manifest():
@@ -126,6 +215,39 @@ def test_segment_plan_and_manifest():
         "path": "/c_segments/big.iso/123/00000001",
         "size_bytes": 50,
     }
+
+
+# --- orchestration and DNS ----------------------------------------------------------
+
+
+def test_stack_actions_and_parameter_lists():
+    assert orchestration.stack_actions("UPDATE_IN_PROGRESS") == [
+        "cancel_update",
+        "delete",
+    ]
+    assert "cancel_update" not in orchestration.stack_actions(
+        "CREATE_COMPLETE"
+    )
+    assert set(orchestration.ACTION_REFUSALS) == {
+        "suspend",
+        "resume",
+        "check",
+        "cancel_update",
+    }
+    specs = [{"name": "ports", "type": "comma_delimited_list"}]
+    assert orchestration.coerce_parameters({"ports": [80, 443]}, specs) == {
+        "ports": "80,443"
+    }
+
+
+def test_record_set_must_be_inside_the_zone():
+    assert dns.in_zone("example.com.", "example.com.")
+    assert dns.in_zone("www.example.com.", "example.com.")
+    assert not dns.in_zone("notexample.com.", "example.com.")
+    problem = dns.validate_recordset(
+        "example.com.", "notexample.com.", "A", ["10.0.0.1"], None
+    )
+    assert problem is not None and "zone name" in problem
 
 
 # --- magnum ------------------------------------------------------------------------
@@ -471,5 +593,11 @@ def test_l7_fields_and_member_candidates():
             "addresses": [{"address": "10.0.0.5", "subnet_id": "s-1"}],
         }
     ]
+    pools = [
+        {"id": "p-1", "loadbalancers": [{"id": "lb-1"}]},
+        {"id": "p-2", "loadbalancers": [{"id": "lb-2"}]},
+        {"id": "p-3", "loadbalancers": []},
+    ]
+    assert [p["id"] for p in loadbalancer.pools_of(pools, "lb-1")] == ["p-1"]
     lb = {"provisioning_status": "PENDING_UPDATE"}
     assert loadbalancer.is_transitional(lb) and not loadbalancer.can_delete(lb)

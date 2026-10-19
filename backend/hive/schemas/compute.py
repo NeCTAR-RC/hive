@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from hive.nectar import secgroups as secgroup_rules
+
 SourceType = Literal["image", "snapshot", "volume", "volume_snapshot"]
 
 
@@ -119,3 +121,8 @@ class RuleCreate(BaseModel):
     remote_ip_prefix: str | None = None
     remote_group_id: str | None = None
     description: str = ""
+
+    @field_validator("protocol")
+    @classmethod
+    def _protocol(cls, value: str | None) -> str | None:
+        return secgroup_rules.normalise_protocol(value)

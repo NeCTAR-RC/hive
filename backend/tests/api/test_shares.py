@@ -207,9 +207,58 @@ async def test_list_options_and_detail(logged_in, upstream):
     )
     assert options["can_snapshot"]
 
+    assert options["newest_snapshot_ids"] == {"sh-1": "snap-1"}
+
     detail = (await logged_in.get("/api/shares/shares/sh-1")).json()
     assert detail["export_locations"][0]["path"] == "10.0.0.9:/vol/x"
     assert detail["access_rules"][0]["access_key"] == "k"
+    assert detail["newest_snapshot_id"] == "snap-1"
+
+
+async def test_revert_names_the_newest_of_several_snapshots(
+    logged_in, upstream
+):
+    """Manila lists newest first, so the last listed is the oldest; the
+    backend names the one it accepts."""
+    newer = {**SNAPSHOT, "id": "snap-2", "created_at": "2026-10-05T00:00:00"}
+    mock_manila(upstream, snapshots=[newer, SNAPSHOT])
+    options = (await logged_in.get("/api/shares/options")).json()
+    assert [s["id"] for s in options["snapshots"]] == ["snap-2", "snap-1"]
+    assert options["newest_snapshot_ids"] == {"sh-1": "snap-2"}
+    detail = (await logged_in.get("/api/shares/shares/sh-1")).json()
+    assert detail["newest_snapshot_id"] == "snap-2"
+    action = upstream.post(f"{MANILA}/shares/sh-1/action").mock(
+        return_value=httpx.Response(202)
+    )
+    older = await logged_in.post(
+        "/api/shares/shares/sh-1/revert",
+        json={"snapshot_id": "snap-1"},
+        headers=csrf_headers(logged_in),
+    )
+    assert older.status_code == 400 and not action.called
+    newest = await logged_in.post(
+        "/api/shares/shares/sh-1/revert",
+        json={"snapshot_id": detail["newest_snapshot_id"]},
+        headers=csrf_headers(logged_in),
+    )
+    assert newest.status_code == 202 and action.called
+
+
+async def test_share_ids_are_percent_encoded_upstream(logged_in, upstream):
+    """A ``?`` in an id must not become an upstream query string."""
+    seen = []
+
+    def manila(request):
+        seen.append(request.url.raw_path.decode())
+        return httpx.Response(404, json={"itemNotFound": {"message": "x"}})
+
+    upstream.route(host="manila.test").mock(side_effect=manila)
+    response = await logged_in.delete(
+        "/api/shares/snapshots/a%3Fall_tenants=1",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 404
+    assert seen == ["/v2/p1/snapshots/a%3Fall_tenants%3D1"]
 
 
 async def test_create_update_metadata_resize_revert_delete(
@@ -314,8 +363,10 @@ async def test_create_update_metadata_resize_revert_delete(
     set_meta = upstream.put(f"{MANILA}/shares/sh-1/metadata").mock(
         return_value=httpx.Response(200, json={"metadata": {"owner": "you"}})
     )
-    drop_meta = upstream.delete(f"{MANILA}/shares/sh-1/metadata/old").mock(
-        return_value=httpx.Response(200)
+    # Manila's PUT replaces the map, so "old" is already gone and a DELETE
+    # of it would be a 404 that turned the edit into "not found".
+    drop_old = upstream.delete(f"{MANILA}/shares/sh-1/metadata/old").mock(
+        return_value=httpx.Response(404, json={"itemNotFound": {}})
     )
     response = await logged_in.put(
         "/api/shares/shares/sh-1/metadata",
@@ -325,7 +376,24 @@ async def test_create_update_metadata_resize_revert_delete(
     assert response.status_code == 200 and response.json() == {
         "metadata": {"owner": "you"}
     }
-    assert set_meta.called and drop_meta.called
+    assert json.loads(set_meta.calls.last.request.content) == {
+        "metadata": {"owner": "you"}
+    }
+    assert not drop_old.called
+    # An empty map cannot go through PUT, so each current key is deleted.
+    drop_owner = upstream.delete(f"{MANILA}/shares/sh-1/metadata/owner").mock(
+        return_value=httpx.Response(200)
+    )
+    drop_old.mock(return_value=httpx.Response(200))
+    puts = set_meta.call_count
+    cleared = await logged_in.put(
+        "/api/shares/shares/sh-1/metadata",
+        json={"metadata": ""},
+        headers=csrf_headers(logged_in),
+    )
+    assert cleared.status_code == 200 and cleared.json() == {"metadata": {}}
+    assert drop_owner.called and drop_old.called
+    assert set_meta.call_count == puts
 
     action = upstream.post(f"{MANILA}/shares/sh-1/action").mock(
         return_value=httpx.Response(202)
@@ -567,12 +635,21 @@ async def test_snapshots(logged_in, upstream):
             200, json={"snapshot": {**SNAPSHOT, "name": "renamed"}}
         )
     )
+    upstream.get(f"{MANILA}/snapshots/snap-1").mock(
+        return_value=httpx.Response(
+            200, json={"snapshot": {**SNAPSHOT, "name": "renamed"}}
+        )
+    )
     response = await logged_in.patch(
         "/api/shares/snapshots/snap-1",
         json={"name": "renamed"},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200 and response.json()["name"] == "renamed"
+    # The same shape as GET: the parent share and the Rules action survive.
+    assert response.json()["share_name"] == "data"
+    assert "rules" in response.json()["actions"]
+    assert response.json()["access_rules"][0]["id"] == "sa-1"
     assert json.loads(update.calls.last.request.content) == {
         "snapshot": {"display_name": "renamed"}
     }

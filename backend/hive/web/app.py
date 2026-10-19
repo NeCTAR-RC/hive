@@ -14,6 +14,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 import httpx
 from redis import asyncio as aioredis
+from starlette.concurrency import run_in_threadpool
+import structlog
 
 from hive import __version__
 from hive.api.health import router as health_router
@@ -27,11 +29,24 @@ from hive.errors import install_error_handlers, NotFound
 from hive.logs import configure_logging
 from hive.observability.sentry import init_sentry
 from hive.redirects import RedirectMap
+from hive.services.loadbalancer import drain as drain_chains
 from hive.session.store import SessionStore
 from hive.web.middleware import RequestContextMiddleware
 
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
+
+log = structlog.get_logger("hive.web")
+
+
+def warn_posture(settings: Settings) -> None:
+    """Warn about deployment settings that are only safe in development."""
+    if settings.env != "dev" and not settings.websso_allowed_origins:
+        log.warning(
+            "websso_allowed_origins is empty: the manuka receiver accepts "
+            "a token POST from any Origin",
+            env=settings.env,
+        )
 
 
 def create_app(
@@ -50,6 +65,7 @@ def create_app(
     settings = settings or Settings()  # pyright: ignore[reportCallIssue]
     configure_logging(settings.log_format, settings.log_level)
     init_sentry(settings, __version__)
+    warn_posture(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -80,6 +96,10 @@ def create_app(
         try:
             yield
         finally:
+            # Background load-balancer chains record their state in Redis;
+            # give them a moment to finish (or be marked interrupted)
+            # before the clients they use are closed.
+            await drain_chains()
             await app.state.cache.close()
             if http is None:
                 await app.state.http.aclose()
@@ -106,6 +126,15 @@ def create_app(
     return app
 
 
+def _static_file(static_dir: Path, full_path: str) -> Path | None:
+    """The bundle file for ``full_path``, refusing anything that resolves
+    outside the bundle (path traversal)."""
+    candidate = (static_dir / full_path).resolve()
+    if static_dir in candidate.parents and candidate.is_file():
+        return candidate
+    return None
+
+
 def _mount_spa(app: FastAPI, settings: Settings) -> None:
     static_dir = settings.web_static.resolve() if settings.web_static else None
     index = static_dir / "index.html" if static_dir else None
@@ -116,26 +145,31 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
         target = redirects.match("/" + full_path, request.url.query)
         if target is not None:
             status, location = target
-            if status == 410:
-                return JSONResponse(
-                    {
-                        "error": "gone",
-                        "message": "this feature has been retired",
-                    },
+            if status != 410:
+                return RedirectResponse(location, status_code=301)
+            # A retired Horizon page: a browser following a bookmark gets
+            # the SPA, whose catch-all shows the "gone" state.
+            if index is not None and await run_in_threadpool(index.is_file):
+                return FileResponse(
+                    index,
                     status_code=410,
+                    headers={"Cache-Control": NO_CACHE},
                 )
-            return RedirectResponse(location, status_code=301)
+            return JSONResponse(
+                {"error": "gone", "message": "this feature has been retired"},
+                status_code=410,
+            )
         # The API router is registered first and wins; anything reaching
         # here that still looks like an API path is a genuine miss.
         if full_path == "api" or full_path.startswith("api/"):
             raise NotFound("no such API route")
         if static_dir is None or index is None:
             raise NotFound("no SPA bundle configured")
-        candidate = (static_dir / full_path).resolve()
-        if static_dir in candidate.parents and candidate.is_file():
+        found = await run_in_threadpool(_static_file, static_dir, full_path)
+        if found is not None:
             cache = IMMUTABLE if full_path.startswith("assets/") else NO_CACHE
-            return FileResponse(candidate, headers={"Cache-Control": cache})
-        if index.is_file():
+            return FileResponse(found, headers={"Cache-Control": cache})
+        if await run_in_threadpool(index.is_file):
             # Client-side route: serve the SPA shell.
             return FileResponse(index, headers={"Cache-Control": NO_CACHE})
         raise NotFound("not found")

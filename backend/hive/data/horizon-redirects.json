@@ -90,7 +90,7 @@
   {"from": "/project/api_access/", "to": "/api-access", "kind": "page"},
   {"from": "/project/api_access/openrc/", "to": "/api/api-access/openrc", "kind": "download"},
   {"from": "/project/api_access/clouds.yaml/", "to": "/api/api-access/clouds.yaml", "kind": "download"},
-  {"from": "/project/api_access/ec2/", "to": "/api/api-access/ec2", "kind": "download"},
+  {"from": "/project/api_access/ec2/", "to": "/identity/credentials", "kind": "page"},
   {"from": "/identity/", "to": "/identity/application-credentials", "kind": "page"},
   {"from": "/identity/application_credentials/", "to": "/identity/application-credentials", "kind": "page"},
   {"from": "/identity/credentials/", "to": "/identity/credentials", "kind": "page"},
@@ -117,7 +117,6 @@
   {"from": "/identity/credentials/create/", "to": "/identity/credentials?create=true", "kind": "page"},
   {"from": "/project/api_access/view_credentials/", "to": "/api-access", "kind": "page"},
   {"from": "/project/api_access/recreate_ec2_credentials/", "to": "/identity/credentials", "kind": "page"},
-  {"from": "/project/containers/container/:id/", "to": "/object-store/containers/:id", "kind": "page"},
   {"from": "/project/clusters/create/", "to": "/kubernetes/clusters/new", "kind": "page"},
   {"from": "/project/load_balancer/create/", "to": "/load-balancers/new", "kind": "page"}
 ]

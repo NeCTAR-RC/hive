@@ -6,6 +6,7 @@ import asyncio
 from hive.errors import BadRequest, HiveError
 from hive.services import compute
 from hive.services.context import Context
+from hive.services.names import names as names_by_id
 
 AZ_TTL = 600
 AZ_STALE = 3600
@@ -103,14 +104,6 @@ def backup_summary(
     }
 
 
-def _names(items: list[dict]) -> dict[str, str]:
-    names: dict[str, str] = {}
-    for item in items:
-        if item.get("id"):
-            names[str(item["id"])] = item.get("name") or ""
-    return names
-
-
 # --- volumes -------------------------------------------------------------------
 
 
@@ -158,9 +151,15 @@ async def availability_zones(ctx: Context) -> list[dict]:
     return zones
 
 
+def volume_types_key(ctx: Context) -> str:
+    """Per project: cinder lists the private volume types a project has
+    access to, so one project's list is not another's."""
+    return ctx.cache.project_key(ctx.project_id, "cinder-types")
+
+
 async def volume_types(ctx: Context) -> list[dict]:
     result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("cinder-types"),
+        volume_types_key(ctx),
         ctx.cinder.volume_types,
         ttl=TYPES_TTL,
         stale_ttl=TYPES_STALE,
@@ -232,10 +231,12 @@ async def create_options(ctx: Context) -> dict:
         ]
 
     async def volumes_section():
+        # Only available volumes can be cloned (Horizon
+        # ``dashboards/project/volumes/forms.py:444-446``).
         return [
             volume_summary(v)
             for v in await ctx.cinder.volumes(limit=LIST_LIMIT)
-            if v.get("status") in ("available", "in-use")
+            if v.get("status") == "available"
         ]
 
     results = await asyncio.gather(
@@ -350,7 +351,7 @@ async def list_snapshots(ctx: Context) -> dict:
         ctx.cinder.snapshots(limit=LIST_LIMIT),
         ctx.cinder.volumes(limit=LIST_LIMIT),
     )
-    names = _names(volumes)
+    names = names_by_id(volumes)
     return {"items": [snapshot_summary(s, names) for s in snapshots]}
 
 
@@ -360,7 +361,7 @@ async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
     if snapshot.get("volume_id"):
         try:
             volume = await ctx.cinder.volume(snapshot["volume_id"])
-            names = _names([volume])
+            names = names_by_id([volume])
         except HiveError:
             names = {}
     return snapshot_summary(snapshot, names)
@@ -377,7 +378,7 @@ async def create_snapshot(ctx: Context, req) -> dict:
             "force": volume.get("status") == "in-use",
         }
     )
-    return snapshot_summary(snapshot, _names([volume]))
+    return snapshot_summary(snapshot, names_by_id([volume]))
 
 
 async def update_snapshot(ctx: Context, snapshot_id: str, req) -> dict:
@@ -397,8 +398,8 @@ async def list_backups(ctx: Context) -> dict:
         ctx.cinder.volumes(limit=LIST_LIMIT),
         ctx.cinder.snapshots(limit=LIST_LIMIT),
     )
-    volume_names = _names(volumes)
-    snapshot_names = _names(snapshots)
+    volume_names = names_by_id(volumes)
+    snapshot_names = names_by_id(snapshots)
     return {
         "items": [
             backup_summary(b, volume_names, snapshot_names) for b in backups
@@ -412,14 +413,14 @@ async def get_backup(ctx: Context, backup_id: str) -> dict:
     snapshot_names: dict[str, str] = {}
     if backup.get("volume_id"):
         try:
-            volume_names = _names(
+            volume_names = names_by_id(
                 [await ctx.cinder.volume(backup["volume_id"])]
             )
         except HiveError:
             volume_names = {}
     if backup.get("snapshot_id"):
         try:
-            snapshot_names = _names(
+            snapshot_names = names_by_id(
                 [await ctx.cinder.snapshot(backup["snapshot_id"])]
             )
         except HiveError:
@@ -441,7 +442,7 @@ async def create_backup(ctx: Context, req) -> dict:
             "snapshot_id": req.snapshot_id or None,
         }
     )
-    return backup_summary(backup, _names([volume]))
+    return backup_summary(backup, names_by_id([volume]))
 
 
 async def restore_backup(ctx: Context, backup_id: str, req) -> dict:

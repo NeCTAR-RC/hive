@@ -29,14 +29,28 @@ Swift mechanics Hive uses for direct browser uploads.
 - Container CORS metadata (``X-Container-Meta-Access-Control-Allow-
   Origin``) must name the dashboard origin for the browser's PUT to be
   allowed.
+- The TempURL signature covers the decoded path: Swift's tempurl
+  middleware (``swift/common/middleware/tempurl.py``) rebuilds
+  ``/v1/<account>/<container>/<object>`` from the unquoted ``PATH_INFO``
+  before computing the HMAC, as swiftclient's ``generate_temp_url`` does.
+  Only the URL the browser follows is percent-encoded.
+- Uploads record the browser's file name in ``X-Object-Meta-Orig-Filename``
+  (``openstack_dashboard/api/swift.py`` ``swift_upload_object``) and a
+  download whose object name has no extension takes the original one back
+  (``openstack_dashboard/api/rest/swift.py`` ``Object.get``). Hive
+  percent-encodes the header value so any file name survives the
+  latin-1/ASCII header encoding; Horizon's raw ASCII values decode
+  unchanged.
 """
 
 import base64
 from dataclasses import dataclass
 import hashlib
 import hmac
+import posixpath
+import re
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 PUBLIC_ACL = ".r:*,.rlistings"
 FOLDER_CONTENT_TYPE = "application/directory"
@@ -45,6 +59,11 @@ DEFAULT_SEGMENT_BYTES = 1024**3
 MAX_CONTAINER_NAME = 256
 MAX_OBJECT_NAME = 1024
 TEMP_URL_KEY_HEADER = "x-account-meta-temp-url-key"
+TEMP_URL_KEY_2_HEADER = "x-account-meta-temp-url-key-2"
+ORIG_FILENAME_HEADER = "X-Object-Meta-Orig-Filename"
+# Characters dropped from the plain ``filename=`` fallback of a
+# Content-Disposition header (quoting, parameter separators, line breaks).
+UNSAFE_FILENAME = re.compile(r'["\\;,\r\n]|[^\x20-\x7e]')
 DIGESTS = {
     "sha1": hashlib.sha1,
     "sha256": hashlib.sha256,
@@ -62,6 +81,12 @@ def validate_container_name(name: str) -> str | None:
     return None
 
 
+def _dot_segment(name: str) -> bool:
+    """``.`` or ``..`` as a path segment: httpx (like any URL client)
+    collapses them, so ``../other/x`` would address another container."""
+    return any(part in (".", "..") for part in name.split("/"))
+
+
 def validate_object_name(name: str) -> str | None:
     if not name or name == "/":
         return "Enter a name."
@@ -69,9 +94,20 @@ def validate_object_name(name: str) -> str | None:
         return "Names cannot start with a slash."
     if "//" in name:
         return "Names cannot contain an empty folder."
+    if _dot_segment(name):
+        return 'Names cannot contain "." or ".." folders.'
     if len(name.encode()) > MAX_OBJECT_NAME:
         return "Names are at most 1024 characters."
     return None
+
+
+def validate_prefix(path: str | None) -> str | None:
+    """A folder path used as a listing prefix; empty is the container
+    root."""
+    clean = (path or "").strip("/")
+    if not clean:
+        return None
+    return validate_object_name(clean)
 
 
 def folder_name(prefix: str, name: str) -> str:
@@ -196,23 +232,70 @@ def temp_url(
     now: float | None = None,
     query: dict[str, str] | None = None,
 ) -> str:
-    """A signed URL for one object. The signature covers the request path
-    (``/v1/AUTH_x/container/object``) and not the query string, so extra
-    parameters can be added; Swift keeps only ``filename``,
-    ``temp_url_prefix`` and its own parameters (see the module docstring),
-    which is enough for the download file name."""
+    """A signed URL for one object. The signature covers the decoded
+    request path (``/v1/AUTH_x/container/object``, see the module
+    docstring) and not the query string, so extra parameters can be added;
+    Swift keeps only ``filename``, ``temp_url_prefix`` and its own
+    parameters, which is enough for the download file name."""
     expires = int((now if now is not None else time.time()) + ttl)
     parts = urlsplit(account_url)
+    account_path = unquote(parts.path.rstrip("/"))
+    signed = f"{account_path}/{container}/{name}"
+    sig = temp_url_signature(key, method, expires, signed, digest)
     path = (
-        parts.path.rstrip("/")
+        quote(account_path, safe="/")
         + f"/{quote(container, safe='')}/{quote(name, safe='/')}"
     )
-    sig = temp_url_signature(key, method, expires, path, digest)
     params = {"temp_url_sig": sig, "temp_url_expires": str(expires)}
     if query:
         params.update(query)
     encoded = "&".join(f"{k}={quote(v, safe=':')}" for k, v in params.items())
     return f"{parts.scheme}://{parts.netloc}{path}?{encoded}"
+
+
+def temp_url_key(account: dict[str, str]) -> str | None:
+    """The account's TempURL key: ``Temp-URL-Key``, else ``Temp-URL-Key-2``
+    (Swift accepts a signature made with either)."""
+    return account.get(TEMP_URL_KEY_HEADER) or account.get(
+        TEMP_URL_KEY_2_HEADER
+    )
+
+
+# --- file names --------------------------------------------------------------
+
+
+def encode_orig_filename(filename: str) -> str:
+    """The ``X-Object-Meta-Orig-Filename`` value: percent-encoded so a
+    non-ASCII or CR/LF name cannot break the header."""
+    return quote(filename, safe=" ")
+
+
+def decode_orig_filename(value: str | None) -> str | None:
+    return unquote(value) if value else None
+
+
+def has_extension(filename: str) -> bool:
+    return bool(posixpath.splitext(filename)[1])
+
+
+def download_filename(name: str, orig_filename: str | None) -> str:
+    """The object's last path segment, with the original file's extension
+    added back when the object name has none (Horizon
+    ``api/rest/swift.py`` ``Object.get``)."""
+    filename = name.rstrip("/").rsplit("/", 1)[-1] or name
+    if orig_filename and not has_extension(filename):
+        filename += posixpath.splitext(orig_filename)[1]
+    return filename
+
+
+def content_disposition(filename: str) -> str:
+    """``attachment`` with an ASCII ``filename=`` fallback and the exact
+    name as RFC 6266 ``filename*=UTF-8''...``."""
+    fallback = UNSAFE_FILENAME.sub("_", filename).strip() or "download"
+    return (
+        f'attachment; filename="{fallback}";'
+        f" filename*=UTF-8''{quote(filename, safe='')}"
+    )
 
 
 @dataclass

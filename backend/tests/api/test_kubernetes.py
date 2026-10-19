@@ -415,7 +415,10 @@ async def test_cluster_config_and_certificates(logged_in, upstream):
     signed = upstream.post(f"{MAGNUM}/certificates").mock(
         return_value=httpx.Response(201, json={"pem": "-----CERT-----"})
     )
-    body = (await logged_in.get("/api/kubernetes/clusters/c-1/config")).json()
+    config = await logged_in.get("/api/kubernetes/clusters/c-1/config")
+    # The body carries a freshly generated private key.
+    assert config.headers["cache-control"] == "no-store"
+    body = config.json()
     assert body["ca"] == "-----CA-----" and body["cert"] == "-----CERT-----"
     assert body["key"].startswith("-----BEGIN RSA PRIVATE KEY-----")
     assert "client-certificate-data" in body["kubeconfig"]
@@ -437,3 +440,152 @@ async def test_cluster_config_and_certificates(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.json() == {"pem": "-----CERT-----"}
+
+
+async def test_cluster_config_without_api_address_or_tls(logged_in, upstream):
+    mock_magnum(upstream, {**CLUSTER, "api_address": None})
+    response = await logged_in.get("/api/kubernetes/clusters/c-1/config")
+    assert response.status_code == 409
+
+    mock_magnum(upstream)
+    upstream.get(f"{MAGNUM}/clustertemplates/t-133").mock(
+        return_value=httpx.Response(
+            200, json={**TEMPLATE, "tls_disabled": True}
+        )
+    )
+    signed = upstream.post(f"{MAGNUM}/certificates")
+    response = await logged_in.get("/api/kubernetes/clusters/c-1/config")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["key"] is None and body["ca"] is None and body["cert"] is None
+    assert "server: https://10.0.0.5:6443" in body["kubeconfig"]
+    assert not signed.called
+
+
+async def test_upgrade_refuses_a_template_outside_the_targets(
+    logged_in, upstream
+):
+    mock_magnum(upstream)
+    upgraded = upstream.post(f"{MAGNUM}/clusters/c-1/actions/upgrade")
+    response = await logged_in.post(
+        "/api/kubernetes/clusters/c-1/upgrade",
+        json={"cluster_template_id": "t-single"},
+        headers=csrf_headers(logged_in),
+    )
+    assert (
+        response.status_code == 400
+        and "upgrade target" in (response.json()["message"])
+    )
+    assert not upgraded.called
+
+
+async def test_quota_and_template_fallbacks(logged_in, upstream):
+    mock_magnum(upstream)
+    upstream.get(f"{MAGNUM}/quotas/p1/Cluster").mock(
+        return_value=httpx.Response(403, json={"errors": [{"title": "no"}]})
+    )
+    upstream.get(f"{MAGNUM}/stats").mock(
+        return_value=httpx.Response(403, json={"errors": [{"title": "no"}]})
+    )
+    upstream.get(f"{MAGNUM}/clustertemplates/detail").mock(
+        return_value=httpx.Response(403, json={"errors": [{"title": "no"}]})
+    )
+    upstream.get(f"{MAGNUM}/clustertemplates/t-133").mock(
+        return_value=httpx.Response(404, json={"errors": [{"title": "gone"}]})
+    )
+    body = (await logged_in.get("/api/kubernetes/clusters")).json()
+    # The fallback hard limit, and the count taken from the list.
+    assert body["quota"] == {"clusters": 1, "nodes": None, "hard_limit": 20}
+    assert body["items"][0]["name"] == "samtest1"
+    assert body["items"][0]["template_name"] is None
+    detail = await logged_in.get("/api/kubernetes/clusters/c-1")
+    assert detail.status_code == 200 and detail.json()["id"] == "c-1"
+    options = (
+        await logged_in.get("/api/kubernetes/clusters/c-1/upgrade-options")
+    ).json()
+    # The cluster's own upgrade_targets label is the fallback.
+    assert [t["template_id"] for t in options["targets"]] == ["t-134"]
+
+
+async def test_nodegroup_autoscaling_bounds(logged_in, upstream):
+    mock_magnum(upstream)
+    created = upstream.post(f"{MAGNUM}/clusters/c-1/nodegroups")
+    for bounds, message in (
+        ({"min_node_count": 3, "max_node_count": 2}, "at least the minimum"),
+        ({"min_node_count": 3, "max_node_count": 5}, "between"),
+    ):
+        response = await logged_in.post(
+            "/api/kubernetes/clusters/c-1/nodegroups",
+            json={
+                "name": "auto",
+                "flavor_id": "m3.small",
+                "node_count": 1,
+                "autoscaling": True,
+                **bounds,
+            },
+            headers=csrf_headers(logged_in),
+        )
+        assert response.status_code == 400
+        assert message in response.json()["message"]
+    assert not created.called
+    patched = upstream.patch(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu")
+    response = await logged_in.put(
+        "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu/autoscaling",
+        json={"min_node_count": 4, "max_node_count": 2},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 400 and not patched.called
+
+
+async def test_set_labels_error_and_no_op(logged_in, upstream):
+    mock_magnum(upstream)
+    # Magnum may store a value-less taint as null rather than "".
+    upstream.get(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                **NODEGROUPS[2],
+                "node_labels": {"tier": "gpu", "pool": "a"},
+                "node_taints": [
+                    {"key": "gpu", "value": None, "effect": "NoSchedule"},
+                    {"key": "x", "value": "1", "effect": "NoExecute"},
+                ],
+            },
+        )
+    )
+    patched = upstream.patch(f"{MAGNUM}/clusters/c-1/nodegroups/ng-gpu")
+    bad = await logged_in.put(
+        "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu/labels",
+        json={"node_labels": "no-equals-sign"},
+        headers=csrf_headers(logged_in),
+    )
+    assert bad.status_code == 400
+    same = await logged_in.put(
+        "/api/kubernetes/clusters/c-1/nodegroups/ng-gpu/labels",
+        json={
+            "node_labels": "pool=a,tier=gpu",
+            "node_taints": "x=1:NoExecute,gpu:NoSchedule",
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert same.status_code == 200 and not patched.called
+    assert same.json()["node_labels"] == {"tier": "gpu", "pool": "a"}
+
+
+async def test_magnum_ids_are_percent_encoded_upstream(logged_in, upstream):
+    """A ``?`` in an id must not become an upstream query string."""
+    seen = []
+
+    def magnum(request):
+        seen.append(request.url.raw_path.decode())
+        return httpx.Response(404, json={"errors": [{"title": "not found"}]})
+
+    upstream.route(host="magnum.test").mock(side_effect=magnum)
+    response = await logged_in.delete(
+        "/api/kubernetes/clusters/c%3Fall_tenants=1",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 404
+    assert seen[-1].endswith("/clusters/c%3Fall_tenants%3D1")
+    assert "?" not in seen[-1]

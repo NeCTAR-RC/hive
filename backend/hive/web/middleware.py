@@ -4,6 +4,7 @@ Pure ASGI (not ``BaseHTTPMiddleware``) so contextvars bound here are
 visible to the route handlers and nothing buffers the response.
 """
 
+import re
 import time
 import uuid
 
@@ -14,6 +15,12 @@ from hive.config import Settings
 from hive.observability import metrics
 
 log = structlog.get_logger("hive.http")
+
+# An incoming X-Request-ID is reused only when it looks like an id; it is
+# echoed in logs, the response header and error envelopes.
+REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+# Metric label for requests no route matched, so clients cannot mint labels.
+UNMATCHED = "/unmatched"
 
 
 def security_headers(settings: Settings) -> dict[str, str]:
@@ -33,9 +40,10 @@ def security_headers(settings: Settings) -> dict[str, str]:
     return headers
 
 
-def _coarse_path(path: str) -> str:
-    parts = [p for p in path.split("/") if p]
-    return "/" + "/".join(parts[:2])
+def _request_id(incoming: str | None) -> str:
+    if incoming and REQUEST_ID.fullmatch(incoming):
+        return incoming
+    return f"req-{uuid.uuid4()}"
 
 
 class RequestContextMiddleware:
@@ -49,7 +57,7 @@ class RequestContextMiddleware:
             await self.app(scope, receive, send)
             return
         incoming = Headers(scope=scope)
-        request_id = incoming.get("x-request-id") or f"req-{uuid.uuid4()}"
+        request_id = _request_id(incoming.get("x-request-id"))
         scope.setdefault("state", {})["request_id"] = request_id
         structlog.contextvars.bind_contextvars(request_id=request_id)
         started = time.perf_counter()
@@ -70,9 +78,7 @@ class RequestContextMiddleware:
         finally:
             duration = time.perf_counter() - started
             route = scope.get("route")
-            label = getattr(route, "path", None) or _coarse_path(
-                scope.get("path", "/")
-            )
+            label = getattr(route, "path", None) or UNMATCHED
             method = scope.get("method", "GET")
             status = status_holder["status"]
             metrics.http_requests.labels(label, method, str(status)).inc()

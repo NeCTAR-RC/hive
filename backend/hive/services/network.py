@@ -6,6 +6,7 @@ import asyncio
 
 from hive.errors import BadRequest, HiveError, NotFound, QuotaExceeded
 from hive.nectar.networks import (
+    PURPOSE_ANY,
     PURPOSE_BOOT,
     PURPOSE_ROUTER,
     ROUTER_GATEWAY_OWNER,
@@ -31,6 +32,7 @@ from hive.schemas.network import (
     TrunkCreate,
 )
 from hive.services.context import Context
+from hive.services.names import names as names_by_id
 
 NETWORKS_TTL = 300
 NETWORKS_STALE = 3600
@@ -260,14 +262,6 @@ def trunk_summary(
     }
 
 
-def _names(items: list[dict]) -> dict[str, str]:
-    names: dict[str, str] = {}
-    for item in items:
-        if item.get("id"):
-            names[str(item["id"])] = item.get("name") or str(item["id"])
-    return names
-
-
 # --- reference data -------------------------------------------------------
 
 
@@ -325,6 +319,12 @@ async def _classic_and_shared(ctx: Context, purpose: str) -> list[dict]:
     (the same for every user)."""
     rules = ctx.network_rules
 
+    async def shared_networks() -> list[dict]:
+        params = rules.shared_query_params(purpose)
+        if params is None:
+            return []
+        return await ctx.neutron.networks(**params)
+
     async def fetch():
         classic: list[dict] = []
         if rules.offers_classic(purpose):
@@ -332,21 +332,23 @@ async def _classic_and_shared(ctx: Context, purpose: str) -> list[dict]:
                 classic = [
                     await ctx.neutron.network(rules.classic_network_id or "")
                 ]
-            except Exception:
+            except NotFound:
+                # Definitive: this cloud has no classic network.
                 classic = []
-        shared: list[dict] = []
-        params = rules.shared_query_params(purpose)
-        if params is not None:
-            shared = await ctx.neutron.networks(**params)
-        return {"classic": classic, "shared": shared}
+        return {"classic": classic, "shared": await shared_networks()}
 
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("networks", purpose),
-        fetch,
-        ttl=NETWORKS_TTL,
-        stale_ttl=NETWORKS_STALE,
-        name="networks",
-    )
+    try:
+        result = await ctx.cache.get_or_fetch(
+            ctx.cache.global_key("networks", purpose),
+            fetch,
+            ttl=NETWORKS_TTL,
+            stale_ttl=NETWORKS_STALE,
+            name="networks",
+        )
+    except HiveError:
+        # A transient failure must not cache "no classic network" for
+        # everyone; answer this request without it and cache nothing.
+        return await shared_networks()
     return [*result.value["classic"], *result.value["shared"]]
 
 
@@ -582,8 +584,13 @@ async def create_subnet(ctx: Context, body: SubnetCreate) -> dict:
 async def update_subnet(
     ctx: Context, subnet_id: str, body: SubnetUpdate
 ) -> dict:
+    data = body.model_dump()
+    if data.get("gateway_ip") and not data.get("no_gateway"):
+        # Check the gateway against the subnet's own IP version.
+        subnet = await ctx.neutron.subnet(subnet_id)
+        data["ip_version"] = subnet.get("ip_version")
     fields = subnet_body(
-        body.model_dump(),
+        data,
         ctx.settings.subnet_default_dns_nameservers,
         ctx.settings.network_enable_ipv6,
         is_create=False,
@@ -657,7 +664,7 @@ async def list_routers(ctx: Context) -> list[dict]:
         ctx.neutron.routers(project_id=ctx.project_id),
         floating_networks(ctx),
     )
-    names = _names(floating)
+    names = names_by_id(floating, fallback_to_id=True)
     return [router_summary(r, names) for r in routers]
 
 
@@ -667,13 +674,13 @@ async def get_router(ctx: Context, router_id: str) -> dict:
         ctx.neutron.ports(device_id=router_id),
         floating_networks(ctx),
     )
-    names = _names(floating)
+    names = names_by_id(floating, fallback_to_id=True)
     summary = router_summary(router, names)
     network_ids = {p.get("network_id") for p in ports}
     network_names: dict[str, str] = dict(names)
     if network_ids - set(network_names):
         own = await ctx.neutron.networks(project_id=ctx.project_id)
-        network_names.update(_names(own))
+        network_names.update(names_by_id(own, fallback_to_id=True))
     summary["interfaces"] = [
         {
             **port_summary(p, network_names.get(p.get("network_id") or "")),
@@ -713,12 +720,16 @@ async def create_router(ctx: Context, body: RouterCreate) -> dict:
     if body.availability_zone_hints:
         fields["availability_zone_hints"] = body.availability_zone_hints
     router = await ctx.neutron.create_router(fields)
-    return router_summary(router, _names(await floating_networks(ctx)))
+    return router_summary(
+        router, names_by_id(await floating_networks(ctx), fallback_to_id=True)
+    )
 
 
 async def update_router(ctx: Context, router_id: str, fields: dict) -> dict:
     router = await ctx.neutron.update_router(router_id, fields)
-    return router_summary(router, _names(await floating_networks(ctx)))
+    return router_summary(
+        router, names_by_id(await floating_networks(ctx), fallback_to_id=True)
+    )
 
 
 async def delete_router(ctx: Context, router_id: str) -> None:
@@ -837,7 +848,9 @@ async def set_routes(ctx: Context, router_id: str, routes: list[dict]) -> dict:
 
 async def _server_names(ctx: Context) -> dict[str, str]:
     try:
-        return _names(await ctx.nova.servers_brief(limit=LIST_LIMIT))
+        return names_by_id(
+            await ctx.nova.servers_brief(limit=LIST_LIMIT), fallback_to_id=True
+        )
     except HiveError:
         return {}
 
@@ -852,7 +865,7 @@ async def list_floating_ips(ctx: Context) -> list[dict]:
         _server_names(ctx),
     )
     by_port = {p["id"]: p for p in ports}
-    names = _names(floating)
+    names = names_by_id(floating, fallback_to_id=True)
     return [
         floating_ip_summary(
             f, by_port.get(f.get("port_id") or ""), servers, names
@@ -873,7 +886,9 @@ async def get_floating_ip(ctx: Context, fip_id: str) -> dict:
             port = await ctx.neutron.port(fip["port_id"])
         except HiveError:
             port = None
-    return floating_ip_summary(fip, port, servers, _names(floating))
+    return floating_ip_summary(
+        fip, port, servers, names_by_id(floating, fallback_to_id=True)
+    )
 
 
 async def floating_ip_targets(
@@ -927,7 +942,10 @@ async def allocate_floating_ip(ctx: Context, body: FloatingIpAllocate) -> dict:
             fields[key] = value
     fip = await ctx.neutron.create_floatingip(fields)
     return floating_ip_summary(
-        fip, None, {}, _names(await floating_networks(ctx))
+        fip,
+        None,
+        {},
+        names_by_id(await floating_networks(ctx), fallback_to_id=True),
     )
 
 
@@ -939,14 +957,20 @@ async def associate_floating_ip(
         fields["fixed_ip_address"] = fixed_ip
     fip = await ctx.neutron.update_floatingip(fip_id, fields)
     return floating_ip_summary(
-        fip, None, {}, _names(await floating_networks(ctx))
+        fip,
+        None,
+        {},
+        names_by_id(await floating_networks(ctx), fallback_to_id=True),
     )
 
 
 async def disassociate_floating_ip(ctx: Context, fip_id: str) -> dict:
     fip = await ctx.neutron.update_floatingip(fip_id, {"port_id": None})
     return floating_ip_summary(
-        fip, None, {}, _names(await floating_networks(ctx))
+        fip,
+        None,
+        {},
+        names_by_id(await floating_networks(ctx), fallback_to_id=True),
     )
 
 
@@ -1007,7 +1031,7 @@ async def list_trunks(ctx: Context) -> list[dict]:
         ctx.neutron.trunks(project_id=ctx.project_id),
         ctx.neutron.ports(project_id=ctx.project_id),
     )
-    names = _names(ports)
+    names = names_by_id(ports, fallback_to_id=True)
     return [trunk_summary(t, names) for t in trunks]
 
 
@@ -1017,7 +1041,7 @@ async def get_trunk(ctx: Context, trunk_id: str) -> dict:
         ctx.neutron.trunk(trunk_id),
         ctx.neutron.ports(project_id=ctx.project_id),
     )
-    return trunk_summary(trunk, _names(ports))
+    return trunk_summary(trunk, names_by_id(ports, fallback_to_id=True))
 
 
 async def trunk_options(ctx: Context) -> dict:
@@ -1133,7 +1157,7 @@ async def topology(ctx: Context) -> dict:
         ]
 
     networks, router_items, ports, server_items = await asyncio.gather(
-        networks_for_purpose(ctx, "any", include_external=True),
+        networks_for_purpose(ctx, PURPOSE_ANY, include_external=True),
         routers(),
         ctx.neutron.ports(project_id=ctx.project_id),
         servers(),
@@ -1237,20 +1261,24 @@ def neutron_rule(group_id: str, body: dict) -> dict:
         raise BadRequest(
             "a remote CIDR or a remote security group is required"
         )
-    protocol = rule.get("protocol") or None
+    try:
+        protocol = secgroup_rules.normalise_protocol(rule.get("protocol"))
+        ethertype = secgroup_rules.ethertype_for(
+            rule.get("remote_ip_prefix"), rule.get("ethertype") or "IPv4"
+        )
+    except ValueError as exc:
+        raise BadRequest(str(exc)) from None
+    protocol = secgroup_rules.icmp_for(protocol, ethertype)
     payload: dict = {
         "security_group_id": group_id,
         "direction": rule.get("direction", "ingress"),
-        "ethertype": rule.get("ethertype", "IPv4"),
+        "ethertype": ethertype,
         "protocol": protocol,
         "description": rule.get("description") or "",
+        **secgroup_rules.port_range(
+            protocol, rule.get("port_range_min"), rule.get("port_range_max")
+        ),
     }
-    if protocol in ("tcp", "udp", "icmp", "icmpv6", "ipv6-icmp"):
-        low = rule.get("port_range_min")
-        high = rule.get("port_range_max")
-        if low is not None and low >= 0:
-            payload["port_range_min"] = low
-            payload["port_range_max"] = high if high is not None else low
     if rule.get("remote_ip_prefix"):
         payload["remote_ip_prefix"] = rule["remote_ip_prefix"]
     if rule.get("remote_group_id"):

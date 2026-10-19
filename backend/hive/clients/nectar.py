@@ -6,7 +6,7 @@ Paths and parameters mirror the python client libraries Horizon uses
 PATCH), so behaviour stays recognisable to anyone who maintains those.
 """
 
-from hive.clients.base import ServiceClient
+from hive.clients.base import seg, ServiceClient
 
 MAX_PAGES = 20
 
@@ -39,11 +39,11 @@ class ManukaClient(ServiceClient):
     service_name = "manuka"
 
     async def get_user(self, keystone_user_id: str) -> dict:
-        return await self.get_json(f"/v1/users/{keystone_user_id}/") or {}
+        return await self.get_json(f"/v1/users/{seg(keystone_user_id)}/") or {}
 
     async def update_user(self, keystone_user_id: str, **fields) -> dict:
         resp = await self.request(
-            "PATCH", f"/v1/users/{keystone_user_id}/", json=fields
+            "PATCH", f"/v1/users/{seg(keystone_user_id)}/", json=fields
         )
         return resp.json() if resp.content else {}
 
@@ -55,7 +55,7 @@ class ManukaClient(ServiceClient):
         return body.get("results", body) if isinstance(body, dict) else body
 
     async def user_by_name(self, name: str) -> dict:
-        path = f"/v1/keystone-ext/user-by-name/{name}/"
+        path = f"/v1/keystone-ext/user-by-name/{seg(name)}/"
         return await self.get_json(path) or {}
 
 
@@ -85,7 +85,10 @@ class WarreClient(PagedClient):
         return await self.list_all("/v1/reservations/", params=params)
 
     async def reservation(self, reservation_id: str) -> dict:
-        return await self.get_json(f"/v1/reservations/{reservation_id}/") or {}
+        return (
+            await self.get_json(f"/v1/reservations/{seg(reservation_id)}/")
+            or {}
+        )
 
     async def create_reservation(self, fields: dict) -> dict:
         resp = await self.request("POST", "/v1/reservations/", json=fields)
@@ -93,18 +96,20 @@ class WarreClient(PagedClient):
 
     async def update_reservation(self, reservation_id: str, fields: dict):
         resp = await self.request(
-            "PATCH", f"/v1/reservations/{reservation_id}/", json=fields
+            "PATCH", f"/v1/reservations/{seg(reservation_id)}/", json=fields
         )
         return resp.json() if resp.content else {}
 
     async def delete_reservation(self, reservation_id: str) -> None:
-        await self.request("DELETE", f"/v1/reservations/{reservation_id}/")
+        await self.request(
+            "DELETE", f"/v1/reservations/{seg(reservation_id)}/"
+        )
 
     async def flavors(self, **params) -> list[dict]:
         return await self.list_all("/v1/flavors/", params=params)
 
     async def flavor(self, flavor_id: str) -> dict:
-        return await self.get_json(f"/v1/flavors/{flavor_id}/") or {}
+        return await self.get_json(f"/v1/flavors/{seg(flavor_id)}/") or {}
 
     async def free_slots(
         self, flavor_id: str, start: str | None = None, end: str | None = None
@@ -115,7 +120,7 @@ class WarreClient(PagedClient):
         if end:
             params["end"] = end
         body = await self.get_json(
-            f"/v1/flavors/{flavor_id}/freeslots/", params=params or None
+            f"/v1/flavors/{seg(flavor_id)}/freeslots/", params=params or None
         )
         return body if isinstance(body, list) else []
 
@@ -199,7 +204,7 @@ class GnocchiClient(ServiceClient):
     ) -> list[dict]:
         resp = await self.request(
             "POST",
-            f"/v1/search/resource/{resource_type}",
+            f"/v1/search/resource/{seg(resource_type)}",
             params={"limit": limit},
             json=query,
             timeout=60,

@@ -97,13 +97,22 @@ class AuthService:
         return data
 
     async def ensure_scoped(
-        self, sid: str, data: SessionData, project_id: str
+        self,
+        sid: str,
+        data: SessionData,
+        project_id: str,
+        force: bool = False,
     ) -> ScopedToken:
         """Return a usable scoped token for ``project_id``, rescoping if
-        it is missing or about to expire."""
+        it is missing or about to expire, or always when ``force`` is set
+        (an upstream rejected the cached one)."""
         cached = data.scoped.get(project_id)
         now = time.time()
-        if cached and cached.expires_at.timestamp() - now > RESCOPE_MARGIN:
+        if (
+            not force
+            and cached
+            and cached.expires_at.timestamp() - now > RESCOPE_MARGIN
+        ):
             return cached
         result = await self.keystone.token_from_token(
             data.unscoped.token, project_id=project_id

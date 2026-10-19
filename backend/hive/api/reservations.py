@@ -1,15 +1,17 @@
 """Reservations (warre)."""
 
 from datetime import date
+import re
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.reservations import ReservationCreate, ReservationExtend
 from hive.services.context import Context
 from hive.services import reservations
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
+UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 @router.get("")
@@ -83,13 +85,14 @@ async def calendar(
 ):
     host = request.headers.get("host") or "nectar"
     text = await reservations.calendar(ctx, reservation_id, host)
+    filename = UNSAFE_FILENAME.sub(
+        "_", f"nectar-reservation-{reservation_id}.ics"
+    )
     return Response(
         text,
         media_type="text/calendar; charset=utf-8",
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="nectar-reservation-{reservation_id}.ics"'
-            ),
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
         },
     )

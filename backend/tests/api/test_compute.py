@@ -236,7 +236,6 @@ async def test_list_instances_shapes_servers(user, nova):
     assert item["addresses"][0]["addr"] == "203.0.113.5"
     assert item["volumes_attached"] == ["vol-1"]
     assert body["next_marker"] is None
-    sent = nova.calls.last.request.url.params if False else None
     # The nova call carried the filter and the sort.
     nova_calls = [
         c for c in nova.calls if "/servers/detail" in str(c.request.url)
@@ -249,7 +248,6 @@ async def test_list_instances_shapes_servers(user, nova):
         nova_calls[-1].request.headers["OpenStack-API-Version"]
         == "compute 2.90"
     )
-    assert sent is None
 
 
 async def test_instance_detail_and_resize_flavors(user, nova):
@@ -730,3 +728,598 @@ async def test_service_missing_from_catalog(logged_in, upstream):
     response = await logged_in.get("/api/network/security-groups")
     assert response.status_code == 404
     assert response.json()["error"] == "service_not_enabled"
+
+
+async def test_list_instances_typed_paging(user, nova):
+    servers = nova.get(f"{NOVA}/servers/detail").mock(
+        return_value=httpx.Response(200, json={"servers": [SERVER]})
+    )
+    response = await user.get(
+        "/api/compute/instances?limit=1&marker=srv-0"
+        "&sort_key=display_name&sort_dir=asc&bogus=1"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["next_marker"] == "srv-1"
+    assert response.json()["has_more"] is True
+    params = servers.calls.last.request.url.params
+    assert params["limit"] == "1" and params["marker"] == "srv-0"
+    assert params["sort_key"] == "display_name"
+    assert params["sort_dir"] == "asc"
+    assert "bogus" not in params
+    # An unknown sort key is dropped rather than passed to nova.
+    await user.get("/api/compute/instances?sort_key=password")
+    assert "sort_key" not in servers.calls.last.request.url.params
+    for query in ("limit=abc", "limit=0", "limit=1001", "sort_dir=up"):
+        bad = await user.get(f"/api/compute/instances?{query}")
+        assert bad.status_code == 422, query
+
+
+async def test_instance_detail_user_data_and_power_states(user, nova):
+    nova.get(f"{NOVA}/servers/srv-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "server": {
+                    **SERVER,
+                    "OS-EXT-STS:power_state": 5,
+                    "OS-EXT-SRV-ATTR:user_data": "dXNlci1kYXRh",
+                    "OS-EXT-SRV-ATTR:hostname": "web-1",
+                }
+            },
+        )
+    )
+    detail = (await user.get("/api/compute/instances/srv-1")).json()
+    assert detail["power_state"] == "SHUTOFF"
+    assert detail["user_data"] == "dXNlci1kYXRh"
+    assert detail["os_ext_srv_attr"]["hostname"] == "web-1"
+    nova.get(f"{NOVA}/servers/srv-1").mock(
+        return_value=httpx.Response(200, json={"server": {}})
+    )
+    missing = await user.get("/api/compute/instances/srv-1")
+    assert missing.status_code == 404
+
+
+async def test_path_ids_are_percent_encoded(user, nova):
+    seen = []
+
+    def answer(request):
+        seen.append(request.url.raw_path)
+        return httpx.Response(200, json={"server": SERVER})
+
+    nova.get(url__regex=r"^https://nova\.test/v2\.1/servers/srv%3F").mock(
+        side_effect=answer
+    )
+    response = await user.get(
+        "/api/compute/instances/srv%3Fall_tenants=1/resize-flavors"
+    )
+    assert response.status_code == 200, response.text
+    assert seen == [b"/v2.1/servers/srv%3Fall_tenants%3D1"]
+
+
+@pytest.mark.parametrize(
+    "action, body, expected",
+    [
+        (
+            "rebuild",
+            {"image_id": "img-ubuntu", "name": "again", "password": "pw"},
+            {
+                "rebuild": {
+                    "imageRef": "img-ubuntu",
+                    "name": "again",
+                    "adminPass": "pw",
+                }
+            },
+        ),
+        ("rescue", None, {"rescue": None}),
+        (
+            "rescue",
+            {"rescue_image_id": "img-ubuntu"},
+            {"rescue": {"rescue_image_ref": "img-ubuntu"}},
+        ),
+        ("unrescue", None, {"unrescue": None}),
+        (
+            "remove-security-group",
+            {"security_group": "web"},
+            {"removeSecurityGroup": {"name": "web"}},
+        ),
+    ],
+)
+async def test_server_actions(user, nova, action, body, expected):
+    route = nova.post(f"{NOVA}/servers/srv-1/action").mock(
+        return_value=httpx.Response(202)
+    )
+    response = await user.post(
+        f"/api/compute/instances/srv-1/actions/{action}",
+        json=body,
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 202, response.text
+    assert json.loads(route.calls.last.request.content) == expected
+
+
+@pytest.mark.parametrize(
+    "action, body, method, url, expected",
+    [
+        (
+            "attach-volume",
+            {"volume_id": "vol-2"},
+            "POST",
+            f"{NOVA}/servers/srv-1/os-volume_attachments",
+            {"volumeAttachment": {"volumeId": "vol-2"}},
+        ),
+        (
+            "detach-volume",
+            {"volume_id": "vol-1"},
+            "DELETE",
+            f"{NOVA}/servers/srv-1/os-volume_attachments/vol-1",
+            None,
+        ),
+        (
+            "attach-interface",
+            {"network_id": "net-1"},
+            "POST",
+            f"{NOVA}/servers/srv-1/os-interface",
+            {"interfaceAttachment": {"net_id": "net-1"}},
+        ),
+        (
+            "attach-interface",
+            {"port_id": "port-1"},
+            "POST",
+            f"{NOVA}/servers/srv-1/os-interface",
+            {"interfaceAttachment": {"port_id": "port-1"}},
+        ),
+        (
+            "detach-interface",
+            {"port_id": "port-1"},
+            "DELETE",
+            f"{NOVA}/servers/srv-1/os-interface/port-1",
+            None,
+        ),
+        (
+            "associate-fip",
+            {"floating_ip_id": "fip-1", "port_id": "port-1"},
+            "PUT",
+            f"{NEUTRON}/v2.0/floatingips/fip-1",
+            {"floatingip": {"port_id": "port-1"}},
+        ),
+        (
+            "disassociate-fip",
+            {"floating_ip_id": "fip-1"},
+            "PUT",
+            f"{NEUTRON}/v2.0/floatingips/fip-1",
+            {"floatingip": {"port_id": None}},
+        ),
+        (
+            "update-metadata",
+            {"metadata": {"role": "web"}},
+            "PUT",
+            f"{NOVA}/servers/srv-1/metadata",
+            {"metadata": {"role": "web"}},
+        ),
+    ],
+)
+async def test_attachment_actions(
+    user, nova, action, body, method, url, expected
+):
+    route = nova.route(method=method, url=url).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "volumeAttachment": {},
+                "interfaceAttachment": {},
+                "floatingip": {},
+                "metadata": {},
+            },
+        )
+    )
+    response = await user.post(
+        f"/api/compute/instances/srv-1/actions/{action}",
+        json=body,
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 202, response.text
+    assert route.called
+    if expected is not None:
+        assert json.loads(route.calls.last.request.content) == expected
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "rebuild",
+        "snapshot",
+        "add-security-group",
+        "attach-volume",
+        "detach-volume",
+        "attach-interface",
+        "detach-interface",
+        "associate-fip",
+        "disassociate-fip",
+        "update-metadata",
+    ],
+)
+async def test_actions_require_their_fields(user, nova, action):
+    response = await user.post(
+        f"/api/compute/instances/srv-1/actions/{action}",
+        json={},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 400, response.text
+
+
+async def test_update_and_delete_instance(user, nova):
+    updated = nova.put(f"{NOVA}/servers/srv-1").mock(
+        return_value=httpx.Response(
+            200, json={"server": {**SERVER, "name": "web-2"}}
+        )
+    )
+    response = await user.patch(
+        "/api/compute/instances/srv-1",
+        json={"name": "web-2"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "web-2"
+    assert json.loads(updated.calls.last.request.content) == {
+        "server": {"name": "web-2"}
+    }
+    empty = await user.patch(
+        "/api/compute/instances/srv-1", json={}, headers=csrf_headers(user)
+    )
+    assert empty.status_code == 400
+    gone = nova.delete(f"{NOVA}/servers/srv-1").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await user.delete(
+        "/api/compute/instances/srv-1", headers=csrf_headers(user)
+    )
+    assert response.status_code == 204 and gone.called
+
+
+@pytest.mark.parametrize(
+    "kind, protocol",
+    [("novnc", "vnc"), ("spice-html5", "spice"), ("serial", "serial")],
+)
+async def test_console_protocol_follows_type(user, nova, kind, protocol):
+    route = nova.post(f"{NOVA}/servers/srv-1/remote-consoles").mock(
+        return_value=httpx.Response(
+            200,
+            json={"remote_console": {"type": kind, "url": "https://c.test"}},
+        )
+    )
+    response = await user.post(
+        "/api/compute/instances/srv-1/console",
+        json={"type": kind},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"url": "https://c.test", "type": kind}
+    assert json.loads(route.calls.last.request.content) == {
+        "remote_console": {"protocol": protocol, "type": kind}
+    }
+
+
+async def test_console_rejects_unknown_type(user, nova):
+    response = await user.post(
+        "/api/compute/instances/srv-1/console",
+        json={"type": "rdp-html5"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 422
+
+
+async def test_console_output_and_password(user, nova):
+    output = nova.post(f"{NOVA}/servers/srv-1/action").mock(
+        return_value=httpx.Response(200, json={"output": "boot log"})
+    )
+    response = await user.get(
+        "/api/compute/instances/srv-1/console-output?length=50"
+    )
+    assert response.json() == {"output": "boot log"}
+    assert json.loads(output.calls.last.request.content) == {
+        "os-getConsoleOutput": {"length": 50}
+    }
+    nova.get(f"{NOVA}/servers/srv-1/os-server-password").mock(
+        return_value=httpx.Response(200, json={"password": "ENCRYPTED"})
+    )
+    response = await user.get("/api/compute/instances/srv-1/password")
+    assert response.json() == {"encrypted_password": "ENCRYPTED"}
+
+
+async def test_instance_volumes_ports_and_action_log(user, nova):
+    nova.get(f"{NOVA}/servers/srv-1/os-volume_attachments").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "volumeAttachments": [
+                    {"volumeId": "vol-1", "device": "/dev/vdb"},
+                    {"volumeId": "vol-gone", "device": "/dev/vdc"},
+                ]
+            },
+        )
+    )
+    nova.get(f"{CINDER}/volumes/vol-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "volume": {
+                    "id": "vol-1",
+                    "name": "data",
+                    "size": 20,
+                    "status": "in-use",
+                    "bootable": "false",
+                }
+            },
+        )
+    )
+    nova.get(f"{CINDER}/volumes/vol-gone").mock(
+        return_value=httpx.Response(
+            404, json={"itemNotFound": {"message": "gone"}}
+        )
+    )
+    volumes = (await user.get("/api/compute/instances/srv-1/volumes")).json()
+    assert volumes["items"][0]["name"] == "data"
+    assert volumes["items"][0]["size_gb"] == 20
+    assert volumes["items"][1]["name"] == "vol-gone"
+
+    nova.get(f"{NEUTRON}/v2.0/ports").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "ports": [
+                    {
+                        "id": "port-1",
+                        "network_id": "net-1",
+                        "status": "ACTIVE",
+                        "fixed_ips": [
+                            {"ip_address": "10.0.0.5", "subnet_id": "sub-1"}
+                        ],
+                    }
+                ]
+            },
+        )
+    )
+    nova.get(f"{NEUTRON}/v2.0/floatingips").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "floatingips": [
+                    {
+                        "id": "fip-1",
+                        "port_id": "port-1",
+                        "floating_ip_address": "203.0.113.9",
+                    },
+                    {"id": "fip-2", "port_id": None},
+                ]
+            },
+        )
+    )
+    ports = (await user.get("/api/compute/instances/srv-1/ports")).json()
+    assert ports["items"][0]["fixed_ips"] == [
+        {"ip": "10.0.0.5", "subnet_id": "sub-1"}
+    ]
+    assert ports["items"][0]["floating_ips"] == [
+        {"id": "fip-1", "address": "203.0.113.9"}
+    ]
+
+    nova.get(f"{NOVA}/servers/srv-1/os-instance-actions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "instanceActions": [
+                    {
+                        "action": "create",
+                        "request_id": "req-1",
+                        "user_id": "u1",
+                        "start_time": "2026-10-01T00:00:00Z",
+                        "message": None,
+                    }
+                ]
+            },
+        )
+    )
+    log = (await user.get("/api/compute/instances/srv-1/action-log")).json()
+    assert log["items"][0]["action"] == "create"
+
+
+async def test_flavors_are_cached_per_project(user, nova, redis):
+    flavors = nova.get(f"{NOVA}/flavors/detail").mock(
+        return_value=httpx.Response(200, json={"flavors": FLAVORS})
+    )
+    first = (await user.get("/api/compute/flavors")).json()
+    assert {f["id"] for f in first["items"]} == {"f-small", "f-pre"}
+    assert flavors.call_count == 1
+    keys = await redis.keys("*flavors*")
+    assert keys and all(":p:p1:" in k for k in keys)
+    switched = await user.post(
+        "/api/session/project",
+        json={"project_id": "p2"},
+        headers=csrf_headers(user),
+    )
+    assert switched.status_code == 200, switched.text
+    assert (await user.get("/api/compute/flavors")).status_code == 200
+    # Project p2 fetched its own list rather than reusing p1's.
+    assert flavors.call_count == 2
+    assert any(":p:p2:" in k for k in await redis.keys("*flavors*"))
+
+
+async def test_image_detail_patch_and_delete(user, nova, redis):
+    mine = IMAGES["private"][0]
+    nova.get(f"{GLANCE}/v2/images/img-mine").mock(
+        return_value=httpx.Response(200, json=mine)
+    )
+    detail = (await user.get("/api/compute/images/img-mine")).json()
+    assert detail["is_owner"] is True
+
+    # Warm the listings, including the global public and community ones.
+    await user.get("/api/compute/images")
+    assert await redis.keys("*:g:images:public")
+    assert await redis.keys("*:g:images:community")
+    patched = nova.patch(f"{GLANCE}/v2/images/img-mine").mock(
+        return_value=httpx.Response(
+            200, json={**mine, "visibility": "public", "os_distro": "x"}
+        )
+    )
+    response = await user.patch(
+        "/api/compute/images/img-mine",
+        json={
+            "name": "mine",
+            "visibility": "public",
+            "properties": {"os_distro": "x", "old": None},
+        },
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    request = patched.calls.last.request
+    assert request.headers["content-type"] == (
+        "application/openstack-images-v2.1-json-patch"
+    )
+    assert json.loads(request.content) == [
+        {"op": "replace", "path": "/name", "value": "mine"},
+        {"op": "replace", "path": "/visibility", "value": "public"},
+        {"op": "add", "path": "/os_distro", "value": "x"},
+        {"op": "remove", "path": "/old"},
+    ]
+    # The image left the project listing and joined the public one.
+    assert not await redis.keys("*:g:images:public")
+    assert not await redis.keys("*:g:images:community")
+    assert not await redis.keys("*:p:p1:images:private")
+
+    for key in ("owner", "locations", "id"):
+        refused = await user.patch(
+            "/api/compute/images/img-mine",
+            json={"properties": {key: "x"}},
+            headers=csrf_headers(user),
+        )
+        assert refused.status_code == 400, key
+    empty = await user.patch(
+        "/api/compute/images/img-mine", json={}, headers=csrf_headers(user)
+    )
+    assert empty.status_code == 400
+
+    gone = nova.delete(f"{GLANCE}/v2/images/img-mine").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await user.delete(
+        "/api/compute/images/img-mine", headers=csrf_headers(user)
+    )
+    assert response.status_code == 204 and gone.called
+
+
+async def test_image_create_validates_properties_and_imports(
+    user, nova, redis
+):
+    created = nova.post(f"{GLANCE}/v2/images").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": "img-pub",
+                "name": "pub",
+                "status": "queued",
+                "visibility": "community",
+                "owner": "p1",
+            },
+        )
+    )
+    imported = nova.post(f"{GLANCE}/v2/images/img-pub/import").mock(
+        return_value=httpx.Response(202)
+    )
+    refused = await user.post(
+        "/api/compute/images",
+        json={"name": "pub", "properties": {"owner": "p9"}},
+        headers=csrf_headers(user),
+    )
+    assert refused.status_code == 400
+    assert not created.called
+    await user.get("/api/compute/images")
+    assert await redis.keys("*:g:images:community")
+    response = await user.post(
+        "/api/compute/images",
+        json={
+            "name": "pub",
+            "visibility": "community",
+            "properties": {"os_distro": "ubuntu"},
+            "source_url": "https://images.test/pub.qcow2",
+        },
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 201, response.text
+    assert json.loads(created.calls.last.request.content)["os_distro"] == (
+        "ubuntu"
+    )
+    assert json.loads(imported.calls.last.request.content) == {
+        "method": {
+            "name": "web-download",
+            "uri": "https://images.test/pub.qcow2",
+        }
+    }
+    assert not await redis.keys("*:g:images:community")
+
+
+async def test_keypair_detail_and_delete(user, nova):
+    nova.get(f"{NOVA}/os-keypairs/sam").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "keypair": {
+                    "name": "sam",
+                    "type": "ssh",
+                    "fingerprint": "aa:bb",
+                    "public_key": "ssh-ed25519 AAA",
+                    "created_at": "2026-10-01T00:00:00Z",
+                }
+            },
+        )
+    )
+    detail = (await user.get("/api/compute/keypairs/sam")).json()
+    assert detail["public_key"] == "ssh-ed25519 AAA"
+    assert "private_key" not in detail
+    gone = nova.delete(f"{NOVA}/os-keypairs/sam").mock(
+        return_value=httpx.Response(202)
+    )
+    response = await user.delete(
+        "/api/compute/keypairs/sam", headers=csrf_headers(user)
+    )
+    assert response.status_code == 204 and gone.called
+
+
+async def test_server_groups(user, nova):
+    created = nova.post(f"{NOVA}/os-server-groups").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "server_group": {
+                    "id": "grp-1",
+                    "name": "spread",
+                    "policy": "anti-affinity",
+                    "members": [],
+                }
+            },
+        )
+    )
+    response = await user.post(
+        "/api/compute/server-groups",
+        json={"name": "spread"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] == "grp-1"
+    assert json.loads(created.calls.last.request.content) == {
+        "server_group": {"name": "spread", "policy": "anti-affinity"}
+    }
+    listing = (await user.get("/api/compute/server-groups")).json()
+    assert listing == {"items": []}
+    gone = nova.delete(f"{NOVA}/os-server-groups/grp-1").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await user.delete(
+        "/api/compute/server-groups/grp-1", headers=csrf_headers(user)
+    )
+    assert response.status_code == 204 and gone.called
+
+
+async def test_reference_data_routes(user, nova):
+    zones = (await user.get("/api/compute/availability-zones")).json()
+    assert zones["items"] == [{"name": "melbourne-qh2", "available": True}]
+    limits = (await user.get("/api/compute/limits")).json()
+    assert limits["maxTotalInstances"] == 10

@@ -30,6 +30,9 @@ def init_sentry(settings: Settings, release: str) -> bool:
         environment=settings.sentry_environment or settings.env,
         release=f"hive@{release}",
         send_default_pii=False,
+        # Frame locals hold tokens, session data and request bodies; never
+        # ship them. TokenInfo also hides its token from repr().
+        include_local_variables=False,
         auto_session_tracking=False,
         traces_sample_rate=0,
         before_send=_scrub,

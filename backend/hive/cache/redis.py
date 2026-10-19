@@ -27,6 +27,22 @@ Fetch = Callable[[], Awaitable[Any]]
 LOCK_MS = 30_000
 
 
+def _parse(raw: str) -> tuple[Any, float, float, float] | None:
+    """``(value, fetched_at, ttl, stale_ttl)``, or None for an entry that is
+    not valid JSON or lacks a numeric field (a schema change or a manual
+    edit), which is then treated as a miss and overwritten."""
+    try:
+        entry = json.loads(raw)
+        return (
+            entry["value"],
+            float(entry["fetched_at"]),
+            float(entry["ttl"]),
+            float(entry["stale_ttl"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 @dataclass
 class CacheResult:
     value: Any
@@ -69,23 +85,17 @@ class Cache:
         raw = await self._redis.get(key)
         now = time.time()
         if raw:
-            try:
-                entry = json.loads(raw)
-            except ValueError:
-                entry = None
-            if entry:
-                age = now - entry["fetched_at"]
-                if age < entry["ttl"]:
+            entry = _parse(raw)
+            if entry is not None:
+                value, fetched_at, fresh, stale = entry
+                age = now - fetched_at
+                if age < fresh:
                     metrics.cache_events.labels(name, "hit").inc()
-                    return CacheResult(
-                        entry["value"], "hit", entry["fetched_at"]
-                    )
-                if age < entry["ttl"] + entry["stale_ttl"]:
+                    return CacheResult(value, "hit", fetched_at)
+                if age < fresh + stale:
                     metrics.cache_events.labels(name, "stale").inc()
                     self._schedule_refresh(key, fetch, ttl, stale_ttl, name)
-                    return CacheResult(
-                        entry["value"], "stale", entry["fetched_at"]
-                    )
+                    return CacheResult(value, "stale", fetched_at)
         metrics.cache_events.labels(name, "miss").inc()
         value = await fetch()
         if should_cache is None or should_cache(value):
@@ -95,6 +105,24 @@ class Cache:
     async def invalidate(self, *keys: str) -> None:
         if keys:
             await self._redis.delete(*keys)
+
+    # --- plain JSON values (no stale-while-revalidate) ----------------------
+
+    async def get_json(self, key: str) -> Any | None:
+        """A value stored with ``set_json``, or None when absent or not
+        valid JSON (a schema change or a manual edit)."""
+        raw = await self._redis.get(key)
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None
+
+    async def set_json(self, key: str, value: Any, *, ttl: float) -> None:
+        """Store ``value`` as JSON for ``ttl`` seconds, for state that is
+        not a cached upstream answer (a background chain's progress)."""
+        await self._redis.set(key, json.dumps(value), ex=max(1, int(ttl)))
 
     async def close(self) -> None:
         if self._tasks:

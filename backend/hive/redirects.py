@@ -69,9 +69,17 @@ class RedirectMap:
                 continue
             if rule.kind == "gone":
                 return 410, ""
-            target = rule.to
-            for name, value in found.groupdict().items():
-                target = target.replace(f":{name}", quote(value, safe=""))
+            groups = found.groupdict()
+
+            def fill(token: re.Match, groups: dict = groups) -> str:
+                # TOKEN takes the whole word, so ``:id`` never rewrites the
+                # front of ``:idx``; one pass, so a value is never rescanned.
+                value = groups.get(token.group(1))
+                if value is None:
+                    return token.group(0)
+                return quote(value, safe="")
+
+            target = TOKEN.sub(fill, rule.to)
             if rule.preserve_query and query:
                 target += ("&" if "?" in target else "?") + query
             return 301, target

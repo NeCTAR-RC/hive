@@ -318,6 +318,36 @@ def format_node_taints(taints: list | None) -> str:
     return ",".join(out)
 
 
+def same_node_labels(wanted: dict | None, stored: dict | None) -> bool:
+    """Compare labels as the ``key=value`` text the form round-trips
+    (``labels-taints.service.js:37-40``), order-insensitive, so a stored
+    ``null`` value or a non-string value does not read as a change."""
+
+    def canonical(labels: dict | None) -> list[str]:
+        return sorted(
+            format_node_labels({str(k): "" if v is None else str(v)})
+            for k, v in (labels or {}).items()
+        )
+
+    return canonical(wanted) == canonical(stored)
+
+
+def same_node_taints(wanted: list | None, stored: list | None) -> bool:
+    """Compare taints as ``key[=value]:effect`` text, order-insensitive,
+    so ``{"value": null}`` and ``{"value": ""}`` are the same taint
+    (``labels-taints.service.js:37-40``). A spurious change would PATCH the
+    node group and roll every node in it."""
+
+    def canonical(taints: list | None) -> list[str]:
+        return sorted(
+            format_node_taints([t])
+            for t in taints or []
+            if isinstance(t, dict)
+        )
+
+    return canonical(wanted) == canonical(stored)
+
+
 def nodegroup_summary(nodegroup: dict) -> dict:
     labels = nodegroup.get("labels") or {}
     return {

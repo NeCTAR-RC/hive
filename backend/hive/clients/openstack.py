@@ -5,10 +5,20 @@ returns plain dicts; shaping for the SPA happens in ``hive.services``.
 """
 
 from collections.abc import AsyncIterable
+import json
 
-from hive.clients.base import ServiceClient
+from hive.clients.base import seg, ServiceClient
+from hive.errors import BadRequest
 
 MAX_PAGES = 20
+
+# The nova remote-consoles API pairs each console type with one protocol
+# (nova/api/openstack/compute/remote_consoles.py, microversion 2.6+).
+CONSOLE_PROTOCOLS = {
+    "novnc": "vnc",
+    "spice-html5": "spice",
+    "serial": "serial",
+}
 
 
 class NovaClient(ServiceClient):
@@ -25,6 +35,7 @@ class NovaClient(ServiceClient):
             microversion=kwargs.pop(
                 "microversion", settings.nova_microversion
             ),
+            **kwargs,
         )
 
     # --- servers ------------------------------------------------------------
@@ -38,7 +49,7 @@ class NovaClient(ServiceClient):
         return body.get("servers", [])
 
     async def server(self, server_id: str) -> dict:
-        body = await self.get_json(f"/servers/{server_id}")
+        body = await self.get_json(f"/servers/{seg(server_id)}")
         return (body or {}).get("server", {})
 
     async def create_server(self, server: dict, extra: dict | None = None):
@@ -48,16 +59,27 @@ class NovaClient(ServiceClient):
 
     async def update_server(self, server_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/servers/{server_id}", json={"server": fields}
+            "PUT", f"/servers/{seg(server_id)}", json={"server": fields}
         )
         return resp.json().get("server", {})
 
     async def delete_server(self, server_id: str) -> None:
-        await self.request("DELETE", f"/servers/{server_id}")
+        await self.request("DELETE", f"/servers/{seg(server_id)}")
+
+    async def set_server_metadata(self, server_id: str, metadata: dict):
+        """Replace the server's metadata (``PUT .../metadata``)."""
+        await self.request(
+            "PUT",
+            f"/servers/{seg(server_id)}/metadata",
+            json={"metadata": metadata},
+        )
 
     async def action(self, server_id: str, body: dict, timeout=None):
         return await self.request(
-            "POST", f"/servers/{server_id}/action", json=body, timeout=timeout
+            "POST",
+            f"/servers/{seg(server_id)}/action",
+            json=body,
+            timeout=timeout,
         )
 
     async def console_output(self, server_id: str, length: int | None):
@@ -68,37 +90,42 @@ class NovaClient(ServiceClient):
         return resp.json().get("output", "")
 
     async def remote_console(self, server_id: str, kind: str = "novnc"):
+        protocol = CONSOLE_PROTOCOLS.get(kind)
+        if protocol is None:
+            raise BadRequest(f"unsupported console type '{kind}'")
         resp = await self.request(
             "POST",
-            f"/servers/{server_id}/remote-consoles",
-            json={"remote_console": {"protocol": "vnc", "type": kind}},
+            f"/servers/{seg(server_id)}/remote-consoles",
+            json={"remote_console": {"protocol": protocol, "type": kind}},
         )
         return resp.json().get("remote_console", {})
 
     async def server_password(self, server_id: str) -> str:
-        body = await self.get_json(f"/servers/{server_id}/os-server-password")
+        body = await self.get_json(
+            f"/servers/{seg(server_id)}/os-server-password"
+        )
         return (body or {}).get("password", "")
 
     async def interfaces(self, server_id: str) -> list[dict]:
-        body = await self.get_json(f"/servers/{server_id}/os-interface")
+        body = await self.get_json(f"/servers/{seg(server_id)}/os-interface")
         return (body or {}).get("interfaceAttachments", [])
 
     async def attach_interface(self, server_id: str, attachment: dict):
         resp = await self.request(
             "POST",
-            f"/servers/{server_id}/os-interface",
+            f"/servers/{seg(server_id)}/os-interface",
             json={"interfaceAttachment": attachment},
         )
         return resp.json().get("interfaceAttachment", {})
 
     async def detach_interface(self, server_id: str, port_id: str) -> None:
         await self.request(
-            "DELETE", f"/servers/{server_id}/os-interface/{port_id}"
+            "DELETE", f"/servers/{seg(server_id)}/os-interface/{seg(port_id)}"
         )
 
     async def volume_attachments(self, server_id: str) -> list[dict]:
         body = await self.get_json(
-            f"/servers/{server_id}/os-volume_attachments"
+            f"/servers/{seg(server_id)}/os-volume_attachments"
         )
         return (body or {}).get("volumeAttachments", [])
 
@@ -110,18 +137,21 @@ class NovaClient(ServiceClient):
             attachment["device"] = device
         resp = await self.request(
             "POST",
-            f"/servers/{server_id}/os-volume_attachments",
+            f"/servers/{seg(server_id)}/os-volume_attachments",
             json={"volumeAttachment": attachment},
         )
         return resp.json().get("volumeAttachment", {})
 
     async def detach_volume(self, server_id: str, volume_id: str) -> None:
         await self.request(
-            "DELETE", f"/servers/{server_id}/os-volume_attachments/{volume_id}"
+            "DELETE",
+            f"/servers/{seg(server_id)}/os-volume_attachments/{seg(volume_id)}",
         )
 
     async def instance_actions(self, server_id: str) -> list[dict]:
-        body = await self.get_json(f"/servers/{server_id}/os-instance-actions")
+        body = await self.get_json(
+            f"/servers/{seg(server_id)}/os-instance-actions"
+        )
         return (body or {}).get("instanceActions", [])
 
     # --- flavours, key pairs, server groups, zones, limits ------------------
@@ -131,7 +161,7 @@ class NovaClient(ServiceClient):
         return (body or {}).get("flavors", [])
 
     async def flavor(self, flavor_id: str) -> dict:
-        body = await self.get_json(f"/flavors/{flavor_id}")
+        body = await self.get_json(f"/flavors/{seg(flavor_id)}")
         return (body or {}).get("flavor", {})
 
     async def keypairs(self) -> list[dict]:
@@ -139,7 +169,7 @@ class NovaClient(ServiceClient):
         return [k["keypair"] for k in (body or {}).get("keypairs", [])]
 
     async def keypair(self, name: str) -> dict:
-        body = await self.get_json(f"/os-keypairs/{name}")
+        body = await self.get_json(f"/os-keypairs/{seg(name)}")
         return (body or {}).get("keypair", {})
 
     async def create_keypair(self, keypair: dict) -> dict:
@@ -149,7 +179,7 @@ class NovaClient(ServiceClient):
         return resp.json().get("keypair", {})
 
     async def delete_keypair(self, name: str) -> None:
-        await self.request("DELETE", f"/os-keypairs/{name}")
+        await self.request("DELETE", f"/os-keypairs/{seg(name)}")
 
     async def server_groups(self) -> list[dict]:
         body = await self.get_json("/os-server-groups", params={"limit": 1000})
@@ -162,7 +192,7 @@ class NovaClient(ServiceClient):
         return resp.json().get("server_group", {})
 
     async def delete_server_group(self, group_id: str) -> None:
-        await self.request("DELETE", f"/os-server-groups/{group_id}")
+        await self.request("DELETE", f"/os-server-groups/{seg(group_id)}")
 
     async def availability_zones(self) -> list[dict]:
         body = await self.get_json("/os-availability-zone")
@@ -182,7 +212,7 @@ class NeutronClient(ServiceClient):
         return (body or {}).get("networks", [])
 
     async def network(self, network_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/networks/{network_id}")
+        body = await self.get_json(f"/v2.0/networks/{seg(network_id)}")
         return (body or {}).get("network", {})
 
     async def subnets(self, **params) -> list[dict]:
@@ -201,15 +231,17 @@ class NeutronClient(ServiceClient):
 
     async def update_network(self, network_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/networks/{network_id}", json={"network": fields}
+            "PUT",
+            f"/v2.0/networks/{seg(network_id)}",
+            json={"network": fields},
         )
         return resp.json().get("network", {})
 
     async def delete_network(self, network_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/networks/{network_id}")
+        await self.request("DELETE", f"/v2.0/networks/{seg(network_id)}")
 
     async def subnet(self, subnet_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/subnets/{subnet_id}")
+        body = await self.get_json(f"/v2.0/subnets/{seg(subnet_id)}")
         return (body or {}).get("subnet", {})
 
     async def create_subnet(self, fields: dict) -> dict:
@@ -220,19 +252,19 @@ class NeutronClient(ServiceClient):
 
     async def update_subnet(self, subnet_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/subnets/{subnet_id}", json={"subnet": fields}
+            "PUT", f"/v2.0/subnets/{seg(subnet_id)}", json={"subnet": fields}
         )
         return resp.json().get("subnet", {})
 
     async def delete_subnet(self, subnet_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/subnets/{subnet_id}")
+        await self.request("DELETE", f"/v2.0/subnets/{seg(subnet_id)}")
 
     async def subnetpools(self, **params) -> list[dict]:
         body = await self.get_json("/v2.0/subnetpools", params=params)
         return (body or {}).get("subnetpools", [])
 
     async def port(self, port_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/ports/{port_id}")
+        body = await self.get_json(f"/v2.0/ports/{seg(port_id)}")
         return (body or {}).get("port", {})
 
     async def create_port(self, fields: dict) -> dict:
@@ -241,19 +273,19 @@ class NeutronClient(ServiceClient):
 
     async def update_port(self, port_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/ports/{port_id}", json={"port": fields}
+            "PUT", f"/v2.0/ports/{seg(port_id)}", json={"port": fields}
         )
         return resp.json().get("port", {})
 
     async def delete_port(self, port_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/ports/{port_id}")
+        await self.request("DELETE", f"/v2.0/ports/{seg(port_id)}")
 
     async def routers(self, **params) -> list[dict]:
         body = await self.get_json("/v2.0/routers", params=params)
         return (body or {}).get("routers", [])
 
     async def router(self, router_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/routers/{router_id}")
+        body = await self.get_json(f"/v2.0/routers/{seg(router_id)}")
         return (body or {}).get("router", {})
 
     async def create_router(self, fields: dict) -> dict:
@@ -264,23 +296,25 @@ class NeutronClient(ServiceClient):
 
     async def update_router(self, router_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/routers/{router_id}", json={"router": fields}
+            "PUT", f"/v2.0/routers/{seg(router_id)}", json={"router": fields}
         )
         return resp.json().get("router", {})
 
     async def delete_router(self, router_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/routers/{router_id}")
+        await self.request("DELETE", f"/v2.0/routers/{seg(router_id)}")
 
     async def router_add_interface(self, router_id: str, body: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/routers/{router_id}/add_router_interface", json=body
+            "PUT",
+            f"/v2.0/routers/{seg(router_id)}/add_router_interface",
+            json=body,
         )
         return resp.json()
 
     async def router_remove_interface(self, router_id: str, body: dict):
         await self.request(
             "PUT",
-            f"/v2.0/routers/{router_id}/remove_router_interface",
+            f"/v2.0/routers/{seg(router_id)}/remove_router_interface",
             json=body,
         )
 
@@ -289,7 +323,7 @@ class NeutronClient(ServiceClient):
         return (body or {}).get("floatingips", [])
 
     async def floatingip(self, fip_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/floatingips/{fip_id}")
+        body = await self.get_json(f"/v2.0/floatingips/{seg(fip_id)}")
         return (body or {}).get("floatingip", {})
 
     async def create_floatingip(self, fields: dict) -> dict:
@@ -300,23 +334,25 @@ class NeutronClient(ServiceClient):
 
     async def update_floatingip(self, fip_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/floatingips/{fip_id}", json={"floatingip": fields}
+            "PUT",
+            f"/v2.0/floatingips/{seg(fip_id)}",
+            json={"floatingip": fields},
         )
         return resp.json().get("floatingip", {})
 
     async def delete_floatingip(self, fip_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/floatingips/{fip_id}")
+        await self.request("DELETE", f"/v2.0/floatingips/{seg(fip_id)}")
 
     async def port_forwardings(self, fip_id: str) -> list[dict]:
         body = await self.get_json(
-            f"/v2.0/floatingips/{fip_id}/port_forwardings"
+            f"/v2.0/floatingips/{seg(fip_id)}/port_forwardings"
         )
         return (body or {}).get("port_forwardings", [])
 
     async def create_port_forwarding(self, fip_id: str, fields: dict) -> dict:
         resp = await self.request(
             "POST",
-            f"/v2.0/floatingips/{fip_id}/port_forwardings",
+            f"/v2.0/floatingips/{seg(fip_id)}/port_forwardings",
             json={"port_forwarding": fields},
         )
         return resp.json().get("port_forwarding", {})
@@ -326,14 +362,15 @@ class NeutronClient(ServiceClient):
     ) -> dict:
         resp = await self.request(
             "PUT",
-            f"/v2.0/floatingips/{fip_id}/port_forwardings/{rule_id}",
+            f"/v2.0/floatingips/{seg(fip_id)}/port_forwardings/{seg(rule_id)}",
             json={"port_forwarding": fields},
         )
         return resp.json().get("port_forwarding", {})
 
     async def delete_port_forwarding(self, fip_id: str, rule_id: str) -> None:
         await self.request(
-            "DELETE", f"/v2.0/floatingips/{fip_id}/port_forwardings/{rule_id}"
+            "DELETE",
+            f"/v2.0/floatingips/{seg(fip_id)}/port_forwardings/{seg(rule_id)}",
         )
 
     async def trunks(self, **params) -> list[dict]:
@@ -341,7 +378,7 @@ class NeutronClient(ServiceClient):
         return (body or {}).get("trunks", [])
 
     async def trunk(self, trunk_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/trunks/{trunk_id}")
+        body = await self.get_json(f"/v2.0/trunks/{seg(trunk_id)}")
         return (body or {}).get("trunk", {})
 
     async def create_trunk(self, fields: dict) -> dict:
@@ -352,17 +389,17 @@ class NeutronClient(ServiceClient):
 
     async def update_trunk(self, trunk_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/v2.0/trunks/{trunk_id}", json={"trunk": fields}
+            "PUT", f"/v2.0/trunks/{seg(trunk_id)}", json={"trunk": fields}
         )
         return resp.json().get("trunk", {})
 
     async def delete_trunk(self, trunk_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/trunks/{trunk_id}")
+        await self.request("DELETE", f"/v2.0/trunks/{seg(trunk_id)}")
 
     async def trunk_add_subports(self, trunk_id: str, subports: list[dict]):
         resp = await self.request(
             "PUT",
-            f"/v2.0/trunks/{trunk_id}/add_subports",
+            f"/v2.0/trunks/{seg(trunk_id)}/add_subports",
             json={"sub_ports": subports},
         )
         return resp.json()
@@ -370,13 +407,15 @@ class NeutronClient(ServiceClient):
     async def trunk_remove_subports(self, trunk_id: str, subports: list[dict]):
         resp = await self.request(
             "PUT",
-            f"/v2.0/trunks/{trunk_id}/remove_subports",
+            f"/v2.0/trunks/{seg(trunk_id)}/remove_subports",
             json={"sub_ports": subports},
         )
         return resp.json()
 
     async def quota_details(self, project_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/quotas/{project_id}/details.json")
+        body = await self.get_json(
+            f"/v2.0/quotas/{seg(project_id)}/details.json"
+        )
         return (body or {}).get("quota", {})
 
     async def availability_zones(self, **params) -> list[dict]:
@@ -392,7 +431,7 @@ class NeutronClient(ServiceClient):
         return (body or {}).get("security_groups", [])
 
     async def security_group(self, group_id: str) -> dict:
-        body = await self.get_json(f"/v2.0/security-groups/{group_id}")
+        body = await self.get_json(f"/v2.0/security-groups/{seg(group_id)}")
         return (body or {}).get("security_group", {})
 
     async def create_security_group(self, fields: dict) -> dict:
@@ -404,13 +443,13 @@ class NeutronClient(ServiceClient):
     async def update_security_group(self, group_id: str, fields: dict):
         resp = await self.request(
             "PUT",
-            f"/v2.0/security-groups/{group_id}",
+            f"/v2.0/security-groups/{seg(group_id)}",
             json={"security_group": fields},
         )
         return resp.json().get("security_group", {})
 
     async def delete_security_group(self, group_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/security-groups/{group_id}")
+        await self.request("DELETE", f"/v2.0/security-groups/{seg(group_id)}")
 
     async def create_security_group_rule(self, rule: dict) -> dict:
         resp = await self.request(
@@ -421,7 +460,9 @@ class NeutronClient(ServiceClient):
         return resp.json().get("security_group_rule", {})
 
     async def delete_security_group_rule(self, rule_id: str) -> None:
-        await self.request("DELETE", f"/v2.0/security-group-rules/{rule_id}")
+        await self.request(
+            "DELETE", f"/v2.0/security-group-rules/{seg(rule_id)}"
+        )
 
 
 class GlanceClient(ServiceClient):
@@ -445,7 +486,7 @@ class GlanceClient(ServiceClient):
         return items
 
     async def image(self, image_id: str) -> dict:
-        return await self.get_json(f"/v2/images/{image_id}") or {}
+        return await self.get_json(f"/v2/images/{seg(image_id)}") or {}
 
     async def create_image(self, fields: dict) -> dict:
         resp = await self.request("POST", "/v2/images", json=fields)
@@ -454,8 +495,8 @@ class GlanceClient(ServiceClient):
     async def patch_image(self, image_id: str, patch: list[dict]) -> dict:
         resp = await self.request(
             "PATCH",
-            f"/v2/images/{image_id}",
-            content=__import__("json").dumps(patch).encode(),
+            f"/v2/images/{seg(image_id)}",
+            content=json.dumps(patch).encode(),
             headers={
                 "Content-Type": (
                     "application/openstack-images-v2.1-json-patch"
@@ -465,12 +506,12 @@ class GlanceClient(ServiceClient):
         return resp.json()
 
     async def delete_image(self, image_id: str) -> None:
-        await self.request("DELETE", f"/v2/images/{image_id}")
+        await self.request("DELETE", f"/v2/images/{seg(image_id)}")
 
     async def import_image(self, image_id: str, uri: str) -> None:
         await self.request(
             "POST",
-            f"/v2/images/{image_id}/import",
+            f"/v2/images/{seg(image_id)}/import",
             json={"method": {"name": "web-download", "uri": uri}},
         )
 
@@ -488,7 +529,7 @@ class GlanceClient(ServiceClient):
         """
         await self.request(
             "PUT",
-            f"/v2/images/{image_id}/file",
+            f"/v2/images/{seg(image_id)}/file",
             content=content,
             headers={
                 "Content-Type": "application/octet-stream",
@@ -512,6 +553,7 @@ class CinderClient(ServiceClient):
             microversion=kwargs.pop(
                 "microversion", settings.cinder_microversion
             ),
+            **kwargs,
         )
 
     async def volumes(self, **params) -> list[dict]:
@@ -519,7 +561,7 @@ class CinderClient(ServiceClient):
         return (body or {}).get("volumes", [])
 
     async def volume(self, volume_id: str) -> dict:
-        body = await self.get_json(f"/volumes/{volume_id}")
+        body = await self.get_json(f"/volumes/{seg(volume_id)}")
         return (body or {}).get("volume", {})
 
     async def snapshots(self, **params) -> list[dict]:
@@ -540,20 +582,20 @@ class CinderClient(ServiceClient):
 
     async def update_volume(self, volume_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/volumes/{volume_id}", json={"volume": fields}
+            "PUT", f"/volumes/{seg(volume_id)}", json={"volume": fields}
         )
         return resp.json().get("volume", {})
 
     async def delete_volume(self, volume_id: str) -> None:
-        await self.request("DELETE", f"/volumes/{volume_id}")
+        await self.request("DELETE", f"/volumes/{seg(volume_id)}")
 
     async def volume_action(self, volume_id: str, body: dict):
         return await self.request(
-            "POST", f"/volumes/{volume_id}/action", json=body
+            "POST", f"/volumes/{seg(volume_id)}/action", json=body
         )
 
     async def snapshot(self, snapshot_id: str) -> dict:
-        body = await self.get_json(f"/snapshots/{snapshot_id}")
+        body = await self.get_json(f"/snapshots/{seg(snapshot_id)}")
         return (body or {}).get("snapshot", {})
 
     async def create_snapshot(self, fields: dict) -> dict:
@@ -564,19 +606,19 @@ class CinderClient(ServiceClient):
 
     async def update_snapshot(self, snapshot_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/snapshots/{snapshot_id}", json={"snapshot": fields}
+            "PUT", f"/snapshots/{seg(snapshot_id)}", json={"snapshot": fields}
         )
         return resp.json().get("snapshot", {})
 
     async def delete_snapshot(self, snapshot_id: str) -> None:
-        await self.request("DELETE", f"/snapshots/{snapshot_id}")
+        await self.request("DELETE", f"/snapshots/{seg(snapshot_id)}")
 
     async def backups(self, **params) -> list[dict]:
         body = await self.get_json("/backups/detail", params=params)
         return (body or {}).get("backups", [])
 
     async def backup(self, backup_id: str) -> dict:
-        body = await self.get_json(f"/backups/{backup_id}")
+        body = await self.get_json(f"/backups/{seg(backup_id)}")
         return (body or {}).get("backup", {})
 
     async def create_backup(self, fields: dict) -> dict:
@@ -587,15 +629,17 @@ class CinderClient(ServiceClient):
         if force:
             await self.request(
                 "POST",
-                f"/backups/{backup_id}/action",
+                f"/backups/{seg(backup_id)}/action",
                 json={"os-force_delete": {}},
             )
             return
-        await self.request("DELETE", f"/backups/{backup_id}")
+        await self.request("DELETE", f"/backups/{seg(backup_id)}")
 
     async def restore_backup(self, backup_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "POST", f"/backups/{backup_id}/restore", json={"restore": fields}
+            "POST",
+            f"/backups/{seg(backup_id)}/restore",
+            json={"restore": fields},
         )
         return resp.json().get("restore", {})
 
@@ -633,7 +677,8 @@ class KeystoneIdentityClient(ServiceClient):
         self, project_id: str, user_id: str, role_id: str
     ) -> None:
         await self.request(
-            "PUT", f"/projects/{project_id}/users/{user_id}/roles/{role_id}"
+            "PUT",
+            f"/projects/{seg(project_id)}/users/{seg(user_id)}/roles/{seg(role_id)}",
         )
 
     async def revoke_project_role(
@@ -641,7 +686,7 @@ class KeystoneIdentityClient(ServiceClient):
     ) -> None:
         await self.request(
             "DELETE",
-            f"/projects/{project_id}/users/{user_id}/roles/{role_id}",
+            f"/projects/{seg(project_id)}/users/{seg(user_id)}/roles/{seg(role_id)}",
         )
 
     async def change_own_password(
@@ -649,12 +694,12 @@ class KeystoneIdentityClient(ServiceClient):
     ) -> None:
         await self.request(
             "POST",
-            f"/users/{user_id}/password",
+            f"/users/{seg(user_id)}/password",
             json={"user": {"password": new, "original_password": original}},
         )
 
     async def ec2_credentials(self, user_id: str) -> list[dict]:
-        body = await self.get_json(f"/users/{user_id}/credentials/OS-EC2")
+        body = await self.get_json(f"/users/{seg(user_id)}/credentials/OS-EC2")
         return (body or {}).get("credentials", [])
 
     async def create_ec2_credential(
@@ -662,25 +707,27 @@ class KeystoneIdentityClient(ServiceClient):
     ) -> dict:
         resp = await self.request(
             "POST",
-            f"/users/{user_id}/credentials/OS-EC2",
+            f"/users/{seg(user_id)}/credentials/OS-EC2",
             json={"tenant_id": project_id},
         )
         return resp.json().get("credential", {})
 
     async def delete_ec2_credential(self, user_id: str, access: str) -> None:
         await self.request(
-            "DELETE", f"/users/{user_id}/credentials/OS-EC2/{access}"
+            "DELETE", f"/users/{seg(user_id)}/credentials/OS-EC2/{seg(access)}"
         )
 
     async def application_credentials(self, user_id: str) -> list[dict]:
-        body = await self.get_json(f"/users/{user_id}/application_credentials")
+        body = await self.get_json(
+            f"/users/{seg(user_id)}/application_credentials"
+        )
         return (body or {}).get("application_credentials", [])
 
     async def application_credential(
         self, user_id: str, credential_id: str
     ) -> dict:
         body = await self.get_json(
-            f"/users/{user_id}/application_credentials/{credential_id}"
+            f"/users/{seg(user_id)}/application_credentials/{seg(credential_id)}"
         )
         return (body or {}).get("application_credential", {})
 
@@ -689,7 +736,7 @@ class KeystoneIdentityClient(ServiceClient):
     ) -> dict:
         resp = await self.request(
             "POST",
-            f"/users/{user_id}/application_credentials",
+            f"/users/{seg(user_id)}/application_credentials",
             json={"application_credential": fields},
         )
         return resp.json().get("application_credential", {})
@@ -699,7 +746,7 @@ class KeystoneIdentityClient(ServiceClient):
     ) -> None:
         await self.request(
             "DELETE",
-            f"/users/{user_id}/application_credentials/{credential_id}",
+            f"/users/{seg(user_id)}/application_credentials/{seg(credential_id)}",
         )
 
     async def credentials(self, user_id: str) -> list[dict]:
@@ -713,4 +760,4 @@ class KeystoneIdentityClient(ServiceClient):
         return resp.json().get("credential", {})
 
     async def delete_credential(self, credential_id: str) -> None:
-        await self.request("DELETE", f"/credentials/{credential_id}")
+        await self.request("DELETE", f"/credentials/{seg(credential_id)}")

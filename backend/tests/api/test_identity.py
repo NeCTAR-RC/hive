@@ -316,3 +316,25 @@ async def test_generic_credentials(logged_in, upstream):
         "/api/identity/credentials/c2", headers=csrf_headers(logged_in)
     )
     assert response.status_code == 204
+
+
+async def test_member_email_reaches_manuka_percent_encoded(
+    logged_in, upstream
+):
+    client = await as_manager(logged_in)
+    seen = []
+
+    def manuka(request):
+        seen.append(request.url.raw_path.decode())
+        return httpx.Response(404, json={"error": "User doesn't exist"})
+
+    upstream.route(host="manuka.test").mock(side_effect=manuka)
+    response = await client.post(
+        "/api/identity/members",
+        json={"email": "a?x=1/../b@example.edu", "role_id": "r-member"},
+        headers=csrf_headers(client),
+    )
+    assert response.status_code == 404
+    assert seen == [
+        "/v1/keystone-ext/user-by-name/a%3Fx%3D1%2F..%2Fb%40example.edu/"
+    ]

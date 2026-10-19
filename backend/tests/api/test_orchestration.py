@@ -437,3 +437,93 @@ async def test_plain_resource_type_names(logged_in, upstream):
     assert types["items"] == [
         {"name": "OS::Nova::Server", "description": None}
     ]
+
+
+async def test_cancel_update_files_and_template_url(logged_in, upstream):
+    updating = {**STACK, "stack_status": "UPDATE_IN_PROGRESS"}
+    mock_heat(upstream, updating)
+    actions = upstream.post(f"{HEAT}/stacks/web/s-1/actions").mock(
+        return_value=httpx.Response(200)
+    )
+    detail = (await logged_in.get("/api/orchestration/stacks/s-1")).json()
+    assert detail["actions"] == ["cancel_update", "delete"]
+    response = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions/cancel_update",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    assert json.loads(actions.calls.last.request.content) == {
+        "cancel_update": None
+    }
+    refused = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions/suspend",
+        headers=csrf_headers(logged_in),
+    )
+    assert refused.status_code == 409
+    assert refused.json()["message"] == (
+        "The stack cannot be suspended while it is UPDATE_IN_PROGRESS."
+    )
+    unknown = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions/explode",
+        headers=csrf_headers(logged_in),
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["error"] == "not_found"
+
+    validate = upstream.post(f"{HEAT}/validate").mock(
+        return_value=httpx.Response(200, json=VALIDATED)
+    )
+    response = await logged_in.post(
+        "/api/orchestration/validate",
+        json={
+            "template": TEMPLATE_TEXT,
+            "files": {"file:///lib.yaml": "resources: {}\n"},
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(validate.calls.last.request.content)["files"] == {
+        "file:///lib.yaml": "resources: {}\n"
+    }
+
+    put = upstream.put(f"{HEAT}/stacks/web/s-1").mock(
+        return_value=httpx.Response(202)
+    )
+    response = await logged_in.patch(
+        "/api/orchestration/stacks/s-1",
+        json={
+            "template_url": "https://x/t.yaml",
+            "parameters": {"count": "4", "name": "z"},
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    sent = json.loads(put.calls.last.request.content)
+    assert sent["template_url"] == "https://x/t.yaml"
+    assert "template" not in sent and sent["parameters"]["count"] == 4
+    assert (
+        json.loads(validate.calls.last.request.content)["template_url"]
+        == "https://x/t.yaml"
+    )
+
+
+async def test_find_stack_follows_the_location_path_only(logged_in, upstream):
+    """The redirect's host is ignored: the path is requested through the
+    client's own endpoint, and every id is quoted."""
+    upstream.get(f"{HEAT}/stacks/a%3Fb").mock(
+        return_value=httpx.Response(
+            302,
+            headers={
+                "Location": "https://elsewhere.test/v1/p1/stacks/web/s-1"
+            },
+        )
+    )
+    stack = upstream.get(f"{HEAT}/stacks/web/s-1").mock(
+        return_value=httpx.Response(200, json={"stack": STACK})
+    )
+    elsewhere = upstream.get(url__startswith="https://elsewhere.test")
+    detail = await logged_in.get("/api/orchestration/stacks/a%3Fb")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["name"] == "web"
+    assert stack.called and not elsewhere.called
+    assert upstream.calls[-2].request.url.raw_path == b"/v1/p1/stacks/a%3Fb"

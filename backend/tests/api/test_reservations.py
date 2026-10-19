@@ -4,8 +4,13 @@ from datetime import datetime, timedelta, UTC
 import json
 
 import httpx
+import pytest
 
+from hive.services import reservations as reservation_service
 from tests.conftest import CLOUDKITTY, csrf_headers, HORIZON, WARRE
+
+# A frozen clock, so the fixtures never straddle midnight UTC.
+NOW = datetime(2026, 10, 15, 9, 30, tzinfo=UTC)
 
 FLAVOR = {
     "id": "f1",
@@ -33,8 +38,13 @@ LIMITS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def frozen_clock(monkeypatch):
+    monkeypatch.setattr(reservation_service, "_now", lambda: NOW)
+
+
 def future(days: int, hour: int = 0, minute: int = 0) -> str:
-    when = datetime.now(UTC).replace(
+    when = NOW.replace(
         hour=hour, minute=minute, second=0, microsecond=0
     ) + timedelta(days=days)
     return when.isoformat()
@@ -108,7 +118,7 @@ async def test_list_reservations_with_limits(logged_in, upstream):
 
 async def test_reservation_options_and_slots(logged_in, upstream):
     mock_warre(upstream)
-    today = datetime.now(UTC).date()
+    today = NOW.date()
     slots = upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
         return_value=httpx.Response(
             200,
@@ -164,6 +174,38 @@ async def test_reservation_options_and_slots(logged_in, upstream):
     assert sent["start"] == (today + timedelta(days=5)).isoformat()
     assert body["start"] == (today + timedelta(days=5)).isoformat()
 
+    # An end far in the future is clamped to the search horizon.
+    body = (
+        await logged_in.get(
+            "/api/reservations/slots", params={"end": "9999-12-31"}
+        )
+    ).json()
+    horizon = today + timedelta(days=reservation_service.SLOT_HORIZON_DAYS)
+    assert body["end"] == horizon.isoformat()
+    sent = slots.calls.last.request.url.params
+    assert sent["end"] == (horizon + timedelta(days=1)).isoformat()
+
+
+async def test_slots_reject_a_bad_window(logged_in, upstream):
+    mock_warre(upstream)
+    slots = upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/")
+    today = NOW.date()
+    backwards = await logged_in.get(
+        "/api/reservations/slots",
+        params={
+            "start": (today + timedelta(days=5)).isoformat(),
+            "end": (today + timedelta(days=4)).isoformat(),
+        },
+    )
+    assert backwards.status_code == 400
+    assert "before the start" in backwards.json()["message"]
+    # date.max used to overflow into a 500.
+    far = await logged_in.get(
+        "/api/reservations/slots", params={"start": "9999-12-31"}
+    )
+    assert far.status_code == 400
+    assert not slots.called
+
 
 async def test_create_reservation(logged_in, upstream):
     mock_warre(upstream)
@@ -172,7 +214,7 @@ async def test_create_reservation(logged_in, upstream):
             201, json=reservation("PENDING_CREATE", flavor=None)
         )
     )
-    start = (datetime.now(UTC) + timedelta(days=2)).date()
+    start = (NOW + timedelta(days=2)).date()
     end = start + timedelta(days=2)
     response = await logged_in.post(
         "/api/reservations",
@@ -194,7 +236,7 @@ async def test_create_reservation(logged_in, upstream):
 
 async def test_create_reservation_rejections(logged_in, upstream):
     mock_warre(upstream)
-    today = datetime.now(UTC).date()
+    today = NOW.date()
     response = await logged_in.post(
         "/api/reservations",
         json={
@@ -264,7 +306,7 @@ async def test_create_reservation_checks_the_su_budget(logged_in, upstream):
     upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
         return_value=httpx.Response(200, json={"results": [{"rate": 90}]})
     )
-    today = datetime.now(UTC).date()
+    today = NOW.date()
     response = await logged_in.post(
         "/api/reservations",
         json={
@@ -291,7 +333,13 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
 
     upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
         return_value=httpx.Response(
-            200, json=[{"start": future(2), "end": future(40)}]
+            200,
+            json=[
+                # A later slot listed first is not the one that continues
+                # the reservation.
+                {"start": future(60), "end": future(90)},
+                {"start": future(2), "end": future(40)},
+            ],
         )
     )
     window = (
@@ -299,13 +347,25 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
     ).json()
     assert window["available"] is True
     assert window["eligible_days"] == 5
+    assert window["max_end"] == (NOW.date() + timedelta(days=7)).isoformat()
+
+    updated = upstream.patch(f"{WARRE}/v1/reservations/res-1/")
+    # Past the window extend-options offers.
+    too_far = await logged_in.post(
+        "/api/reservations/res-1/extend",
+        json={"end": (NOW.date() + timedelta(days=8)).isoformat()},
+        headers=csrf_headers(logged_in),
+    )
+    assert too_far.status_code == 400
+    assert window["max_end"] in too_far.json()["message"]
+    assert not updated.called
 
     updated = upstream.patch(f"{WARRE}/v1/reservations/res-1/").mock(
         return_value=httpx.Response(
             200, json={"id": "res-1", "end": future(5, 23, 59)}
         )
     )
-    new_end = (datetime.now(UTC) + timedelta(days=5)).date().isoformat()
+    new_end = (NOW + timedelta(days=5)).date().isoformat()
     response = await logged_in.post(
         "/api/reservations/res-1/extend",
         json={"end": new_end},
@@ -319,9 +379,7 @@ async def test_reservation_detail_extend_and_calendar(logged_in, upstream):
     # Not later than the current end.
     response = await logged_in.post(
         "/api/reservations/res-1/extend",
-        json={
-            "end": (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
-        },
+        json={"end": (NOW + timedelta(days=1)).date().isoformat()},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 400
@@ -359,9 +417,7 @@ async def test_pending_reservation_cannot_be_deleted_or_extended(
     assert window == {"available": False, "eligible_days": 0, "max_end": None}
     response = await logged_in.post(
         "/api/reservations/res-1/extend",
-        json={
-            "end": (datetime.now(UTC) + timedelta(days=5)).date().isoformat()
-        },
+        json={"end": (NOW + timedelta(days=5)).date().isoformat()},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 409
@@ -393,3 +449,62 @@ async def test_reservations_absent_without_warre(client, upstream):
     response = await client.get("/api/reservations")
     assert response.status_code == 404
     assert response.json()["error"] == "service_not_enabled"
+
+
+async def test_extend_refused_without_a_continuing_slot(logged_in, upstream):
+    mock_warre(upstream)
+    upstream.get(f"{WARRE}/v1/reservations/res-1/").mock(
+        return_value=httpx.Response(200, json=reservation())
+    )
+    upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
+        return_value=httpx.Response(
+            200, json=[{"start": future(10), "end": future(40)}]
+        )
+    )
+    window = (
+        await logged_in.get("/api/reservations/res-1/extend-options")
+    ).json()
+    assert window["available"] is False
+    updated = upstream.patch(f"{WARRE}/v1/reservations/res-1/")
+    response = await logged_in.post(
+        "/api/reservations/res-1/extend",
+        json={"end": (NOW.date() + timedelta(days=4)).isoformat()},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 409 and not updated.called
+
+
+async def test_options_and_slots_fallbacks(logged_in, upstream):
+    """No maintenance windows or allocation, and a flavour whose free
+    slots fail: the panel still renders."""
+    mock_warre(upstream)
+    upstream.get(f"{WARRE}/v1/maintenancewindows/").mock(
+        return_value=httpx.Response(403, json={"error": "no"})
+    )
+    upstream.get(f"{HORIZON}/rest_api/allocations/").mock(
+        return_value=httpx.Response(403, json={"error": "no"})
+    )
+    upstream.get(f"{WARRE}/v1/flavors/f1/freeslots/").mock(
+        return_value=httpx.Response(403, json={"error": "no"})
+    )
+    body = (await logged_in.get("/api/reservations/options")).json()
+    assert body["maintenance_windows"] == []
+    assert body["su_used"] is None and body["su_budget"] is None
+    assert body["today"] == NOW.date().isoformat()
+    slots = (await logged_in.get("/api/reservations/slots")).json()
+    assert slots["slots"] == [] and slots["flavors"][0]["id"] == "f1"
+
+
+async def test_create_reservation_end_before_start(logged_in, upstream):
+    mock_warre(upstream)
+    created = upstream.post(f"{WARRE}/v1/reservations/")
+    response = await logged_in.post(
+        "/api/reservations",
+        json={
+            "flavor_id": "f1",
+            "start": (NOW.date() + timedelta(days=3)).isoformat(),
+            "end": (NOW.date() + timedelta(days=2)).isoformat(),
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 400 and not created.called

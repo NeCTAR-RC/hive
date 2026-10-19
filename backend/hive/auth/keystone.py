@@ -115,7 +115,9 @@ class KeystoneClient:
                 headers={SUBJECT_TOKEN: token},
                 ok=(204, 404),
             )
-        except UpstreamError:
+        except (InvalidToken, UpstreamError):
+            # Already expired or keystone unhappy: the session is gone
+            # either way, so logout must still succeed.
             pass
 
     async def ping(self, timeout: float = 2.0) -> bool:

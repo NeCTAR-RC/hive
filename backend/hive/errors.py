@@ -15,6 +15,7 @@ back through manuka without knowing how the login URL is built.
 """
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import structlog
@@ -137,6 +138,18 @@ def error_payload(exc: HiveError, request: Request) -> dict:
     return payload
 
 
+# Validation error keys safe to return: ``input`` reflects the request body
+# (passwords included), ``ctx`` can hold an exception object and ``url``
+# is noise.
+VALIDATION_KEYS = ("type", "loc", "msg")
+
+
+def validation_detail(errors) -> list[dict]:
+    return jsonable_encoder(
+        [{k: err[k] for k in VALIDATION_KEYS if k in err} for err in errors]
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HiveError)
     async def _hive_error(request: Request, exc: HiveError):
@@ -173,7 +186,7 @@ def install_error_handlers(app: FastAPI) -> None:
                 "service": None,
                 "request_id": request_id_of(request),
                 "upstream_request_id": None,
-                "detail": exc.errors(),
+                "detail": validation_detail(exc.errors()),
             },
             status_code=422,
         )

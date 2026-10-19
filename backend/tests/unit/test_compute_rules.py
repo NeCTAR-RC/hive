@@ -171,6 +171,12 @@ class TestImageRules:
         )
         assert names == {"a": "mine", "b": "b"}
 
+    def test_custom_property_excludes_base_and_reserved(self):
+        r = ImageRules(["os_hidden"])
+        assert r.is_custom_property("os_distro")
+        for key in ("id", "owner", "locations", "os_hidden"):
+            assert not r.is_custom_property(key)
+
 
 class TestSecurityGroupPresets:
     def test_apply_preset(self):

@@ -14,7 +14,10 @@ upstream heat-dashboard ones).
   parameters coerced to their types.
 - Actions: suspend needs a completed, not suspended stack; resume needs
   SUSPEND_COMPLETE; check needs a completed stack; update needs a
-  completed or failed stack; delete anything not already deleting.
+  completed or failed stack; cancel_update needs UPDATE_IN_PROGRESS (the
+  Heat v1 API reference's ``cancel_update`` stack action, posted to
+  ``/stacks/{name}/{id}/actions`` like the others); delete anything not
+  already deleting.
 """
 
 import json
@@ -23,6 +26,13 @@ import re
 STACK_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]*$")
 DEFAULT_TIMEOUT = 60
 TRANSITIONAL = "_IN_PROGRESS"
+# The actions posted to ``/actions`` and how a refusal reads for each.
+ACTION_REFUSALS = {
+    "suspend": "The stack cannot be suspended",
+    "resume": "The stack cannot be resumed",
+    "check": "The stack cannot be checked",
+    "cancel_update": "The stack update cannot be cancelled",
+}
 PARAMETER_TYPES = (
     "string",
     "number",
@@ -52,6 +62,8 @@ def stack_actions(status: str | None) -> list[str]:
         _completed(status) or (status or "").endswith("_FAILED")
     ) and status != "DELETE_COMPLETE":
         actions.append("update")
+    if status == "UPDATE_IN_PROGRESS":
+        actions.append("cancel_update")
     if status != "DELETE_IN_PROGRESS":
         actions.append("delete")
     return actions
@@ -150,7 +162,9 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
                 )
         elif ptype == "comma_delimited_list":
             out[name] = (
-                ",".join(value) if isinstance(value, list) else str(value)
+                ",".join(str(v) for v in value)
+                if isinstance(value, list)
+                else str(value)
             )
         elif ptype == "json":
             if isinstance(value, (dict, list)):

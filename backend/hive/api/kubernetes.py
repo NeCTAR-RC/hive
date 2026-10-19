@@ -1,8 +1,10 @@
 """Kubernetes clusters and cluster templates (Magnum)."""
 
+import re
+
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.magnum import (
     ClusterCreate,
     ClusterUpgrade,
@@ -16,9 +18,11 @@ from hive.services.context import Context
 from hive.services import magnum
 
 router = APIRouter(prefix="/kubernetes", tags=["kubernetes"])
+UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def _pem(text: str, filename: str) -> Response:
+    filename = UNSAFE_FILENAME.sub("_", filename)
     return Response(
         text,
         media_type="application/x-pem-file",
@@ -74,8 +78,13 @@ async def upgrade_cluster(
 
 
 @router.get("/clusters/{cluster_id}/config")
-async def cluster_config(cluster_id: str, ctx: Context = Depends(get_context)):
-    return await magnum.cluster_config(ctx, cluster_id)
+async def cluster_config(
+    cluster_id: str, response: Response, ctx: Context = Depends(get_context)
+):
+    """Carries a freshly generated private key, so no cache may keep it."""
+    config = await magnum.cluster_config(ctx, cluster_id)
+    response.headers["Cache-Control"] = "no-store"
+    return config
 
 
 @router.get("/clusters/{cluster_id}/ca.pem")

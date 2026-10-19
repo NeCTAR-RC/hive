@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.dns import (
     RecordSetCreate,
     RecordSetUpdate,

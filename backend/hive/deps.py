@@ -1,6 +1,7 @@
 """FastAPI dependencies: settings, shared clients and the session."""
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 import time
 
 from fastapi import Depends, Request
@@ -9,8 +10,10 @@ import httpx
 from hive.auth import csrf
 from hive.auth.login import AuthService
 from hive.cache.redis import Cache
+from hive.clients.base import bind_refresh
 from hive.config import Settings
 from hive.errors import NotAuthenticated, SessionExpired
+from hive.services.context import Context
 from hive.session.model import ScopedToken, SessionData
 from hive.session.store import SessionStore
 
@@ -50,6 +53,7 @@ class SessionContext:
     store: SessionStore
     auth: AuthService
     settings: Settings
+    _rescoped: asyncio.Task | None = field(default=None, repr=False)
 
     @property
     def project_id(self) -> str:
@@ -64,6 +68,22 @@ class SessionContext:
         return await self.auth.ensure_scoped(
             self.sid, self.data, self.project_id
         )
+
+    async def rescope(self) -> ScopedToken:
+        """Force a fresh scoped token for the current project.
+
+        The ``refresh`` callback for upstream clients: an upstream 401
+        rescopes from the unscoped token once per request (concurrent
+        callers share the one rescope) before the session is declared
+        expired.
+        """
+        if self._rescoped is None:
+            self._rescoped = asyncio.ensure_future(
+                self.auth.ensure_scoped(
+                    self.sid, self.data, self.project_id, force=True
+                )
+            )
+        return await asyncio.shield(self._rescoped)
 
 
 async def _load_session(
@@ -98,9 +118,12 @@ async def get_optional_session(
         )
     csrf.check_request(request, data.csrf)
     await store.touch(sid, data, last_seen, now)
-    return SessionContext(
+    session = SessionContext(
         sid=sid, data=data, store=store, auth=auth, settings=settings
     )
+    # Every upstream client built during this request rescopes through it.
+    bind_refresh(session.rescope)
+    return session
 
 
 async def get_session(
@@ -110,3 +133,17 @@ async def get_session(
     if ctx is None:
         raise NotAuthenticated("login required", extra=login_extra(settings))
     return ctx
+
+
+async def get_context(
+    ctx: SessionContext = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    http: httpx.AsyncClient = Depends(get_http),
+    cache: Cache = Depends(get_cache),
+) -> Context:
+    """The service ``Context`` for the current project: shared HTTP client,
+    settings, cache and the scoped token, rescoping once on an upstream
+    401 through ``SessionContext.rescope``."""
+    return Context(
+        http, settings, cache, await ctx.scoped(), refresh=ctx.rescope
+    )

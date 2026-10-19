@@ -5,6 +5,7 @@ import asyncio
 import base64
 
 from hive.errors import BadRequest, HiveError, NotFound
+from hive.nectar.flavors import PREEMPTIBLE_NOTICE
 from hive.nectar.networks import PURPOSE_BOOT
 from hive.services.context import Context
 from hive.services import network as network_service
@@ -20,13 +21,18 @@ COMMUNITY_IMAGES_STALE = 21600
 PROJECT_IMAGES_TTL = 60
 PROJECT_IMAGES_STALE = 600
 
+# Horizon ``dashboards/project/instances/tables.py:58-69``.
 POWER_STATES = {
     0: "NO STATE",
     1: "RUNNING",
+    2: "BLOCKED",
     3: "PAUSED",
     4: "SHUTDOWN",
+    5: "SHUTOFF",
     6: "CRASHED",
     7: "SUSPENDED",
+    8: "FAILED",
+    9: "BUILDING",
 }
 
 # Nova server filters the SPA may pass straight through (microversion
@@ -160,9 +166,15 @@ def server_summary(
 # --- cached reference data ---------------------------------------------------
 
 
+def flavors_key(ctx: Context) -> str:
+    """Per project: nova lists the private flavours a project has access
+    to, so one project's list is not another's."""
+    return ctx.cache.project_key(ctx.project_id, "flavors")
+
+
 async def flavors(ctx: Context) -> list[dict]:
     result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("flavors"),
+        flavors_key(ctx),
         ctx.nova.flavors,
         ttl=FLAVORS_TTL,
         stale_ttl=FLAVORS_STALE,
@@ -237,17 +249,27 @@ async def image_names(ctx: Context) -> dict[str, str]:
     )
 
 
-async def invalidate_project_images(ctx: Context) -> None:
-    await ctx.cache.invalidate(
+async def invalidate_project_images(
+    ctx: Context, *visibilities: str | None
+) -> None:
+    """Drop the project's image listings, and the global public or
+    community listing too when an image enters or leaves one of them."""
+    keys = [
         ctx.cache.project_key(ctx.project_id, "images", "private"),
         ctx.cache.project_key(ctx.project_id, "images", "shared"),
-    )
+    ]
+    for visibility in sorted({v for v in visibilities if v}):
+        if visibility in ("public", "community"):
+            keys.append(ctx.cache.global_key("images", visibility))
+    await ctx.cache.invalidate(*keys)
 
 
 # --- instances ----------------------------------------------------------------
 
 
 async def list_instances(ctx: Context, query: dict) -> dict:
+    """``query`` carries the typed ``limit``, ``marker``, ``sort_key`` and
+    ``sort_dir`` from the router plus any ``SERVER_FILTERS``."""
     params: dict = {"limit": min(int(query.get("limit") or 50), 1000)}
     if query.get("marker"):
         params["marker"] = query["marker"]
@@ -282,7 +304,8 @@ async def get_instance(ctx: Context, server_id: str) -> dict:
     if not server:
         raise NotFound("instance not found", service="nova")
     summary = server_summary(ctx, server, names)
-    summary["user_data"] = server.get("user_data")
+    # Nova returns it base64-encoded, only from microversion 2.3 on.
+    summary["user_data"] = server.get("OS-EXT-SRV-ATTR:user_data")
     summary["os_ext_srv_attr"] = {
         "instance_name": server.get("OS-EXT-SRV-ATTR:instance_name"),
         "hostname": server.get("OS-EXT-SRV-ATTR:hostname"),
@@ -445,16 +468,18 @@ async def perform_action(
     elif action == "associate-fip":
         if not body.get("floating_ip_id"):
             raise BadRequest("floating_ip_id is required")
-        port_id = body.get("port_id")
-        if not port_id:
-            ports = await ctx.neutron.ports(device_id=server_id)
-            ports = [p for p in ports if p.get("fixed_ips")]
-            if not ports:
+        fields: dict = {"port_id": body.get("port_id")}
+        if not fields["port_id"]:
+            # The same IPv4, reachable-subnet targets the association
+            # dialog offers (``FloatingIpManager.list_targets``).
+            targets = await network_service.floating_ip_targets(ctx, server_id)
+            if not targets:
                 raise BadRequest("the instance has no port to associate with")
-            port_id = ports[0]["id"]
-        await ctx.neutron.update_floatingip(
-            body["floating_ip_id"], {"port_id": port_id}
-        )
+            fields = {
+                "port_id": targets[0]["port_id"],
+                "fixed_ip_address": targets[0]["ip_address"],
+            }
+        await ctx.neutron.update_floatingip(body["floating_ip_id"], fields)
     elif action == "disassociate-fip":
         if not body.get("floating_ip_id"):
             raise BadRequest("floating_ip_id is required")
@@ -465,11 +490,7 @@ async def perform_action(
         metadata = body.get("metadata")
         if metadata is None:
             raise BadRequest("metadata is required")
-        await ctx.nova.request(
-            "PUT",
-            f"/servers/{server_id}/metadata",
-            json={"metadata": metadata},
-        )
+        await ctx.nova.set_server_metadata(server_id, metadata)
     else:
         raise NotFound(f"unknown action '{action}'")
     return {"status": "accepted"}
@@ -598,9 +619,7 @@ async def launch_options(ctx: Context) -> dict:
         "config_drive": False,
         "network_ports": False,
         "classic_network_id": ctx.settings.classic_network_id,
-        "preemptible_notice": __import__(
-            "hive.nectar.flavors", fromlist=["PREEMPTIBLE_NOTICE"]
-        ).PREEMPTIBLE_NOTICE,
+        "preemptible_notice": PREEMPTIBLE_NOTICE,
     }
     return payload
 

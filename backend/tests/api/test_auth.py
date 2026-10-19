@@ -2,9 +2,13 @@ from datetime import datetime, timedelta, UTC
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import pytest
+import respx
 
+from hive.errors import SessionExpired
 from tests.conftest import (
     ACCOUNTS,
+    CLOUDKITTY,
     csrf_headers,
     KEYSTONE,
     login,
@@ -237,3 +241,120 @@ def test_token_response_helper_handles_disabled_project():
     )
     assert token_response(request).status_code == 401
     assert datetime.now(UTC) < datetime.now(UTC) + timedelta(seconds=1)
+
+
+def _scoped_posts(upstream) -> int:
+    return sum(
+        1
+        for call in upstream.calls
+        if call.request.method == "POST"
+        and call.request.url.path.endswith("/auth/tokens")
+        and b'"scope"' in call.request.content
+    )
+
+
+async def test_upstream_401_rescopes_once_and_retries(logged_in, upstream):
+    tokens = []
+
+    def cloudkitty(request):
+        tokens.append(request.headers["X-Auth-Token"])
+        if len(tokens) == 1:
+            return httpx.Response(401, json={"error": "token rejected"})
+        return httpx.Response(200, json={"results": [], "total": 0})
+
+    upstream.get(f"{CLOUDKITTY}/v2/summary").mock(side_effect=cloudkitty)
+    before = _scoped_posts(upstream)
+    response = await logged_in.get(
+        "/api/usage/summary", headers={"X-Request-ID": "req-hive-1"}
+    )
+    assert response.status_code == 200, response.text
+    assert len(tokens) == 2
+    assert _scoped_posts(upstream) == before + 1
+    # Hive's request id reaches the upstream for correlation.
+    request = upstream.calls.last.request
+    assert request.headers["X-OpenStack-Request-ID"] == "req-hive-1"
+    # The session survives.
+    assert (await logged_in.get("/api/me")).status_code == 200
+
+
+async def test_upstream_401_after_rescope_ends_the_session(
+    logged_in, upstream
+):
+    route = upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
+        return_value=httpx.Response(401, json={"error": "token rejected"})
+    )
+    response = await logged_in.get("/api/usage/summary")
+    assert response.status_code == 401
+    assert response.json()["error"] == "session_expired"
+    assert route.call_count == 2
+
+
+async def test_compute_rescopes_after_401(logged_in, upstream):
+    calls = []
+
+    def nova(request):
+        calls.append(request.headers["X-Auth-Token"])
+        if len(calls) == 1:
+            return httpx.Response(401, json={"error": "token rejected"})
+        return httpx.Response(200, json={"keypairs": []})
+
+    upstream.get("https://nova.test/v2.1/os-keypairs").mock(side_effect=nova)
+    response = await logged_in.get("/api/compute/keypairs")
+    assert response.status_code == 200, response.text
+    assert len(calls) == 2
+
+
+async def test_client_refresh_skips_streamed_bodies(settings):
+    from hive.clients.base import ServiceClient
+    from hive.session.model import ProjectRef, ScopedToken
+
+    def scoped(token):
+        return ScopedToken(
+            token=token,
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            project=ProjectRef(id="p1", name="pt-50"),
+        )
+
+    refreshed = []
+
+    async def refresh():
+        refreshed.append(1)
+        return scoped("fresh")
+
+    class Client(ServiceClient):
+        service_type = "rating"
+
+    async def body():
+        yield b"x"
+
+    with respx.mock() as router:
+        route = router.put("https://ck.test/x").mock(
+            side_effect=lambda request: httpx.Response(
+                200 if request.headers["X-Auth-Token"] == "fresh" else 401
+            )
+        )
+        async with httpx.AsyncClient() as http:
+            client = Client(http, settings, scoped("old"), refresh=refresh)
+            client._endpoint = "https://ck.test"
+            await client.request("PUT", "/x", content=b"bytes")
+            assert client.scoped.token == "fresh"
+            client.scoped = scoped("old")
+            with pytest.raises(SessionExpired):
+                await client.request("PUT", "/x", content=body())
+    assert refreshed == [1]
+    assert route.call_count == 3
+
+
+async def test_logout_revoke_tolerates_expired_tokens(
+    logged_in, app, upstream
+):
+    app.state.settings.logout_revokes_tokens = True
+    upstream.delete(f"{KEYSTONE}/auth/tokens").mock(
+        return_value=httpx.Response(
+            401, json={"error": {"message": "token expired"}}
+        )
+    )
+    response = await logged_in.post(
+        "/api/auth/logout", headers=csrf_headers(logged_in)
+    )
+    assert response.status_code == 204

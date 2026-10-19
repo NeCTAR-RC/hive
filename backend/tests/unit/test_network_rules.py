@@ -1,6 +1,7 @@
 import pytest
 
 from hive.errors import BadRequest
+from hive.nectar import secgroups
 from hive.nectar.networks import (
     NetworkRules,
     PURPOSE_ANY,
@@ -360,6 +361,98 @@ class TestSubnetBody:
         )
         assert body == {"name": "renamed", "allocation_pools": []}
         assert subnet_body({}, self.DNS, is_create=False) == {}
+
+    def test_subnetpool_instead_of_cidr(self):
+        body = subnet_body(
+            {"subnetpool_id": "pool-1", "prefixlen": 26}, self.DNS
+        )
+        assert body["subnetpool_id"] == "pool-1"
+        assert body["prefixlen"] == 26
+        assert body["ip_version"] == 4
+        assert "cidr" not in body
+
+    def test_invalid_gateway(self):
+        with pytest.raises(BadRequest, match="not an IP address"):
+            subnet_body(
+                {"cidr": "10.0.0.0/24", "gateway_ip": "10.0.0.x"}, self.DNS
+            )
+
+    def test_invalid_ip_version(self):
+        with pytest.raises(BadRequest, match="inconsistent"):
+            subnet_body(
+                {"cidr": "10.0.0.0/24", "ip_version": 6},
+                self.DNS,
+                enable_ipv6=True,
+            )
+        with pytest.raises(BadRequest, match="IPv6 subnets"):
+            subnet_body({"cidr": "10.0.0.0/24", "ip_version": 5}, self.DNS)
+
+    def test_update_gateway_follows_the_subnet_version(self):
+        update = {"gateway_ip": "2001:db8::1", "ip_version": 6}
+        assert subnet_body(update, self.DNS, is_create=False) == {
+            "gateway_ip": "2001:db8::1"
+        }
+        # Without the subnet's version the gateway's own one stands.
+        assert subnet_body(
+            {"gateway_ip": "2001:db8::1"}, self.DNS, is_create=False
+        ) == {"gateway_ip": "2001:db8::1"}
+        with pytest.raises(BadRequest, match="gateway IP"):
+            subnet_body(
+                {"gateway_ip": "10.0.0.1", "ip_version": 6},
+                self.DNS,
+                is_create=False,
+            )
+
+
+class TestSecurityGroupRules:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (None, None),
+            ("  ", None),
+            ("TCP", "tcp"),
+            ("ipv6-icmp", "ipv6-icmp"),
+            ("any", "any"),
+            ("017", "17"),
+        ],
+    )
+    def test_normalise_protocol(self, value, expected):
+        assert secgroups.normalise_protocol(value) == expected
+
+    @pytest.mark.parametrize("value", ["bogus", "256", "-1"])
+    def test_normalise_protocol_rejects(self, value):
+        with pytest.raises(ValueError):
+            secgroups.normalise_protocol(value)
+
+    def test_ethertype_follows_the_cidr(self):
+        assert secgroups.ethertype_for("::/0", "IPv4") == "IPv6"
+        assert secgroups.ethertype_for("10.0.0.1/8", "IPv6") == "IPv4"
+        assert secgroups.ethertype_for(None, "IPv6") == "IPv6"
+        with pytest.raises(ValueError):
+            secgroups.ethertype_for("nope", "IPv4")
+
+    def test_icmp_for_ipv6(self):
+        assert secgroups.icmp_for("icmp", "IPv6") == "ipv6-icmp"
+        assert secgroups.icmp_for("icmp", "IPv4") == "icmp"
+        assert secgroups.icmp_for("tcp", "IPv6") == "tcp"
+
+    @pytest.mark.parametrize(
+        "protocol, low, high, expected",
+        [
+            ("icmp", 8, -1, {"port_range_min": 8}),
+            ("icmp", 8, None, {"port_range_min": 8}),
+            ("icmp", 3, 1, {"port_range_min": 3, "port_range_max": 1}),
+            ("icmp", -1, 0, {}),
+            ("tcp", 22, None, {"port_range_min": 22, "port_range_max": 22}),
+            ("udp", 53, -1, {"port_range_min": 53, "port_range_max": 53}),
+            ("tcp", 80, 90, {"port_range_min": 80, "port_range_max": 90}),
+            ("tcp", None, None, {}),
+            ("gre", 1, 2, {}),
+            (None, 1, 2, {}),
+        ],
+    )
+    def test_port_range(self, protocol, low, high, expected):
+        assert secgroups.port_range(protocol, low, high) == expected
 
 
 class TestPortForwardingBody:

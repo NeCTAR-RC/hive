@@ -135,4 +135,14 @@ class SessionStore:
             await self._redis.srem(self.user_key(user_id), key)
 
     async def count_for_user(self, user_id: str) -> int:
-        return await self._redis.scard(self.user_key(user_id))
+        """Live sessions for ``user_id``, pruning members whose session key
+        expired by TTL (only ``destroy`` removes them otherwise)."""
+        user_key = self.user_key(user_id)
+        dead = [
+            member
+            for member in await self._redis.smembers(user_key)
+            if not await self._redis.exists(member)
+        ]
+        if dead:
+            await self._redis.srem(user_key, *dead)
+        return await self._redis.scard(user_key)

@@ -6,7 +6,12 @@
 - Create: the wizard posts the load balancer with optional listener, pool,
   members and monitor; the server creates them one after another, waiting
   for the load balancer to become ``ACTIVE`` between steps
-  (``api/rest/lbaasv2.py:150-321, 357-412``).
+  (``api/rest/lbaasv2.py:150-321, 357-412``). Hive runs those waits in a
+  background chain and never blocks a request on them: a child-resource
+  request against a load balancer that is not ``ACTIVE`` is refused with
+  409 for the panel to retry (octavia-dashboard's single-resource views
+  return at once too, and Octavia itself answers 409 for a change to a
+  load balancer in a ``PENDING_*`` state).
 - Cleaning (``workflow/model.service.js:421-618``): the listener needs a
   protocol and port; the pool protocol follows the listener (HTTP behind
   TERMINATED_HTTPS); session persistence without a type is dropped and
@@ -276,6 +281,18 @@ def l7_rule_fields(data: dict) -> dict:
     if data["type"] in ("HEADER", "COOKIE") and data.get("key"):
         body["key"] = data["key"]
     return body
+
+
+def pools_of(pools: list[dict], lb_id: str) -> list[dict]:
+    """The pools of one load balancer, matched on the first entry of
+    ``loadbalancers`` client-side rather than trusting a server-side
+    filter (octavia-dashboard ``api/rest/lbaasv2.py``
+    ``Pools._filter_pools``)."""
+    return [
+        pool
+        for pool in pools
+        if (pool.get("loadbalancers") or [{}])[0].get("id") == lb_id
+    ]
 
 
 def member_candidates(

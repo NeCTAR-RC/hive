@@ -4,7 +4,9 @@
   user searches (Horizon fork commit 283331da2); they still resolve for
   names (commit 38132b784 keeps a cached name map).
 * Reserved custom properties are never shown or edited
-  (``IMAGE_RESERVED_CUSTOM_PROPERTIES``).
+  (``IMAGE_RESERVED_CUSTOM_PROPERTIES``), and neither are glance's base
+  attributes (Horizon ``openstack_dashboard/api/glance.py``
+  ``Image.property_visible`` excludes ``_attrs`` and ``_ext_attrs``).
 * New images default to private visibility (``CREATE_IMAGE_DEFAULTS``).
 """
 
@@ -56,11 +58,15 @@ class ImageRules:
             return True
         return searching or image.get("owner") == project_id
 
+    def is_custom_property(self, key: str) -> bool:
+        """A key the user may see and edit as a custom property."""
+        return key not in BASE_ATTRIBUTES and key not in self.reserved
+
     def properties(self, image: dict) -> dict:
         return {
             key: value
             for key, value in image.items()
-            if key not in BASE_ATTRIBUTES and key not in self.reserved
+            if self.is_custom_property(key)
         }
 
     def summary(self, image: dict, project_id: str | None = None) -> dict:

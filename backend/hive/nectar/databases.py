@@ -529,6 +529,7 @@ def user_summary(user: dict) -> dict:
 
 
 def user_path(name: str, host: str | None) -> str:
-    """``user@host`` with dots encoded, as troveclient quotes it."""
-    ident = f"{name}@{host}" if host and host != "%" else name
-    return ident.replace(".", "%2e")
+    """``user@host``, or the bare name for the any-host ``%``, as
+    troveclient ``utils.quote_user_host`` joins them. The Trove client
+    percent-encodes it and then encodes the dots, as troveclient does."""
+    return f"{name}@{host}" if host and host != "%" else name

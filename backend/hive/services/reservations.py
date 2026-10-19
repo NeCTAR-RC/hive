@@ -10,7 +10,15 @@ from hive.services import allocation_summary as allocation_service
 from hive.services.context import Context
 
 SLOT_WINDOW_DAYS = 90
+# How far ahead the free-slot search may look; well past any flavour's
+# maximum length, and far from ``date.max``.
+SLOT_HORIZON_DAYS = 730
 FAN_OUT = 8
+
+
+def _now() -> datetime:
+    """The clock, in one place so tests can freeze it."""
+    return datetime.now(UTC)
 
 
 def _warre(ctx: Context) -> WarreClient:
@@ -65,7 +73,7 @@ async def list_reservations(ctx: Context) -> dict:
         warre.reservations(), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = datetime.now(UTC)
+    now = _now()
     rows = [reservation_summary(r, limits, now) for r in items]
     rows.sort(key=lambda r: str(r.get("start") or ""), reverse=True)
     return {"items": rows, "limits": limits}
@@ -77,7 +85,7 @@ async def get_reservation(ctx: Context, reservation_id: str) -> dict:
         warre.reservation(reservation_id), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = datetime.now(UTC)
+    now = _now()
     summary = reservation_summary(reservation, limits, now)
     url = detail_url(ctx, reservation_id)
     summary["calendar"] = {
@@ -128,7 +136,7 @@ async def options(ctx: Context) -> dict:
         ],
         "su_used": su_used,
         "su_budget": su_budget,
-        "today": datetime.now(UTC).date().isoformat(),
+        "today": _now().date().isoformat(),
     }
 
 
@@ -156,11 +164,19 @@ async def slots(
         params["category"] = category
     if availability_zone:
         params["availability_zone"] = availability_zone
-    flavors = await warre.flavors(**params)
-    now = datetime.now(UTC)
+    now = _now()
     today = now.date()
-    start = start or today
-    end = end or start + timedelta(days=SLOT_WINDOW_DAYS)
+    horizon = today + timedelta(days=SLOT_HORIZON_DAYS)
+    start = max(start or today, today)
+    if start > horizon:
+        raise BadRequest(
+            f"Free slots can only be searched up to {SLOT_HORIZON_DAYS} days"
+            " ahead."
+        )
+    if end is not None and end < start:
+        raise BadRequest("The end date must not be before the start date.")
+    end = min(end or start + timedelta(days=SLOT_WINDOW_DAYS), horizon)
+    flavors = await warre.flavors(**params)
     sent_start = start.isoformat() if start > today else None
     sent_end = (end + timedelta(days=1)).isoformat()
     window_start = (
@@ -209,7 +225,7 @@ async def slots(
 async def create_reservation(
     ctx: Context, flavor_id: str, start: date, end: date
 ) -> dict:
-    now = datetime.now(UTC)
+    now = _now()
     if start < now.date():
         raise BadRequest("The reservation cannot start in the past.")
     if end < start:
@@ -249,15 +265,20 @@ async def create_reservation(
     return reservation_summary(created, limits, now)
 
 
-async def extend_options(ctx: Context, reservation_id: str) -> dict:
+async def _extend_window(
+    ctx: Context, reservation_id: str
+) -> tuple[dict, dict, datetime, dict]:
+    """The reservation, its limits, the clock and how far it can be
+    extended, from the free slot that continues it."""
     warre = _warre(ctx)
     reservation, absolute = await asyncio.gather(
         warre.reservation(reservation_id), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = datetime.now(UTC)
+    now = _now()
+    closed = {"available": False, "eligible_days": 0, "max_end": None}
     if not rules.can_extend(reservation, limits, now):
-        return {"available": False, "eligible_days": 0, "max_end": None}
+        return reservation, limits, now, closed
     end = rules.parse_when(reservation.get("end")) or now
     flavor = reservation.get("flavor") or {}
     free = await warre.free_slots(
@@ -267,27 +288,44 @@ async def extend_options(ctx: Context, reservation_id: str) -> dict:
             end.date() + timedelta(days=rules.flavor_max_days(flavor))
         ).isoformat(),
     )
-    return rules.extend_window(
-        reservation, free[0] if free else None, limits, now
+    window = rules.extend_window(
+        reservation, rules.adjacent_slot(free, end), limits, now
     )
+    return reservation, limits, now, window
+
+
+async def extend_options(ctx: Context, reservation_id: str) -> dict:
+    _, _, _, window = await _extend_window(ctx, reservation_id)
+    return window
 
 
 async def extend_reservation(
     ctx: Context, reservation_id: str, end: date
 ) -> dict:
-    warre = _warre(ctx)
-    reservation, absolute = await asyncio.gather(
-        warre.reservation(reservation_id), warre.limits()
+    """Extend to ``end``, which must lie in the window ``extend_options``
+    offers (``nectar_reservations.js:605-618``): warre would otherwise
+    accept an end past the free slot, the flavour maximum or the
+    project's days left."""
+    reservation, limits, now, window = await _extend_window(
+        ctx, reservation_id
     )
-    limits = rules.limits_summary(absolute)
-    now = datetime.now(UTC)
     if not rules.can_extend(reservation, limits, now):
         raise Conflict("This reservation cannot be extended.")
     current = rules.parse_when(reservation.get("end"))
     new_end = rules.extend_end(end)
     if current is not None and new_end <= current:
         raise BadRequest("New end must be greater than current end.")
-    updated = await warre.update_reservation(
+    if not window["available"] or not window["max_end"]:
+        raise Conflict(
+            "The flavour is not free after this reservation, so it cannot"
+            " be extended."
+        )
+    if end > date.fromisoformat(window["max_end"]):
+        raise BadRequest(
+            f"The reservation can be extended to {window['max_end']} at the"
+            " latest."
+        )
+    updated = await _warre(ctx).update_reservation(
         reservation_id, {"end": new_end.isoformat()}
     )
     if not updated.get("flavor"):
@@ -312,5 +350,5 @@ async def calendar(ctx: Context, reservation_id: str, host: str) -> str:
             "Only allocated or active reservations have a calendar entry."
         )
     return rules.ics_text(
-        reservation, detail_url(ctx, reservation_id), host, datetime.now(UTC)
+        reservation, detail_url(ctx, reservation_id), host, _now()
     )

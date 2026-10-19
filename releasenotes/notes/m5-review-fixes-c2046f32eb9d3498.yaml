@@ -1,0 +1,58 @@
+---
+security:
+  - |
+    Object store, orchestration, DNS and load balancer requests now
+    percent-encode every name and id they put in an upstream URL path, so a
+    name containing ``?``, ``#`` or ``%2F`` can no longer change the path or
+    query sent to Swift, Heat, Designate or Octavia. Object names with ``.``
+    or ``..`` folders are refused, and container metadata keys and values
+    are limited to characters that are safe in HTTP headers.
+  - |
+    Looking up a stack by name no longer follows Heat's redirect to the host
+    Heat names. Hive takes the path from the redirect and requests it
+    through the configured orchestration endpoint, so the token stays on
+    that endpoint.
+fixes:
+  - |
+    Objects whose names contain a space, a non-ASCII character or a
+    character such as ``+``, ``#``, ``%`` or ``&`` can now be uploaded and
+    downloaded. Signed upload and download links were signed over the
+    encoded name and Swift rejected them.
+  - |
+    Uploads through the dashboard (when temporary URLs are unavailable) no
+    longer fail after the file is stored when the file name has accented
+    or other non-ASCII characters. The original file name is now saved
+    with the upload itself. An upload without a known size is refused with
+    a clear message instead of bypassing the size limit.
+  - |
+    Downloads through the dashboard return the connection to the pool when
+    the browser cancels, report an expired session or a missing object
+    with the usual error, and give non-ASCII file names correctly. As in
+    Horizon, an object saved without an extension downloads with the
+    original file's extension.
+  - |
+    Deleting a very large folder is refused before anything is deleted,
+    rather than deleting the first 50,000 objects and reporting success.
+    Bulk deletes follow the object store's per-request limit and report
+    objects Swift could not delete.
+  - |
+    Load balancer listeners, pools and members can now be cleared: a
+    listener's default pool, a pool's session persistence and a member's
+    monitor address and port. A record set's TTL can be reset to the zone
+    default.
+  - |
+    Adding a listener, pool or member to a load balancer that is busy now
+    answers at once with a message to try again, instead of holding the
+    request for up to ten minutes. Replacing a pool's members runs in the
+    background and shows progress on the load balancer page. A background
+    creation step that fails for any reason now shows its error instead of
+    staying in progress.
+  - |
+    A floating IP allocated for a load balancer is released again if it
+    cannot be associated. A pool without a listener or protocol in the
+    create wizard is now an error rather than silently skipped.
+  - |
+    Stacks that are updating can have the update cancelled. A record set
+    named like ``notexample.com.`` in the zone ``example.com.`` gets the
+    zone name message. A list parameter of numbers no longer fails stack
+    creation.

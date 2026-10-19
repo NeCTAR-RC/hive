@@ -1,0 +1,46 @@
+---
+security:
+  - |
+    The cluster config download, which carries a freshly generated private
+    key, and the response to enabling a database root user, which carries
+    its password, are now sent with ``Cache-Control: no-store``.
+  - |
+    Ids from the URL are percent-encoded before they reach Magnum, Trove
+    and Manila, so a ``?`` or ``/`` in an id can no longer change the
+    upstream path or query.
+fixes:
+  - |
+    Share revert now offers the newest snapshot by creation time, the only
+    one Manila accepts, rather than the last one listed. The share detail
+    names it as ``newest_snapshot_id`` and the share options as
+    ``newest_snapshot_ids`` keyed by share.
+  - |
+    Editing share metadata no longer reports "not found" after a
+    successful save when keys were removed.
+  - |
+    Renaming a share snapshot or share group snapshot keeps the parent
+    name and actions in the response.
+  - |
+    Database instances, backups, users, databases and configuration
+    groups are listed in full instead of stopping at Trove's first page
+    of 20.
+  - |
+    An incremental database backup must have a parent backup of the same
+    instance.
+  - |
+    A failure fetching a datastore's parameter list is reported as an
+    upstream error instead of rejecting every submitted value.
+  - |
+    Database log viewing reads Swift with bounded concurrency and stops
+    reading once the viewer's size cap is reached. Log names are limited
+    to letters, digits, ``_``, ``.`` and ``-``.
+  - |
+    Saving unchanged node group labels or taints no longer triggers a
+    rolling replacement of the group's nodes, and a cluster can only be
+    upgraded to one of its template's upgrade targets.
+  - |
+    The reservation free-slot search rejects an end before its start and
+    a start more than two years ahead instead of failing with an internal
+    error, and clamps the end to that horizon. Extending a reservation
+    uses the free slot that follows it and refuses an end past the window
+    the extend dialog offers.

@@ -203,10 +203,14 @@ async def upgrade_options(ctx: Context, cluster_id: str) -> dict:
 async def upgrade_cluster(
     ctx: Context, cluster_id: str, template_id: str, batch: int
 ) -> dict:
-    cluster = await _magnum(ctx).cluster(cluster_id)
-    if not rules.can_upgrade(cluster.get("status")):
+    options = await upgrade_options(ctx, cluster_id)
+    if not options["can_upgrade"]:
         raise Conflict(
             "The cluster must be in a completed state before it can be upgraded."
+        )
+    if template_id not in {t["template_id"] for t in options["targets"]}:
+        raise BadRequest(
+            "The template is not an upgrade target of the cluster's template."
         )
     await _magnum(ctx).upgrade_cluster(
         cluster_id, {"cluster_template": template_id, "max_batch_size": batch}
@@ -360,11 +364,11 @@ async def set_labels(
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
     patch = []
-    if labels != (nodegroup.get("node_labels") or {}):
+    if not rules.same_node_labels(labels, nodegroup.get("node_labels")):
         patch.append(
             {"op": "replace", "path": "/node_labels", "value": labels}
         )
-    if taints != (nodegroup.get("node_taints") or []):
+    if not rules.same_node_taints(taints, nodegroup.get("node_taints")):
         patch.append(
             {"op": "replace", "path": "/node_taints", "value": taints}
         )

@@ -21,7 +21,9 @@ class ProjectRef(BaseModel):
 
 
 class TokenInfo(BaseModel):
-    token: str
+    # repr=False keeps the token out of every repr (logs, tracebacks,
+    # error reporting); serialisation is unaffected.
+    token: str = Field(repr=False)
     expires_at: datetime
 
 

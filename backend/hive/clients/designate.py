@@ -1,6 +1,7 @@
-"""Designate (DNS) v2 client with link-following pagination."""
+"""Designate (DNS) v2 client with link-following pagination. Every
+caller-supplied id goes through ``seg``."""
 
-from hive.clients.base import ServiceClient
+from hive.clients.base import seg, ServiceClient
 
 MAX_PAGES = 20
 
@@ -32,7 +33,7 @@ class DesignateClient(ServiceClient):
         return await self._paged("/v2/zones", "zones", params or None)
 
     async def zone(self, zone_id: str) -> dict:
-        return await self.get_json(f"/v2/zones/{zone_id}") or {}
+        return await self.get_json(f"/v2/zones/{seg(zone_id)}") or {}
 
     async def create_zone(self, fields: dict) -> dict:
         resp = await self.request(
@@ -42,25 +43,27 @@ class DesignateClient(ServiceClient):
 
     async def update_zone(self, zone_id: str, fields: dict) -> dict:
         resp = await self.request(
-            "PATCH", f"/v2/zones/{zone_id}", json=fields, ok=(200, 202)
+            "PATCH", f"/v2/zones/{seg(zone_id)}", json=fields, ok=(200, 202)
         )
         return resp.json() if resp.content else {}
 
     async def delete_zone(self, zone_id: str) -> dict:
         resp = await self.request(
-            "DELETE", f"/v2/zones/{zone_id}", ok=(202, 204)
+            "DELETE", f"/v2/zones/{seg(zone_id)}", ok=(202, 204)
         )
         return resp.json() if resp.content else {}
 
     async def recordsets(self, zone_id: str, **params) -> list[dict]:
         return await self._paged(
-            f"/v2/zones/{zone_id}/recordsets", "recordsets", params or None
+            f"/v2/zones/{seg(zone_id)}/recordsets",
+            "recordsets",
+            params or None,
         )
 
     async def recordset(self, zone_id: str, recordset_id: str) -> dict:
         return (
             await self.get_json(
-                f"/v2/zones/{zone_id}/recordsets/{recordset_id}"
+                f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}"
             )
             or {}
         )
@@ -68,7 +71,7 @@ class DesignateClient(ServiceClient):
     async def create_recordset(self, zone_id: str, fields: dict) -> dict:
         resp = await self.request(
             "POST",
-            f"/v2/zones/{zone_id}/recordsets",
+            f"/v2/zones/{seg(zone_id)}/recordsets",
             json=fields,
             ok=(201, 202),
         )
@@ -79,7 +82,7 @@ class DesignateClient(ServiceClient):
     ) -> dict:
         resp = await self.request(
             "PUT",
-            f"/v2/zones/{zone_id}/recordsets/{recordset_id}",
+            f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}",
             json=fields,
             ok=(200, 202),
         )
@@ -88,7 +91,7 @@ class DesignateClient(ServiceClient):
     async def delete_recordset(self, zone_id: str, recordset_id: str) -> None:
         await self.request(
             "DELETE",
-            f"/v2/zones/{zone_id}/recordsets/{recordset_id}",
+            f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}",
             ok=(202, 204),
         )
 

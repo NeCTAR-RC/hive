@@ -124,3 +124,16 @@ def test_redirect_map_matches_horizon_paths():
     assert redirects.match("/app-catalog/") == (410, "")
     assert redirects.match("/compute/instances") is None
     assert redirects.match("/allocation/") is None
+
+
+def test_redirect_tokens_that_prefix_others(tmp_path):
+    data = tmp_path / "map.json"
+    data.write_text(
+        '[{"from": "/a/:id/:idx/", "to": "/b/:idx/:id/:other"},'
+        ' {"from": "/c/:id/", "to": "/d/:id"}]'
+    )
+    redirects = RedirectMap.load(data)
+    # ":id" must not rewrite the front of ":idx"; unknown tokens stay.
+    assert redirects.match("/a/one/two/") == (301, "/b/two/one/:other")
+    # A value that looks like a token is not substituted again.
+    assert redirects.match("/c/:id/") == (301, "/d/%3Aid")

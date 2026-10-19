@@ -222,7 +222,8 @@ async def test_options_gather_sections(user):
     assert types["standard"]["zones"] is None
     assert body["images"][0]["min_disk"] == 5
     assert [s["id"] for s in body["snapshots"]] == ["snap-1"]
-    assert [v["id"] for v in body["volumes"]] == ["vol-1", "vol-2"]
+    # Only available volumes can be cloned; vol-1 is in use.
+    assert [v["id"] for v in body["volumes"]] == ["vol-2"]
     assert body["limits"]["totalSnapshotsUsed"] == 0
     assert body["limits"]["maxTotalSnapshots"] == -1
     assert body["errors"] == {}
@@ -555,3 +556,70 @@ async def test_restore_backup(user, cinder):
     assert json.loads(deleted.calls.last.request.content) == {
         "os-force_delete": {}
     }
+
+
+async def test_volume_types_are_cached_per_project(user, cinder, redis):
+    types = cinder.get(f"{CINDER}/types").mock(
+        return_value=httpx.Response(200, json={"volume_types": TYPES})
+    )
+    response = await user.get("/api/volumes/types")
+    assert response.status_code == 200, response.text
+    assert types.call_count == 1
+    keys = set(await redis.keys("*cinder-types*"))
+    assert keys and all(":p:p1:" in k for k in keys)
+    # A second project does not see the first project's private types.
+    switched = await user.post(
+        "/api/session/project",
+        json={"project_id": "p2"},
+        headers=csrf_headers(user),
+    )
+    assert switched.status_code == 200, switched.text
+    assert (await user.get("/api/volumes/types")).status_code == 200
+    assert types.call_count == 2
+    assert any(":p:p2:" in k for k in await redis.keys("*cinder-types*"))
+
+
+async def test_snapshot_and_backup_detail(user, cinder):
+    snapshot = await user.get("/api/volumes/snapshots/snap-1")
+    assert snapshot.status_code == 200, snapshot.text
+    assert snapshot.json()["volume_name"] == "data"
+
+    updated = cinder.put(f"{CINDER}/snapshots/snap-1").mock(
+        return_value=httpx.Response(200, json={"snapshot": SNAPSHOTS[0]})
+    )
+    response = await user.patch(
+        "/api/volumes/snapshots/snap-1",
+        json={"name": "renamed"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(updated.calls.last.request.content) == {
+        "snapshot": {"name": "renamed"}
+    }
+    empty = await user.patch(
+        "/api/volumes/snapshots/snap-1",
+        json={},
+        headers=csrf_headers(user),
+    )
+    assert empty.status_code == 400
+
+    backup = await user.get("/api/volumes/backups/bak-1")
+    assert backup.status_code == 200, backup.text
+    assert backup.json()["volume_name"] == "data"
+    assert backup.json()["snapshot_name"] == "before-upgrade"
+
+    # A parent that has gone leaves the name blank, not an error.
+    cinder.get(f"{CINDER}/volumes/vol-1").mock(
+        return_value=httpx.Response(
+            404, json={"itemNotFound": {"message": "gone"}}
+        )
+    )
+    cinder.get(f"{CINDER}/snapshots/snap-1").mock(
+        return_value=httpx.Response(
+            404, json={"itemNotFound": {"message": "gone"}}
+        )
+    )
+    orphan = await user.get("/api/volumes/backups/bak-1")
+    assert orphan.status_code == 200, orphan.text
+    assert orphan.json()["volume_name"] is None
+    assert orphan.json()["snapshot_name"] is None

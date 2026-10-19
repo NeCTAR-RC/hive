@@ -325,6 +325,59 @@ def test_extend_window():
         reservations.extend_window(active, None, limits, NOW)["available"]
         is False
     )
+    # No end, or a slot with unparsable times: nothing to extend.
+    assert reservations.extend_window(
+        {**active, "end": None}, slot, limits, NOW
+    ) == {"available": False, "eligible_days": 0, "max_end": None}
+    assert (
+        reservations.extend_window(
+            active, {"start": "soon", "end": "later"}, limits, NOW
+        )["available"]
+        is False
+    )
+
+
+def test_adjacent_slot_is_the_one_continuing_the_reservation():
+    end = datetime(2026, 10, 12, 23, 59, tzinfo=UTC)
+    earlier = {
+        "start": "2026-10-01T00:00:00+00:00",
+        "end": "2026-10-05T00:00:00+00:00",
+    }
+    later = {
+        "start": "2026-11-01T00:00:00+00:00",
+        "end": "2026-11-30T00:00:00+00:00",
+    }
+    adjacent = {
+        "start": "2026-10-13T00:00:00+00:00",
+        "end": "2026-10-30T00:00:00+00:00",
+    }
+    broken = {"start": "not a time", "end": None}
+    assert (
+        reservations.adjacent_slot([earlier, later, broken, adjacent], end)
+        is adjacent
+    )
+    assert reservations.adjacent_slot([earlier, later], end) is None
+    assert reservations.adjacent_slot([], end) is None
+
+
+def test_malformed_rates_timestamps_and_ends():
+    for rate in ("fast", "", None, [1]):
+        flavor = {**FLAVOR, "extra_specs": {"nectar:rate": rate}}
+        assert reservations.flavor_rate(flavor) is None
+    assert reservations.flavor_rate({}) is None
+    assert reservations.parse_when("31/12/2026") is None
+    assert reservations.parse_when("") is None
+    assert reservations.parse_when("2026-10-12T10:00:00Z") == datetime(
+        2026, 10, 12, 10, tzinfo=UTC
+    )
+    no_end = {"status": "ACTIVE", "end": None, "flavor": FLAVOR}
+    limits = reservations.limits_summary({"maxHours": 240})
+    assert not reservations.can_extend(no_end, limits, NOW)
+    assert "extend" not in reservations.reservation_actions(
+        no_end, limits, NOW
+    )
+    garbled = {**no_end, "end": "tomorrow"}
+    assert not reservations.can_extend(garbled, limits, NOW)
 
 
 def test_calendar_export():

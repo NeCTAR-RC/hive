@@ -97,3 +97,25 @@ def test_scoped_tokens_are_bounded_lru():
     # The current project is never evicted; the least recently used are.
     assert "p0" in data.scoped
     assert "p1" not in data.scoped
+
+
+def test_reprs_never_carry_tokens():
+    data = make_session(projects=2)
+    for text in (repr(data), str(data), repr(data.scoped["p1"])):
+        assert "'unscoped'" not in text
+        assert "scoped-0" not in text and "scoped-1" not in text
+    # Serialisation still carries the token.
+    assert "scoped-1" in data.model_dump_json()
+
+
+async def test_count_for_user_prunes_expired_sessions(store):
+    data = make_session()
+    sid, _ = await store.create(data)
+    other, _ = await store.create(data)
+    assert await store.count_for_user("u1") == 2
+    # Expire one by TTL, bypassing destroy().
+    await store._redis.delete(store.key(sid))
+    assert await store.count_for_user("u1") == 1
+    assert await store._redis.smembers(store.user_key("u1")) == {
+        store.key(other)
+    }

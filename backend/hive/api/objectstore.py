@@ -1,11 +1,13 @@
 """Object Store endpoints (Swift containers and objects)."""
 
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
+import httpx
+from starlette.background import BackgroundTask
 
-from hive.api.compute import get_context
-from hive.clients.swift import SwiftClient
-from hive.errors import BadRequest
+from hive.deps import get_context
 from hive.schemas.objectstore import (
     CompleteUpload,
     ContainerCreate,
@@ -141,27 +143,26 @@ async def download(
         return RedirectResponse(
             url, status_code=302, headers={"Cache-Control": "no-store"}
         )
-    swift = SwiftClient(ctx.http, ctx.settings, ctx.scoped)
-    upstream = await swift.get_object(container, name)
-    if upstream.status_code >= 400:
-        await upstream.aclose()
-        raise BadRequest(
-            f"the object could not be read ({upstream.status_code})"
-        )
-    filename = (name.rsplit("/", 1)[-1] or name).replace('"', "")
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
-        "Cache-Control": "no-store",
-    }
-    if upstream.headers.get("content-length"):
-        headers["Content-Length"] = upstream.headers["content-length"]
+    upstream, headers = await objectstore.proxy_download(ctx, container, name)
     return StreamingResponse(
-        upstream.aiter_bytes(),
+        _relay(upstream),
         media_type=upstream.headers.get("content-type")
         or "application/octet-stream",
         headers=headers,
-        background=None,
+        # Also closes the response when the client aborts before the body
+        # iterator is finished (the generator may never be resumed).
+        background=BackgroundTask(upstream.aclose),
     )
+
+
+async def _relay(upstream: httpx.Response) -> AsyncIterator[bytes]:
+    """The upstream body, closing the response however the stream ends so
+    the pooled connection is returned."""
+    try:
+        async for chunk in upstream.aiter_bytes():
+            yield chunk
+    finally:
+        await upstream.aclose()
 
 
 @router.put("/containers/{container}/objects/{name:path}", status_code=201)

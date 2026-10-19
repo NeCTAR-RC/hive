@@ -1,9 +1,11 @@
 """Database (Trove) endpoints."""
 
-from fastapi import APIRouter, Depends, Query, Response
+import re
+
+from fastapi import APIRouter, Depends, Path, Query, Response
 from fastapi.responses import StreamingResponse
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.databases import (
     AttachConfiguration,
     BackupCreate,
@@ -23,6 +25,10 @@ from hive.services import databases
 
 router = APIRouter(prefix="/databases", tags=["databases"])
 Ctx = Depends(get_context)
+# Trove guest log names (general, slow_query, error, ...); the name also
+# lands in a Content-Disposition header, so nothing else is accepted.
+LogName = Path(pattern=r"^[A-Za-z0-9_.-]+$", max_length=255)
+UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 @router.get("/options")
@@ -89,7 +95,7 @@ async def list_logs(instance_id: str, ctx: Context = Ctx):
 
 @router.post("/instances/{instance_id}/logs/{name}/actions/{action}")
 async def log_action(
-    instance_id: str, name: str, action: str, ctx: Context = Ctx
+    instance_id: str, action: str, name: str = LogName, ctx: Context = Ctx
 ):
     return await databases.log_action(ctx, instance_id, name, action)
 
@@ -97,7 +103,7 @@ async def log_action(
 @router.get("/instances/{instance_id}/logs/{name}/contents")
 async def log_contents(
     instance_id: str,
-    name: str,
+    name: str = LogName,
     lines: int = Query(50, ge=0, le=100000),
     ctx: Context = Ctx,
 ):
@@ -105,9 +111,11 @@ async def log_contents(
 
 
 @router.get("/instances/{instance_id}/logs/{name}/download")
-async def log_download(instance_id: str, name: str, ctx: Context = Ctx):
+async def log_download(
+    instance_id: str, name: str = LogName, ctx: Context = Ctx
+):
     stream = await databases.log_download(ctx, instance_id, name)
-    filename = f"{instance_id}-{name}.log".replace('"', "")
+    filename = UNSAFE_FILENAME.sub("_", f"{instance_id}-{name}.log")
     return StreamingResponse(
         stream,
         media_type="text/plain; charset=utf-8",
@@ -153,8 +161,13 @@ async def root_status(instance_id: str, ctx: Context = Ctx):
 
 
 @router.post("/instances/{instance_id}/root")
-async def enable_root(instance_id: str, ctx: Context = Ctx):
-    return await databases.enable_root(ctx, instance_id)
+async def enable_root(
+    instance_id: str, response: Response, ctx: Context = Ctx
+):
+    """Carries the generated root password, so no cache may keep it."""
+    body = await databases.enable_root(ctx, instance_id)
+    response.headers["Cache-Control"] = "no-store"
+    return body
 
 
 @router.get("/instances/{instance_id}/backups")

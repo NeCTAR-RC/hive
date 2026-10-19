@@ -260,6 +260,16 @@ def mock_options(upstream):
     )
 
 
+async def wait_for_chain(client, steps: int) -> dict | None:
+    state = None
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        state = (await client.get("/api/load-balancers/lb-1")).json()["chain"]
+        if state and (len(state["done"]) == steps or state["error"]):
+            break
+    return state
+
+
 async def test_list_and_tree(lb_catalog, logged_in, upstream):
     mock_octavia(upstream)
     body = (await logged_in.get("/api/load-balancers")).json()
@@ -625,6 +635,10 @@ async def test_children(lb_catalog, logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200, response.text
+    assert response.json()["pending"] == 2
+    state = await wait_for_chain(logged_in, 2)
+    assert state["error"] is None
+    assert state["done"] == ["delete_member", "member"]
     assert removed.called and added.called
 
     monitor = upstream.post(f"{LB}/healthmonitors").mock(
@@ -722,3 +736,306 @@ async def test_children(lb_catalog, logged_in, upstream):
             headers=csrf_headers(logged_in),
         )
     ).status_code == 204
+
+
+async def test_failing_chain_step_records_the_error(
+    lb_catalog, logged_in, upstream, monkeypatch
+):
+    from hive.services import loadbalancer
+
+    mock_octavia(upstream)
+    upstream.post(f"{LB}/pools").mock(
+        return_value=httpx.Response(201, json={"pool": {**POOL, "id": "p-2"}})
+    )
+    upstream.post(f"{LB}/pools/p-2/members").mock(
+        return_value=httpx.Response(500, json={"faultstring": "boom"})
+    )
+    response = await logged_in.post(
+        "/api/load-balancers/pools",
+        json={
+            "loadbalancer_id": "lb-1",
+            "listener_id": "l-1",
+            "lb_algorithm": "ROUND_ROBIN",
+            "members": [{"address": "192.168.1.30", "protocol_port": 80}],
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    state = await wait_for_chain(logged_in, 1)
+    assert state["done"] == [] and state["error"].startswith("upstream_error")
+
+    async def crash(octavia, lb_id, spec, ids):
+        raise RuntimeError("bug")
+
+    monkeypatch.setitem(loadbalancer.STEPS, "member", crash)
+    response = await logged_in.put(
+        "/api/load-balancers/lb-1/pools/p-1/members",
+        json={
+            "members": [
+                {"address": "192.168.1.20", "protocol_port": 80},
+                {"address": "192.168.1.31", "protocol_port": 80},
+            ]
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    state = await wait_for_chain(logged_in, 1)
+    assert state["error"] == "internal error"
+
+
+async def test_drain_interrupts_a_waiting_chain(
+    lb_catalog, logged_in, upstream, monkeypatch
+):
+    from hive.services import loadbalancer
+
+    monkeypatch.setattr(loadbalancer, "POLL_SECONDS", 0.01)
+    mock_octavia(upstream)
+    pending = {**LOAD_BALANCER, "provisioning_status": "PENDING_UPDATE"}
+    # ACTIVE for the request's check, busy from then on, so the chain
+    # polls until it is cancelled.
+    states = iter([LOAD_BALANCER])
+    upstream.get(f"{LB}/loadbalancers/lb-1").mock(
+        side_effect=lambda request: httpx.Response(
+            200, json={"loadbalancer": next(states, pending)}
+        )
+    )
+    upstream.post(f"{LB}/listeners").mock(
+        return_value=httpx.Response(201, json={"listener": LISTENER})
+    )
+    response = await logged_in.post(
+        "/api/load-balancers/listeners",
+        json={
+            "loadbalancer_id": "lb-1",
+            "protocol": "HTTP",
+            "protocol_port": 81,
+            "pool": {"lb_algorithm": "ROUND_ROBIN"},
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    await asyncio.sleep(0.05)
+    assert loadbalancer._background
+    await loadbalancer.drain(timeout=0.05)
+    assert not loadbalancer._background
+    state = (await logged_in.get("/api/load-balancers/lb-1")).json()["chain"]
+    assert state["error"].startswith("interrupted")
+    await loadbalancer.drain()
+
+
+async def test_busy_load_balancer_is_refused(lb_catalog, logged_in, upstream):
+    busy = {**LOAD_BALANCER, "provisioning_status": "PENDING_UPDATE"}
+    mock_octavia(upstream, busy)
+    member = upstream.post(f"{LB}/pools/p-1/members")
+    for method, url, body in (
+        (
+            "post",
+            "/api/load-balancers/lb-1/pools/p-1/members",
+            {"address": "192.168.1.31", "protocol_port": 80},
+        ),
+        (
+            "put",
+            "/api/load-balancers/lb-1/pools/p-1/members",
+            {"members": []},
+        ),
+        (
+            "post",
+            "/api/load-balancers/listeners",
+            {
+                "loadbalancer_id": "lb-1",
+                "protocol": "TCP",
+                "protocol_port": 22,
+            },
+        ),
+        (
+            "post",
+            "/api/load-balancers/pools",
+            {
+                "loadbalancer_id": "lb-1",
+                "protocol": "TCP",
+                "lb_algorithm": "ROUND_ROBIN",
+            },
+        ),
+    ):
+        response = await getattr(logged_in, method)(
+            url, json=body, headers=csrf_headers(logged_in)
+        )
+        assert response.status_code == 409, url
+        assert response.json()["error"] == "load_balancer_busy"
+        assert response.json()["provisioning_status"] == "PENDING_UPDATE"
+    assert not member.called
+    response = await logged_in.post(
+        "/api/load-balancers",
+        json={
+            "vip_subnet_id": "subnet-1",
+            "pool": {"lb_algorithm": "SOURCE_IP"},
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert (
+        response.status_code == 400
+        and "protocol" in response.json()["message"]
+    )
+
+
+async def test_updates_clear_values(lb_catalog, logged_in, upstream):
+    mock_octavia(upstream)
+    listener = upstream.put(f"{LB}/listeners/l-1").mock(
+        return_value=httpx.Response(
+            200, json={"listener": {**LISTENER, "default_pool_id": None}}
+        )
+    )
+    response = await logged_in.patch(
+        "/api/load-balancers/listeners/l-1",
+        json={"default_pool_id": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(listener.calls.last.request.content) == {
+        "listener": {"default_pool_id": None}
+    }
+    await logged_in.patch(
+        "/api/load-balancers/listeners/l-1",
+        json={"name": "x"},
+        headers=csrf_headers(logged_in),
+    )
+    assert json.loads(listener.calls.last.request.content) == {
+        "listener": {"name": "x"}
+    }
+
+    pool = upstream.put(f"{LB}/pools/p-1").mock(
+        return_value=httpx.Response(200, json={"pool": POOL})
+    )
+    response = await logged_in.patch(
+        "/api/load-balancers/pools/p-1",
+        json={"session_persistence": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(pool.calls.last.request.content) == {
+        "pool": {"session_persistence": None}
+    }
+    await logged_in.patch(
+        "/api/load-balancers/pools/p-1",
+        json={
+            "session_persistence": {"type": "APP_COOKIE", "cookie_name": "s"}
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert json.loads(pool.calls.last.request.content) == {
+        "pool": {
+            "session_persistence": {"type": "APP_COOKIE", "cookie_name": "s"}
+        }
+    }
+
+    member = upstream.put(f"{LB}/pools/p-1/members/m-1").mock(
+        return_value=httpx.Response(200, json={"member": MEMBER})
+    )
+    response = await logged_in.patch(
+        "/api/load-balancers/pools/p-1/members/m-1",
+        json={"monitor_address": "", "monitor_port": None, "weight": 2},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(member.calls.last.request.content) == {
+        "member": {"monitor_address": None, "monitor_port": None, "weight": 2}
+    }
+
+
+async def test_allocated_floating_ip_is_released_on_failure(
+    lb_catalog, logged_in, upstream
+):
+    mock_octavia(upstream)
+    upstream.get(f"{NEUTRON}/v2.0/networks").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "networks": [
+                    {
+                        "id": "ext",
+                        "name": "public",
+                        "router:external": True,
+                        "subnets": [],
+                    }
+                ]
+            },
+        )
+    )
+    upstream.get(f"{NEUTRON}/v2.0/networks/ext").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "network": {
+                    "id": "ext",
+                    "name": "public",
+                    "router:external": True,
+                }
+            },
+        )
+    )
+    upstream.get(url__regex=rf"{NEUTRON}/v2.0/quotas/.*").mock(
+        return_value=httpx.Response(
+            200, json={"quota": {"floatingip": {"limit": -1, "used": 0}}}
+        )
+    )
+    upstream.post(f"{NEUTRON}/v2.0/floatingips").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "floatingip": {
+                    "id": "fip-new",
+                    "floating_ip_address": "203.0.113.20",
+                    "floating_network_id": "ext",
+                }
+            },
+        )
+    )
+    upstream.put(f"{NEUTRON}/v2.0/floatingips/fip-new").mock(
+        return_value=httpx.Response(
+            409, json={"NeutronError": {"message": "port in use"}}
+        )
+    )
+    released = upstream.delete(f"{NEUTRON}/v2.0/floatingips/fip-new").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await logged_in.post(
+        "/api/load-balancers/lb-1/floating-ip",
+        json={"pool_id": "ext"},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 409, response.text
+    assert released.called
+    assert "floating_ip_id" not in response.json()
+
+    released.mock(return_value=httpx.Response(500, json={}))
+    response = await logged_in.post(
+        "/api/load-balancers/lb-1/floating-ip",
+        json={"pool_id": "ext"},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 409
+    assert response.json()["floating_ip_id"] == "fip-new"
+
+
+async def test_tree_filters_pools_and_ids_are_quoted(
+    lb_catalog, logged_in, upstream
+):
+    mock_octavia(upstream)
+    other = {**POOL, "id": "p-9", "loadbalancers": [{"id": "lb-9"}]}
+    pools = upstream.get(f"{LB}/pools").mock(
+        return_value=httpx.Response(200, json={"pools": [POOL, other]})
+    )
+    upstream.get(f"{LB}/pools/p-9/members").mock(
+        return_value=httpx.Response(200, json={"members": []})
+    )
+    tree = (await logged_in.get("/api/load-balancers/lb-1/tree")).json()
+    assert [p["id"] for p in tree["pools"]] == ["p-1"]
+    assert pools.calls.last.request.url.params["project_id"] == "p1"
+
+    odd = upstream.get(f"{LB}/loadbalancers/a%3Fb").mock(
+        return_value=httpx.Response(200, json={"loadbalancer": LOAD_BALANCER})
+    )
+    response = await logged_in.get("/api/load-balancers/a%3Fb")
+    assert response.status_code == 200, response.text
+    assert (
+        odd.calls.last.request.url.raw_path == b"/v2/lbaas/loadbalancers/a%3Fb"
+    )

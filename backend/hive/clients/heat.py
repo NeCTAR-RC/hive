@@ -1,7 +1,11 @@
 """Heat (orchestration) v1 client. The catalog endpoint already carries the
-project id; stacks are addressed as ``/stacks/{name}/{id}`` once known."""
+project id; stacks are addressed as ``/stacks/{name}/{id}`` once known.
+Every caller-supplied path segment goes through ``seg``."""
 
-from hive.clients.base import ServiceClient
+from urllib.parse import urlsplit
+
+from hive.clients.base import seg, ServiceClient
+from hive.errors import UpstreamError
 
 
 class HeatClient(ServiceClient):
@@ -10,18 +14,32 @@ class HeatClient(ServiceClient):
 
     @staticmethod
     def _path(name: str, stack_id: str) -> str:
-        return f"/stacks/{name}/{stack_id}"
+        return f"/stacks/{seg(name)}/{seg(stack_id)}"
 
     async def stacks(self, **params) -> list[dict]:
         body = await self.get_json("/stacks", params=params or None)
         return (body or {}).get("stacks", [])
 
     async def find_stack(self, identity: str) -> dict:
-        """``GET /stacks/{name_or_id}`` answers with a redirect to the
-        canonical ``/stacks/{name}/{id}``."""
+        """``GET /stacks/{name_or_id}`` answers with a 302 to the canonical
+        ``/stacks/{name}/{id}``. Only the path of the ``Location`` is
+        followed, against this client's endpoint, so an endpoint override
+        holds and the token never goes to a host Heat names."""
         resp = await self.request(
-            "GET", f"/stacks/{identity}", follow_redirects=True
+            "GET", f"/stacks/{seg(identity)}", ok=(200, 302)
         )
+        if resp.status_code == 302:
+            location = urlsplit(resp.headers.get("location") or "")
+            start = location.path.find("/stacks/")
+            if start < 0:
+                raise UpstreamError(
+                    "heat redirected outside the stacks API",
+                    service=self.label,
+                )
+            target = location.path[start:]
+            if location.query:
+                target += f"?{location.query}"
+            resp = await self.request("GET", target)
         return resp.json().get("stack", {})
 
     async def stack(self, name: str, stack_id: str, **params) -> dict:
@@ -74,7 +92,7 @@ class HeatClient(ServiceClient):
 
     async def resource(self, name: str, stack_id: str, resource: str) -> dict:
         body = await self.get_json(
-            f"{self._path(name, stack_id)}/resources/{resource}"
+            f"{self._path(name, stack_id)}/resources/{seg(resource)}"
         )
         return (body or {}).get("resource", {})
 
@@ -101,7 +119,7 @@ class HeatClient(ServiceClient):
 
     async def output(self, name: str, stack_id: str, key: str) -> dict:
         body = await self.get_json(
-            f"{self._path(name, stack_id)}/outputs/{key}"
+            f"{self._path(name, stack_id)}/outputs/{seg(key)}"
         )
         return (body or {}).get("output", {})
 
@@ -111,12 +129,12 @@ class HeatClient(ServiceClient):
         return (body or {}).get("resource_types", [])
 
     async def resource_type(self, name: str) -> dict:
-        return await self.get_json(f"/resource_types/{name}") or {}
+        return await self.get_json(f"/resource_types/{seg(name)}") or {}
 
     async def resource_type_template(self, name: str, template_type="hot"):
         return (
             await self.get_json(
-                f"/resource_types/{name}/template",
+                f"/resource_types/{seg(name)}/template",
                 params={"template_type": template_type},
             )
             or {}
@@ -127,7 +145,9 @@ class HeatClient(ServiceClient):
         return (body or {}).get("template_versions", [])
 
     async def template_functions(self, version: str) -> list[dict]:
-        body = await self.get_json(f"/template_versions/{version}/functions")
+        body = await self.get_json(
+            f"/template_versions/{seg(version)}/functions"
+        )
         return (body or {}).get("template_functions", [])
 
     async def validate(self, fields: dict) -> dict:

@@ -3,9 +3,8 @@ EC2 credentials and the user's Keystone credentials."""
 
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
 from hive.config import Settings
-from hive.deps import get_session, get_settings, SessionContext
+from hive.deps import get_context, get_session, get_settings, SessionContext
 from hive.errors import Forbidden
 from hive.schemas.identity import (
     ApplicationCredentialCreate,

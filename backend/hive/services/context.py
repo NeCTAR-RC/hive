@@ -8,6 +8,7 @@ from functools import cached_property
 import httpx
 
 from hive.cache.redis import Cache
+from hive.clients.base import Refresh
 from hive.clients.openstack import (
     CinderClient,
     GlanceClient,
@@ -28,6 +29,8 @@ class Context:
     settings: Settings
     cache: Cache
     scoped: ScopedToken
+    # Rescopes after an upstream 401; see ``hive.clients.base.Refresh``.
+    refresh: Refresh | None = None
 
     @property
     def project_id(self) -> str:
@@ -35,19 +38,27 @@ class Context:
 
     @cached_property
     def nova(self) -> NovaClient:
-        return NovaClient(self.http, self.settings, self.scoped)
+        return NovaClient(
+            self.http, self.settings, self.scoped, refresh=self.refresh
+        )
 
     @cached_property
     def neutron(self) -> NeutronClient:
-        return NeutronClient(self.http, self.settings, self.scoped)
+        return NeutronClient(
+            self.http, self.settings, self.scoped, refresh=self.refresh
+        )
 
     @cached_property
     def glance(self) -> GlanceClient:
-        return GlanceClient(self.http, self.settings, self.scoped)
+        return GlanceClient(
+            self.http, self.settings, self.scoped, refresh=self.refresh
+        )
 
     @cached_property
     def cinder(self) -> CinderClient:
-        return CinderClient(self.http, self.settings, self.scoped)
+        return CinderClient(
+            self.http, self.settings, self.scoped, refresh=self.refresh
+        )
 
     @cached_property
     def network_rules(self) -> NetworkRules:

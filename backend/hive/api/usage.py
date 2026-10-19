@@ -10,6 +10,7 @@ from hive.config import Settings
 from hive.deps import get_cache, get_http, get_session, get_settings
 from hive.deps import SessionContext
 from hive.errors import BadRequest
+from hive.nectar import usage as usage_rules
 from hive.services import usage as usage_service
 
 router = APIRouter(prefix="/usage", tags=["usage"])
@@ -59,6 +60,10 @@ async def summary(
     http: httpx.AsyncClient = Depends(get_http),
     cache: Cache = Depends(get_cache),
 ):
+    if type is not None and type not in usage_rules.SUMMARY_TYPES:
+        raise BadRequest("Unknown usage resource type.")
+    if groupby is not None and groupby not in usage_rules.SUMMARY_GROUPBY:
+        raise BadRequest("Unknown usage grouping.")
     scoped = await ctx.scoped()
     if begin or end:
         begin, end = _range(begin, end, settings)

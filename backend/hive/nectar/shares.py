@@ -29,7 +29,6 @@ presents them. Citations are to the installed plugin under
 
 import ipaddress
 
-SHARE_OK = ("available",)
 SHARE_TRANSITIONAL = (
     "creating",
     "deleting",
@@ -39,7 +38,6 @@ SHARE_TRANSITIONAL = (
 )
 SHARE_EDITABLE = ("available", "in-use")
 SHARE_DELETABLE = ("AVAILABLE", "ERROR", "MANAGE_ERROR")
-SNAPSHOT_OK = ("available", "in-use")
 SNAPSHOT_TRANSITIONAL = ("creating",)
 GROUP_TRANSITIONAL = ("creating", "deleting")
 ACCESS_TYPES = ("ip", "user", "cert", "cephx")
@@ -50,7 +48,6 @@ SECURITY_SERVICE_LABELS = {
     "ldap": "LDAP",
     "kerberos": "Kerberos",
 }
-DEFAULT_PROTOCOLS = ("NFS", "CIFS", "CephFS")
 
 
 def is_transitional(
@@ -251,6 +248,21 @@ def newest_snapshot(snapshots: list[dict]) -> dict | None:
     return max(snapshots, key=lambda s: s.get("created_at") or "")
 
 
+def newest_snapshot_ids(snapshots: list[dict]) -> dict[str, str]:
+    """The one snapshot per share that revert accepts, keyed by share id,
+    so the revert form never has to guess from list order (Manila lists
+    newest first; ``forms.py:479-521`` offers only the newest)."""
+    by_share: dict[str, list[dict]] = {}
+    for snapshot in snapshots:
+        if snapshot.get("share_id"):
+            by_share.setdefault(snapshot["share_id"], []).append(snapshot)
+    return {
+        share_id: newest["id"]
+        for share_id, group in by_share.items()
+        if (newest := newest_snapshot(group)) and newest.get("id")
+    }
+
+
 def share_summary(share: dict, has_snapshot: bool = False) -> dict:
     status = share.get("status")
     return {
@@ -280,11 +292,17 @@ def share_summary(share: dict, has_snapshot: bool = False) -> dict:
 
 
 def share_detail(
-    share: dict, rules: list[dict], locations: list[dict], has_snapshot: bool
+    share: dict,
+    rules: list[dict],
+    locations: list[dict],
+    snapshots: list[dict],
 ) -> dict:
-    summary = share_summary(share, has_snapshot)
+    """``newest_snapshot_id`` is the only snapshot revert accepts."""
+    summary = share_summary(share, bool(snapshots))
+    newest = newest_snapshot(snapshots)
     summary.update(
         {
+            "newest_snapshot_id": (newest or {}).get("id"),
             "host": share.get("host"),
             "task_state": share.get("task_state"),
             "export_locations": [

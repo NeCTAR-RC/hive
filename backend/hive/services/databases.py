@@ -30,6 +30,7 @@ STATIC_TTL = 600
 STATIC_STALE = 3600
 # The log viewer returns at most this much text; the download streams it all.
 LOG_VIEW_MAX_CHARS = 4 * 1024**2
+LOG_HEAD_FAN_OUT = 8
 
 
 def _trove(ctx: Context) -> TroveClient:
@@ -486,15 +487,21 @@ async def _published_parts(
     if not info["published"] or not info["container"]:
         raise Conflict(f"Log {name} has not been published yet.")
     swift = SwiftClient(ctx.http, ctx.settings, ctx.scoped)
-    objects = await swift.all_objects(info["container"], prefix=info["prefix"])
+    objects, _ = await swift.all_objects(
+        info["container"], prefix=info["prefix"]
+    )
     parts = [
         o
         for o in objects
         if o.get("name") and o.get("name") != info["metafile"]
     ]
-    heads = await asyncio.gather(
-        *(swift.object_head(info["container"], p["name"]) for p in parts)
-    )
+    semaphore = asyncio.Semaphore(LOG_HEAD_FAN_OUT)
+
+    async def head(part: dict) -> dict:
+        async with semaphore:
+            return await swift.object_head(info["container"], part["name"])
+
+    heads = await asyncio.gather(*(head(p) for p in parts))
     for part, head in zip(parts, heads, strict=True):
         part["lines"] = int(head.get("x-object-meta-lines") or 0)
     return info, swift, parts
@@ -533,9 +540,15 @@ async def log_contents(
     total = 0
     truncated = False
     for index, part in enumerate(names):
-        text = (await _read_part(swift, info["container"], part)).decode(
-            "utf-8", errors="replace"
-        )
+        if total >= LOG_VIEW_MAX_CHARS:
+            truncated = True
+            break
+        data = await _read_part(swift, info["container"], part)
+        if not (index == 0 and keep):
+            # A UTF-8 character is at most four bytes; decode no more than
+            # the cap can show.
+            data = data[: (LOG_VIEW_MAX_CHARS - total + 1) * 4]
+        text = data.decode("utf-8", errors="replace")
         if index == 0 and keep:
             text = "\n".join(text.splitlines()[-keep:]) + "\n"
         if total + len(text) > LOG_VIEW_MAX_CHARS:
@@ -723,6 +736,10 @@ async def create_backup(ctx: Context, data: BackupCreate) -> dict:
         parent = await trove.backup(data.parent_id)
         if parent.get("status") != "COMPLETED":
             raise BadRequest("The parent backup must be completed.")
+        if parent.get("instance_id") != data.instance_id:
+            raise BadRequest(
+                "The parent backup must be a backup of the same instance."
+            )
     created = await trove.create_backup(
         rules.backup_body(
             data.name, data.instance_id, data.description, data.parent_id
@@ -798,13 +815,11 @@ async def set_configuration_values(
     parameter spec (``config_param_manager.py:155-186``)."""
     trove = _trove(ctx)
     config = await trove.configuration(configuration_id)
-    try:
-        params = await trove.configuration_parameters(
-            config.get("datastore_name") or "",
-            config.get("datastore_version_id") or "",
-        )
-    except HiveError:
-        params = []
+    # A failed spec call is an upstream error, not "no such parameter".
+    params = await trove.configuration_parameters(
+        config.get("datastore_name") or "",
+        config.get("datastore_version_id") or "",
+    )
     specs = {p.get("name"): p for p in params}
     values: dict = {}
     for name, raw in data.values.items():

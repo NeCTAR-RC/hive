@@ -32,10 +32,6 @@ def _manila(ctx: Context) -> ManilaClient:
     return ManilaClient(ctx.http, ctx.settings, ctx.scoped)
 
 
-async def limits(ctx: Context) -> dict:
-    return await _manila(ctx).limits()
-
-
 async def _share_types(ctx: Context) -> list[dict]:
     async def fetch():
         return [
@@ -117,6 +113,7 @@ async def options(ctx: Context) -> dict:
             }
             for t in group_types
         ],
+        "newest_snapshot_ids": rules.newest_snapshot_ids(snapshots),
         "quota": quota,
         "can_create": can_create,
         "create_reason": create_reason,
@@ -158,7 +155,7 @@ async def get_share(ctx: Context, share_id: str) -> dict:
         manila.export_locations(share_id),
         manila.snapshots(share_id=share_id),
     )
-    return rules.share_detail(share, access, locations, bool(snapshots))
+    return rules.share_detail(share, access, locations, snapshots)
 
 
 async def create_share(ctx: Context, data: ShareCreate) -> dict:
@@ -219,18 +216,21 @@ async def set_metadata(
     ctx: Context, share_id: str, data: ShareMetadata
 ) -> dict:
     """The edit metadata form (``forms.py:292-322``): ``key=value`` lines
-    are set; keys left out are removed."""
+    are set; keys left out are removed.
+
+    Manila's ``PUT`` replaces the whole map, so it alone removes the keys
+    left out; a later ``DELETE`` of one of them would be a 404. Only an
+    empty map needs the per-key deletes."""
     manila = _manila(ctx)
     try:
         wanted = rules.parse_metadata(data.metadata)
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
-    current = await manila.share_metadata(share_id)
-    removed = [k for k in current if k not in wanted]
     if wanted:
         await manila.set_share_metadata(share_id, wanted)
-    for key in removed:
-        await manila.delete_share_metadata(share_id, key)
+    else:
+        for key in await manila.share_metadata(share_id):
+            await manila.delete_share_metadata(share_id, key)
     return {"metadata": wanted}
 
 
@@ -353,13 +353,11 @@ async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
     )
     if detail["mount_snapshot_support"]:
         locations, access = await asyncio.gather(
-            manila.get_json(f"/snapshots/{snapshot_id}/export-locations"),
-            manila.get_json(f"/snapshots/{snapshot_id}/access-list"),
+            manila.snapshot_export_locations(snapshot_id),
+            manila.snapshot_access_rules(snapshot_id),
         )
-        detail["export_locations"] = (locations or {}).get(
-            "share_snapshot_export_locations", []
-        )
-        detail["access_rules"] = (access or {}).get("snapshot_access_list", [])
+        detail["export_locations"] = locations
+        detail["access_rules"] = access
     return detail
 
 
@@ -393,13 +391,10 @@ async def update_snapshot(
         fields["display_name"] = data.name
     if data.description is not None:
         fields["display_description"] = data.description
-    manila = _manila(ctx)
-    updated = (
-        await manila.update_snapshot(snapshot_id, fields)
-        if fields
-        else await manila.snapshot(snapshot_id)
-    )
-    return rules.snapshot_summary(updated, None)
+    if fields:
+        await _manila(ctx).update_snapshot(snapshot_id, fields)
+    # The same shape as GET, so the share name and Rules action survive.
+    return await get_snapshot(ctx, snapshot_id)
 
 
 async def delete_snapshot(ctx: Context, snapshot_id: str) -> None:
@@ -416,24 +411,19 @@ async def snapshot_allow_access(
     problem = rules.validate_access(data.access_type, data.access_to, "rw")
     if problem:
         raise BadRequest(problem)
-    body = await _manila(ctx)._action(
-        f"/snapshots/{snapshot_id}",
+    return await _manila(ctx).snapshot_allow_access(
+        snapshot_id,
         {
-            "allow_access": {
-                "access_type": data.access_type,
-                "access_to": data.access_to.strip(),
-            }
+            "access_type": data.access_type,
+            "access_to": data.access_to.strip(),
         },
     )
-    return body.get("snapshot_access", body)
 
 
 async def snapshot_deny_access(
     ctx: Context, snapshot_id: str, access_id: str
 ) -> None:
-    await _manila(ctx)._action(
-        f"/snapshots/{snapshot_id}", {"deny_access": {"access_id": access_id}}
-    )
+    await _manila(ctx).snapshot_deny_access(snapshot_id, access_id)
 
 
 # --- security services ---------------------------------------------------------
@@ -464,7 +454,10 @@ async def create_security_service(
 async def update_security_service(
     ctx: Context, service_id: str, data: SecurityServiceUpdate
 ) -> dict:
-    fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Only the keys the client sent: an explicit null clears the OU, user
+    # or description, an omitted key leaves it alone (as the load balancer
+    # updates do).
+    fields = data.model_dump(exclude_unset=True)
     manila = _manila(ctx)
     updated = (
         await manila.update_security_service(service_id, fields)
@@ -587,16 +580,10 @@ async def create_share_group_snapshot(
 async def update_share_group_snapshot(
     ctx: Context, snapshot_id: str, data: ShareGroupUpdate
 ) -> dict:
-    manila = _manila(ctx)
     fields = {k: v for k, v in data.model_dump().items() if v is not None}
-    updated = (
-        await manila.update_share_group_snapshot(snapshot_id, fields)
-        if fields
-        else None
-    )
-    return rules.group_snapshot_summary(
-        updated or await manila.share_group_snapshot(snapshot_id), None
-    )
+    if fields:
+        await _manila(ctx).update_share_group_snapshot(snapshot_id, fields)
+    return await get_share_group_snapshot(ctx, snapshot_id)
 
 
 async def delete_share_group_snapshot(ctx: Context, snapshot_id: str) -> None:

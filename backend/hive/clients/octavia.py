@@ -1,6 +1,7 @@
-"""Octavia (load balancer) v2 client."""
+"""Octavia (load balancer) v2 client. Every caller-supplied id goes
+through ``seg``; ``resource`` arguments are built here from quoted ids."""
 
-from hive.clients.base import ServiceClient
+from hive.clients.base import seg, ServiceClient
 
 LB = "/v2/lbaas"
 
@@ -14,7 +15,7 @@ class OctaviaClient(ServiceClient):
         return (body or {}).get(key, [])
 
     async def _get(self, resource: str, key: str, item_id: str) -> dict:
-        body = await self.get_json(f"{LB}/{resource}/{item_id}")
+        body = await self.get_json(f"{LB}/{resource}/{seg(item_id)}")
         return (body or {}).get(key, {})
 
     async def _create(self, resource: str, key: str, fields: dict) -> dict:
@@ -27,14 +28,17 @@ class OctaviaClient(ServiceClient):
         self, resource: str, key: str, item_id: str, fields: dict
     ) -> dict:
         resp = await self.request(
-            "PUT", f"{LB}/{resource}/{item_id}", json={key: fields}, timeout=60
+            "PUT",
+            f"{LB}/{resource}/{seg(item_id)}",
+            json={key: fields},
+            timeout=60,
         )
         return resp.json().get(key, {}) if resp.content else {}
 
     async def _delete(self, resource: str, item_id: str, **params) -> None:
         await self.request(
             "DELETE",
-            f"{LB}/{resource}/{item_id}",
+            f"{LB}/{resource}/{seg(item_id)}",
             params=params or None,
             ok=(202, 204),
         )
@@ -60,12 +64,12 @@ class OctaviaClient(ServiceClient):
         )
 
     async def load_balancer_status(self, lb_id: str) -> dict:
-        body = await self.get_json(f"{LB}/loadbalancers/{lb_id}/status")
+        body = await self.get_json(f"{LB}/loadbalancers/{seg(lb_id)}/status")
         return (body or {}).get("statuses", {})
 
     async def failover_load_balancer(self, lb_id: str) -> None:
         await self.request(
-            "PUT", f"{LB}/loadbalancers/{lb_id}/failover", ok=(202,)
+            "PUT", f"{LB}/loadbalancers/{seg(lb_id)}/failover", ok=(202,)
         )
 
     # listeners
@@ -102,23 +106,27 @@ class OctaviaClient(ServiceClient):
 
     # members
     async def members(self, pool_id: str) -> list[dict]:
-        return await self._list(f"pools/{pool_id}/members", "members")
+        return await self._list(f"pools/{seg(pool_id)}/members", "members")
 
     async def member(self, pool_id: str, member_id: str) -> dict:
-        return await self._get(f"pools/{pool_id}/members", "member", member_id)
+        return await self._get(
+            f"pools/{seg(pool_id)}/members", "member", member_id
+        )
 
     async def create_member(self, pool_id: str, fields: dict) -> dict:
-        return await self._create(f"pools/{pool_id}/members", "member", fields)
+        return await self._create(
+            f"pools/{seg(pool_id)}/members", "member", fields
+        )
 
     async def update_member(
         self, pool_id: str, member_id: str, fields: dict
     ) -> dict:
         return await self._update(
-            f"pools/{pool_id}/members", "member", member_id, fields
+            f"pools/{seg(pool_id)}/members", "member", member_id, fields
         )
 
     async def delete_member(self, pool_id: str, member_id: str) -> None:
-        await self._delete(f"pools/{pool_id}/members", member_id)
+        await self._delete(f"pools/{seg(pool_id)}/members", member_id)
 
     # health monitors
     async def health_monitors(self, **params) -> list[dict]:
@@ -155,22 +163,22 @@ class OctaviaClient(ServiceClient):
         await self._delete("l7policies", policy_id)
 
     async def l7_rules(self, policy_id: str) -> list[dict]:
-        return await self._list(f"l7policies/{policy_id}/rules", "rules")
+        return await self._list(f"l7policies/{seg(policy_id)}/rules", "rules")
 
     async def create_l7_rule(self, policy_id: str, fields: dict) -> dict:
         return await self._create(
-            f"l7policies/{policy_id}/rules", "rule", fields
+            f"l7policies/{seg(policy_id)}/rules", "rule", fields
         )
 
     async def update_l7_rule(
         self, policy_id: str, rule_id: str, fields: dict
     ) -> dict:
         return await self._update(
-            f"l7policies/{policy_id}/rules", "rule", rule_id, fields
+            f"l7policies/{seg(policy_id)}/rules", "rule", rule_id, fields
         )
 
     async def delete_l7_rule(self, policy_id: str, rule_id: str) -> None:
-        await self._delete(f"l7policies/{policy_id}/rules", rule_id)
+        await self._delete(f"l7policies/{seg(policy_id)}/rules", rule_id)
 
     # catalogues
     async def flavors(self) -> list[dict]:
@@ -180,5 +188,5 @@ class OctaviaClient(ServiceClient):
         return await self._list("availabilityzones", "availability_zones")
 
     async def quota(self, project_id: str) -> dict:
-        body = await self.get_json(f"{LB}/quotas/{project_id}")
+        body = await self.get_json(f"{LB}/quotas/{seg(project_id)}")
         return (body or {}).get("quota", {})

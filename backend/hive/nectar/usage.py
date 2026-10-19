@@ -14,6 +14,13 @@
   (``usage/allocation_usage/views.py:14-74``). Rates on future-dated rows
   are not counted and a zero-length allocation has no daily budget, which
   the Horizon view gets wrong.
+- Summary filters: Horizon passes ``type`` and ``groupby`` straight to
+  CloudKitty (``api/rest/usage.py:21-25``). Hive allowlists both, since
+  they also become cache key parts: ``instance`` is the only resource type
+  Horizon names (``api/usage.py:67-114``), and the groupings are the ones
+  Horizon and the SPA use (``time-1d`` in ``allocation_usage/views.py:38``,
+  ``id`` in ``api/usage.py:74``, ``type`` for the Usage Trend by-type
+  series).
 """
 
 from datetime import date, datetime, timedelta
@@ -28,6 +35,8 @@ INSTANCE_ATTRS = (
     "ended_at",
 )
 MOST_USED = 5
+SUMMARY_TYPES = frozenset({"instance"})
+SUMMARY_GROUPBY = frozenset({"id", "time-1d", "type"})
 
 
 def default_range(today: date | None = None, days: int = DEFAULT_DAYS):

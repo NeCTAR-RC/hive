@@ -173,7 +173,7 @@ def test_stack_body_and_summaries():
     )
     assert (
         summary["is_transitional"]
-        and summary["actions"] == ["delete"]
+        and summary["actions"] == ["cancel_update", "delete"]
         and summary["tags"] == []
     )
     detail = orchestration.stack_detail(
@@ -542,12 +542,23 @@ def test_share_access_and_bodies():
         {"id": "s", "status": "available"},
         [{"id": "r", "access_type": "ip", "access_to": "10.0.0.1"}],
         [{"path": "1.2.3.4:/x", "preferred": True}],
-        False,
+        [],
     )
     assert (
         detail["export_locations"][0]["path"] == "1.2.3.4:/x"
         and detail["access_rules"][0]["id"] == "r"
     )
+    assert detail["newest_snapshot_id"] is None and not detail["has_snapshot"]
+    # Manila lists newest first; the newest is chosen by created_at.
+    snaps = [
+        {"id": "new", "share_id": "s", "created_at": "2026-03-01"},
+        {"id": "old", "share_id": "s", "created_at": "2026-01-01"},
+        {"id": "other", "share_id": "t", "created_at": "2026-02-01"},
+        {"id": "orphan", "created_at": "2026-04-01"},
+    ]
+    detail = shares.share_detail({"id": "s"}, [], [], snaps[:2])
+    assert detail["newest_snapshot_id"] == "new" and detail["has_snapshot"]
+    assert shares.newest_snapshot_ids(snaps) == {"s": "new", "t": "other"}
     service = shares.security_service_summary(
         {"id": "x", "type": "active_directory"}
     )
@@ -921,4 +932,5 @@ def test_database_summaries_and_parameters():
         {"name": "u", "databases": [{"name": "d"}]}
     ) == {"name": "u", "host": "%", "databases": ["d"]}
     assert databases.user_path("u", None) == "u"
-    assert databases.user_path("u", "10.0.0.1") == "u@10%2e0%2e0%2e1"
+    assert databases.user_path("u", "10.0.0.1") == "u@10.0.0.1"
+    assert databases.user_path("u", "%") == "u"

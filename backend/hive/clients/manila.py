@@ -1,5 +1,6 @@
 """Manila (shared file systems) v2 client, pinned to a microversion."""
 
+from hive.clients.base import seg
 from hive.clients.base import ServiceClient
 
 
@@ -22,7 +23,7 @@ class ManilaClient(ServiceClient):
 
     async def _create(self, path: str, key: str, fields: dict) -> dict:
         resp = await self.request("POST", path, json={key: fields}, timeout=60)
-        return resp.json().get(key, {})
+        return resp.json().get(key, {}) if resp.content else {}
 
     async def _update(self, path: str, key: str, fields: dict) -> dict:
         resp = await self.request("PUT", path, json={key: fields})
@@ -39,30 +40,31 @@ class ManilaClient(ServiceClient):
         return await self._list("/shares/detail", "shares", **params)
 
     async def share(self, share_id: str) -> dict:
-        return await self._get(f"/shares/{share_id}", "share")
+        return await self._get(f"/shares/{seg(share_id)}", "share")
 
     async def create_share(self, fields: dict) -> dict:
         return await self._create("/shares", "share", fields)
 
     async def update_share(self, share_id: str, fields: dict) -> dict:
-        return await self._update(f"/shares/{share_id}", "share", fields)
+        return await self._update(f"/shares/{seg(share_id)}", "share", fields)
 
     async def delete_share(self, share_id: str) -> None:
-        await self.request("DELETE", f"/shares/{share_id}", ok=(202, 204))
+        await self.request("DELETE", f"/shares/{seg(share_id)}", ok=(202, 204))
 
     async def extend_share(self, share_id: str, size: int) -> None:
         await self._action(
-            f"/shares/{share_id}", {"extend": {"new_size": size}}
+            f"/shares/{seg(share_id)}", {"extend": {"new_size": size}}
         )
 
     async def shrink_share(self, share_id: str, size: int) -> None:
         await self._action(
-            f"/shares/{share_id}", {"shrink": {"new_size": size}}
+            f"/shares/{seg(share_id)}", {"shrink": {"new_size": size}}
         )
 
     async def revert_share(self, share_id: str, snapshot_id: str) -> None:
         await self._action(
-            f"/shares/{share_id}", {"revert": {"snapshot_id": snapshot_id}}
+            f"/shares/{seg(share_id)}",
+            {"revert": {"snapshot_id": snapshot_id}},
         )
 
     async def access_rules(self, share_id: str) -> list[dict]:
@@ -72,33 +74,47 @@ class ManilaClient(ServiceClient):
 
     async def allow_access(self, share_id: str, fields: dict) -> dict:
         body = await self._action(
-            f"/shares/{share_id}", {"allow_access": fields}
+            f"/shares/{seg(share_id)}", {"allow_access": fields}
         )
         return body.get("access", {})
 
     async def deny_access(self, share_id: str, access_id: str) -> None:
         await self._action(
-            f"/shares/{share_id}", {"deny_access": {"access_id": access_id}}
+            f"/shares/{seg(share_id)}",
+            {"deny_access": {"access_id": access_id}},
         )
 
     async def export_locations(self, share_id: str) -> list[dict]:
         return await self._list(
-            f"/shares/{share_id}/export_locations", "export_locations"
+            f"/shares/{seg(share_id)}/export_locations", "export_locations"
         )
 
     async def share_metadata(self, share_id: str) -> dict:
-        body = await self.get_json(f"/shares/{share_id}/metadata")
+        body = await self.get_json(f"/shares/{seg(share_id)}/metadata")
         return (body or {}).get("metadata", {})
 
     async def set_share_metadata(self, share_id: str, metadata: dict) -> dict:
         resp = await self.request(
-            "PUT", f"/shares/{share_id}/metadata", json={"metadata": metadata}
+            "PUT",
+            f"/shares/{seg(share_id)}/metadata",
+            json={"metadata": metadata},
+        )
+        return resp.json().get("metadata", {}) if resp.content else {}
+
+    async def update_share_metadata(self, share_id: str, metadata: dict):
+        """``POST`` merges into the existing metadata; ``PUT`` replaces it."""
+        resp = await self.request(
+            "POST",
+            f"/shares/{seg(share_id)}/metadata",
+            json={"metadata": metadata},
         )
         return resp.json().get("metadata", {}) if resp.content else {}
 
     async def delete_share_metadata(self, share_id: str, key: str) -> None:
         await self.request(
-            "DELETE", f"/shares/{share_id}/metadata/{key}", ok=(200, 204)
+            "DELETE",
+            f"/shares/{seg(share_id)}/metadata/{seg(key)}",
+            ok=(200, 204),
         )
 
     # snapshots
@@ -106,19 +122,47 @@ class ManilaClient(ServiceClient):
         return await self._list("/snapshots/detail", "snapshots", **params)
 
     async def snapshot(self, snapshot_id: str) -> dict:
-        return await self._get(f"/snapshots/{snapshot_id}", "snapshot")
+        return await self._get(f"/snapshots/{seg(snapshot_id)}", "snapshot")
 
     async def create_snapshot(self, fields: dict) -> dict:
         return await self._create("/snapshots", "snapshot", fields)
 
     async def update_snapshot(self, snapshot_id: str, fields: dict) -> dict:
         return await self._update(
-            f"/snapshots/{snapshot_id}", "snapshot", fields
+            f"/snapshots/{seg(snapshot_id)}", "snapshot", fields
         )
 
     async def delete_snapshot(self, snapshot_id: str) -> None:
         await self.request(
-            "DELETE", f"/snapshots/{snapshot_id}", ok=(202, 204)
+            "DELETE", f"/snapshots/{seg(snapshot_id)}", ok=(202, 204)
+        )
+
+    async def snapshot_export_locations(self, snapshot_id: str) -> list[dict]:
+        return await self._list(
+            f"/snapshots/{seg(snapshot_id)}/export-locations",
+            "share_snapshot_export_locations",
+        )
+
+    async def snapshot_access_rules(self, snapshot_id: str) -> list[dict]:
+        return await self._list(
+            f"/snapshots/{seg(snapshot_id)}/access-list",
+            "snapshot_access_list",
+        )
+
+    async def snapshot_allow_access(
+        self, snapshot_id: str, fields: dict
+    ) -> dict:
+        body = await self._action(
+            f"/snapshots/{seg(snapshot_id)}", {"allow_access": fields}
+        )
+        return body.get("snapshot_access", body)
+
+    async def snapshot_deny_access(
+        self, snapshot_id: str, access_id: str
+    ) -> None:
+        await self._action(
+            f"/snapshots/{seg(snapshot_id)}",
+            {"deny_access": {"access_id": access_id}},
         )
 
     # security services
@@ -129,7 +173,7 @@ class ManilaClient(ServiceClient):
 
     async def security_service(self, service_id: str) -> dict:
         return await self._get(
-            f"/security-services/{service_id}", "security_service"
+            f"/security-services/{seg(service_id)}", "security_service"
         )
 
     async def create_security_service(self, fields: dict) -> dict:
@@ -139,12 +183,12 @@ class ManilaClient(ServiceClient):
 
     async def update_security_service(self, service_id: str, fields: dict):
         return await self._update(
-            f"/security-services/{service_id}", "security_service", fields
+            f"/security-services/{seg(service_id)}", "security_service", fields
         )
 
     async def delete_security_service(self, service_id: str) -> None:
         await self.request(
-            "DELETE", f"/security-services/{service_id}", ok=(202, 204)
+            "DELETE", f"/security-services/{seg(service_id)}", ok=(202, 204)
         )
 
     # share groups
@@ -154,19 +198,19 @@ class ManilaClient(ServiceClient):
         )
 
     async def share_group(self, group_id: str) -> dict:
-        return await self._get(f"/share-groups/{group_id}", "share_group")
+        return await self._get(f"/share-groups/{seg(group_id)}", "share_group")
 
     async def create_share_group(self, fields: dict) -> dict:
         return await self._create("/share-groups", "share_group", fields)
 
     async def update_share_group(self, group_id: str, fields: dict) -> dict:
         return await self._update(
-            f"/share-groups/{group_id}", "share_group", fields
+            f"/share-groups/{seg(group_id)}", "share_group", fields
         )
 
     async def delete_share_group(self, group_id: str) -> None:
         await self.request(
-            "DELETE", f"/share-groups/{group_id}", ok=(202, 204)
+            "DELETE", f"/share-groups/{seg(group_id)}", ok=(202, 204)
         )
 
     async def share_group_types(self) -> list[dict]:
@@ -179,7 +223,8 @@ class ManilaClient(ServiceClient):
 
     async def share_group_snapshot(self, snapshot_id: str) -> dict:
         return await self._get(
-            f"/share-group-snapshots/{snapshot_id}", "share_group_snapshot"
+            f"/share-group-snapshots/{seg(snapshot_id)}",
+            "share_group_snapshot",
         )
 
     async def create_share_group_snapshot(self, fields: dict) -> dict:
@@ -191,14 +236,16 @@ class ManilaClient(ServiceClient):
         self, snapshot_id: str, fields: dict
     ):
         return await self._update(
-            f"/share-group-snapshots/{snapshot_id}",
+            f"/share-group-snapshots/{seg(snapshot_id)}",
             "share_group_snapshot",
             fields,
         )
 
     async def delete_share_group_snapshot(self, snapshot_id: str) -> None:
         await self.request(
-            "DELETE", f"/share-group-snapshots/{snapshot_id}", ok=(202, 204)
+            "DELETE",
+            f"/share-group-snapshots/{seg(snapshot_id)}",
+            ok=(202, 204),
         )
 
     # catalogues

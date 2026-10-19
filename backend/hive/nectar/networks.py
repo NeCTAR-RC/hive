@@ -334,13 +334,18 @@ def subnet_body(
     the IP version, a host-sized prefix is refused, and the default name
     servers apply when the user leaves the field untouched.
 
-    ``data`` holds the request fields (None for those not given).
+    ``data`` holds the request fields (None for those not given). On an
+    update ``ip_version`` is the existing subnet's (Horizon's
+    ``UpdateSubnetInfoAction`` in ``networks/subnets/workflows.py``
+    carries it as a hidden field); without it the gateway's own version
+    stands, so an IPv6 gateway on an IPv6 subnet is never refused as
+    IPv4.
     """
     body: dict = {}
     if data.get("name") is not None:
         body["name"] = data["name"]
     cidr = data.get("cidr")
-    ip_version = data.get("ip_version") or 4
+    ip_version = data.get("ip_version") or (4 if is_create else None)
     if is_create:
         if not enable_ipv6 and ip_version != 4:
             raise BadRequest("IPv6 subnets are not available")
@@ -373,7 +378,7 @@ def subnet_body(
             gateway = ipaddress.ip_address(data["gateway_ip"])
         except ValueError:
             raise BadRequest(f"'{data['gateway_ip']}' is not an IP address")
-        if gateway.version != ip_version:
+        if ip_version is not None and gateway.version != ip_version:
             raise BadRequest("the gateway IP and IP version are inconsistent")
         body["gateway_ip"] = str(gateway)
     if data.get("enable_dhcp") is not None:

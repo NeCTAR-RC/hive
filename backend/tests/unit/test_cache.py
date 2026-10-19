@@ -100,3 +100,25 @@ async def test_invalidate(cache):
     await cache.get_or_fetch(key, fetch, ttl=100)
     await cache.invalidate(key)
     assert (await cache.get_or_fetch(key, fetch, ttl=100)).state == "miss"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        '{"value": 1, "ttl": 60, "stale_ttl": 0}',
+        '{"value": 1, "fetched_at": "x", "ttl": 60, "stale_ttl": 0}',
+        '{"value": 1, "fetched_at": 1, "ttl": null, "stale_ttl": 0}',
+    ],
+)
+async def test_malformed_entries_are_a_miss(cache, raw):
+    await cache._redis.set("k", raw)
+
+    async def fetch():
+        return "fresh"
+
+    result = await cache.get_or_fetch("k", fetch, ttl=60)
+    assert (result.value, result.state) == ("fresh", "miss")
+    again = await cache.get_or_fetch("k", fetch, ttl=60)
+    assert again.state == "hit"

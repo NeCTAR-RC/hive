@@ -1,13 +1,11 @@
 """Compute endpoints: instances, flavours, images, key pairs, server
 groups, availability zones, limits and the launch wizard data."""
 
-from fastapi import APIRouter, Depends, Query, Request, Response
-import httpx
+from typing import Literal
 
-from hive.cache.redis import Cache
-from hive.config import Settings
-from hive.deps import get_cache, get_http, get_session, get_settings
-from hive.deps import SessionContext
+from fastapi import APIRouter, Depends, Query, Request, Response
+
+from hive.deps import get_context
 from hive.errors import BadRequest, PayloadTooLarge
 from hive.schemas.compute import (
     ActionRequest,
@@ -25,23 +23,28 @@ from hive.services.context import Context
 router = APIRouter(prefix="/compute", tags=["compute"])
 
 
-async def get_context(
-    ctx: SessionContext = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-    http: httpx.AsyncClient = Depends(get_http),
-    cache: Cache = Depends(get_cache),
-) -> Context:
-    return Context(http, settings, cache, await ctx.scoped())
-
-
 # --- instances ---------------------------------------------------------------
 
 
 @router.get("/instances")
 async def list_instances(
-    request: Request, ctx: Context = Depends(get_context)
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=1000),
+    marker: str | None = Query(default=None, max_length=255),
+    sort_key: str | None = Query(default=None, max_length=64),
+    sort_dir: Literal["asc", "desc"] = "desc",
+    ctx: Context = Depends(get_context),
 ):
-    return await compute.list_instances(ctx, dict(request.query_params))
+    # The nova filters stay pass-through (``compute.SERVER_FILTERS``).
+    query = {
+        key: value
+        for key, value in request.query_params.items()
+        if key in compute.SERVER_FILTERS
+    }
+    query.update(
+        limit=limit, marker=marker, sort_key=sort_key, sort_dir=sort_dir
+    )
+    return await compute.list_instances(ctx, query)
 
 
 @router.get("/launch-options")
@@ -201,13 +204,13 @@ async def create_image(body: ImageCreate, ctx: Context = Depends(get_context)):
     if body.visibility:
         fields["visibility"] = body.visibility
     for key, value in body.properties.items():
-        if key in rules.reserved:
+        if not rules.is_custom_property(key):
             raise BadRequest(f"'{key}' is a reserved property")
         fields[key] = value
     image = await ctx.glance.create_image(fields)
     if body.source_url:
         await ctx.glance.import_image(image["id"], body.source_url)
-    await compute.invalidate_project_images(ctx)
+    await compute.invalidate_project_images(ctx, image.get("visibility"))
     return rules.summary(image, ctx.project_id)
 
 
@@ -261,7 +264,7 @@ async def update_image(
         if value is not None:
             patch.append({"op": "replace", "path": f"/{key}", "value": value})
     for key, value in (body.properties or {}).items():
-        if key in rules.reserved:
+        if not rules.is_custom_property(key):
             raise BadRequest(f"'{key}' is a reserved property")
         if value is None:
             patch.append({"op": "remove", "path": f"/{key}"})
@@ -270,7 +273,11 @@ async def update_image(
     if not patch:
         raise BadRequest("nothing to update")
     image = await ctx.glance.patch_image(image_id, patch)
-    await compute.invalidate_project_images(ctx)
+    # A visibility change moves the image between listings: drop the
+    # global public and community ones it may have left or joined too.
+    await compute.invalidate_project_images(
+        ctx, *(("public", "community") if body.visibility else ())
+    )
     return rules.summary(image, ctx.project_id)
 
 

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Response
 
-from hive.api.compute import get_context
+from hive.deps import get_context
 from hive.schemas.loadbalancer import (
     FloatingIpAssociate,
     L7PolicyCreate,
@@ -59,7 +59,7 @@ async def update_load_balancer(
     lb_id: str, body: LoadBalancerUpdate, ctx: Context = Depends(get_context)
 ):
     return await loadbalancer.update_load_balancer(
-        ctx, lb_id, body.model_dump()
+        ctx, lb_id, body.model_dump(exclude_unset=True)
     )
 
 
@@ -110,7 +110,7 @@ async def update_listener(
     listener_id: str, body: ListenerUpdate, ctx: Context = Depends(get_context)
 ):
     return await loadbalancer.update_listener(
-        ctx, listener_id, body.model_dump()
+        ctx, listener_id, body.model_dump(exclude_unset=True)
     )
 
 
@@ -141,7 +141,9 @@ async def create_pool(body: PoolCreate, ctx: Context = Depends(get_context)):
 async def update_pool(
     pool_id: str, body: PoolUpdate, ctx: Context = Depends(get_context)
 ):
-    return await loadbalancer.update_pool(ctx, pool_id, body.model_dump())
+    return await loadbalancer.update_pool(
+        ctx, pool_id, body.model_dump(exclude_unset=True)
+    )
 
 
 @router.delete("/pools/{pool_id}", status_code=204)
@@ -180,7 +182,7 @@ async def update_member(
     ctx: Context = Depends(get_context),
 ):
     return await loadbalancer.update_member(
-        ctx, pool_id, member_id, body.model_dump()
+        ctx, pool_id, member_id, body.model_dump(exclude_unset=True)
     )
 
 
@@ -207,7 +209,7 @@ async def update_monitor(
     monitor_id: str, body: MonitorUpdate, ctx: Context = Depends(get_context)
 ):
     return await loadbalancer.update_monitor(
-        ctx, monitor_id, body.model_dump()
+        ctx, monitor_id, body.model_dump(exclude_unset=True)
     )
 
 
@@ -237,7 +239,7 @@ async def update_l7_policy(
     policy_id: str, body: L7PolicyUpdate, ctx: Context = Depends(get_context)
 ):
     return await loadbalancer.update_l7_policy(
-        ctx, policy_id, body.model_dump()
+        ctx, policy_id, body.model_dump(exclude_unset=True)
     )
 
 
@@ -264,7 +266,7 @@ async def update_l7_rule(
     ctx: Context = Depends(get_context),
 ):
     return await loadbalancer.update_l7_rule(
-        ctx, policy_id, rule_id, body.model_dump()
+        ctx, policy_id, rule_id, body.model_dump(exclude_unset=True)
     )
 
 

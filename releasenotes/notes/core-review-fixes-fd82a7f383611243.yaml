@@ -1,0 +1,40 @@
+---
+security:
+  - |
+    Error reports sent to Sentry or GlitchTip no longer include stack-frame
+    local variables, which could carry Keystone tokens, session data and
+    passwords. Token values are also hidden from every session model
+    representation.
+  - |
+    Request validation errors (422) no longer echo the submitted body, so a
+    missing field next to a password no longer returns the password, and a
+    schema validator that rejects a value now returns 422 instead of an
+    internal error.
+fixes:
+  - |
+    One OpenStack service rejecting a token no longer logs the user out of
+    the dashboard: Hive rescopes the project token once and retries the
+    call, and only ends the session if the fresh token is also rejected.
+  - |
+    User-supplied values such as a member's email address are
+    percent-encoded in upstream URL paths, so characters like ``?`` or ``/``
+    can no longer change the upstream path or query.
+  - |
+    The usage summary accepts only the resource types and groupings the
+    dashboard uses and answers 400 for any other value.
+  - |
+    A bookmark to a retired Horizon page now opens the dashboard's "no
+    longer available" page instead of a JSON error.
+  - |
+    Logging out with token revocation enabled no longer fails when a token
+    has already expired.
+  - |
+    Allocation Usage no longer fails for an approved allocation without
+    start or end dates.
+  - |
+    Upstream calls carry Hive's request id as ``X-OpenStack-Request-ID`` so
+    they can be matched with Hive's logs. An incoming ``X-Request-ID`` is
+    reused only when it is a plain identifier of up to 128 characters.
+  - |
+    Hive logs a warning at startup when it runs outside development with
+    no ``HIVE_WEBSSO_ALLOWED_ORIGINS`` configured.

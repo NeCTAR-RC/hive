@@ -261,6 +261,26 @@ def eligibility(
     }
 
 
+def adjacent_slot(free: list[dict], end: datetime) -> dict | None:
+    """The free slot that continues a reservation ending at ``end``: it
+    opens no later than the day after ``end`` and runs past it. Horizon
+    takes the slot that follows the reservation
+    (``nectar_reservations.js:605-618``); warre's list is not ordered for
+    that, so an unrelated later slot is never read as the extension. The
+    earliest such slot wins; slots with unparsable times are skipped."""
+    found = []
+    for slot in free or []:
+        start = parse_when(slot.get("start"))
+        finish = parse_when(slot.get("end"))
+        if start is None or finish is None:
+            continue
+        if start.date() <= end.date() + timedelta(days=1) and finish > end:
+            found.append((start, slot))
+    if not found:
+        return None
+    return min(found, key=lambda pair: pair[0])[1]
+
+
 def extend_window(
     reservation: dict,
     slot: dict | None,

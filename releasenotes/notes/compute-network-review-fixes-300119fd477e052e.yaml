@@ -1,0 +1,41 @@
+---
+fixes:
+  - |
+    Flavours and volume types are now cached per project, so a project
+    with access to a private flavour or volume type sees it, and other
+    projects no longer see flavours nova refuses at launch.
+  - |
+    The SPICE and serial consoles now request the matching protocol from
+    nova instead of always asking for VNC.
+  - |
+    A custom ICMP rule with a type and no code is accepted: negative port
+    values are treated as unset, as Horizon does. The rule's ethertype now
+    follows its remote CIDR, ICMP on an IPv6 rule is sent as ipv6-icmp,
+    and an unknown protocol is refused before it reaches neutron.
+  - |
+    Making an image public or community now refreshes those listings at
+    once, so the image no longer vanishes from its owner's view for up to
+    an hour.
+  - |
+    Instance detail shows the instance's user data, and the power states
+    SHUTOFF, BLOCKED, FAILED and BUILDING are shown instead of UNKNOWN.
+  - |
+    The instance list rejects a non-numeric or out-of-range page size with
+    a validation error instead of an internal error.
+  - |
+    Only available volumes are offered as a source to clone, as in
+    Horizon.
+  - |
+    A gateway on an existing IPv6 subnet can now be changed.
+  - |
+    Glance base attributes such as ``id``, ``owner`` and ``locations`` can
+    no longer be set as custom image properties.
+  - |
+    Deleting a security group rule now checks the rule belongs to that
+    group.
+  - |
+    Associating a floating IP with an instance picks an IPv4 address the
+    floating network can reach, as the association dialog does.
+  - |
+    A temporary neutron failure no longer hides the classic network from
+    the launch wizard for up to an hour.

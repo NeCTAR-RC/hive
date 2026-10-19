@@ -322,3 +322,81 @@ async def test_recordsets(logged_in, upstream):
         "/api/dns/zones/z-1/recordsets/rs-ns", headers=csrf_headers(logged_in)
     )
     assert managed.status_code == 409
+
+
+async def test_zone_boundary_ttl_reset_and_secondary(logged_in, upstream):
+    mock_designate(upstream)
+    lookalike = await logged_in.post(
+        "/api/dns/zones/z-1/recordsets",
+        json={"name": "notexample.com.", "type": "A", "records": ["10.0.0.1"]},
+        headers=csrf_headers(logged_in),
+    )
+    assert lookalike.status_code == 400
+    assert "zone name" in lookalike.json()["message"]
+
+    update = upstream.put(f"{DESIGNATE}/v2/zones/z-1/recordsets/rs-a").mock(
+        return_value=httpx.Response(202, json={**RECORDSETS[2], "ttl": None})
+    )
+    response = await logged_in.put(
+        "/api/dns/zones/z-1/recordsets/rs-a",
+        json={"records": ["10.0.0.1"], "ttl": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    # An explicit null restores the zone default; omitting ttl keeps it.
+    assert json.loads(update.calls.last.request.content) == {
+        "records": ["10.0.0.1"],
+        "ttl": None,
+    }
+    await logged_in.put(
+        "/api/dns/zones/z-1/recordsets/rs-a",
+        json={"records": ["10.0.0.1"]},
+        headers=csrf_headers(logged_in),
+    )
+    assert "ttl" not in json.loads(update.calls.last.request.content)
+
+    create = upstream.post(f"{DESIGNATE}/v2/zones").mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                **ZONE,
+                "id": "z-8",
+                "name": "sec.com.",
+                "type": "SECONDARY",
+                "masters": ["192.0.2.1"],
+            },
+        )
+    )
+    response = await logged_in.post(
+        "/api/dns/zones",
+        json={
+            "name": "sec.com.",
+            "email": "a@b.co",
+            "type": "SECONDARY",
+            "masters": ["192.0.2.1"],
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["masters"] == ["192.0.2.1"]
+    assert json.loads(create.calls.last.request.content) == {
+        "name": "sec.com.",
+        "email": "a@b.co",
+        "type": "SECONDARY",
+        "masters": ["192.0.2.1"],
+    }
+    no_masters = await logged_in.post(
+        "/api/dns/zones",
+        json={"name": "sec.com.", "email": "a@b.co", "type": "SECONDARY"},
+        headers=csrf_headers(logged_in),
+    )
+    assert no_masters.status_code == 400
+
+
+async def test_zone_ids_are_quoted(logged_in, upstream):
+    zone = upstream.get(f"{DESIGNATE}/v2/zones/a%3Fb").mock(
+        return_value=httpx.Response(200, json=ZONE)
+    )
+    response = await logged_in.get("/api/dns/zones/a%3Fb")
+    assert response.status_code == 200, response.text
+    assert zone.calls.last.request.url.raw_path == b"/v2/zones/a%3Fb"

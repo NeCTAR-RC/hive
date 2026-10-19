@@ -165,7 +165,9 @@ async def update_recordset(
     if problem:
         raise BadRequest(problem)
     fields: dict = {"records": [r.strip() for r in records]}
-    if data.ttl is not None:
+    # An explicit ``"ttl": null`` goes to Designate as null, which restores
+    # the zone's default TTL; an omitted ttl leaves the current one.
+    if "ttl" in data.model_fields_set:
         fields["ttl"] = data.ttl
     if data.description is not None:
         fields["description"] = data.description
