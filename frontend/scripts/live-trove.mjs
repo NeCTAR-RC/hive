@@ -269,7 +269,7 @@ try {
     }
   }
 } catch (error) {
-  console.log(`FAILED: ${error.message}`);
+  console.log(`FAILED: ${error instanceof Error ? error.message : error}`);
   failures += 1;
 } finally {
   if (instanceId && logName) {

@@ -8,6 +8,12 @@
     {
       "matchPackageNames": ["@ardc-ui/react", "react-aria-components"],
       "groupName": "ARDC design system"
+    },
+    {
+      "description": "Dockerfile and compose base images. Major bumps of node and python are deliberate upgrades, so they stay separate PRs; set pinDigests here once operators move the FROM lines to digests.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "container base images",
+      "matchUpdateTypes": ["minor", "patch", "digest"]
     }
   ]
 }

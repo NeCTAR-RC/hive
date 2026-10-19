@@ -638,6 +638,13 @@ const shareHandlers = [
         size: s.size,
         share_id: s.share_id,
       })),
+      newest_snapshot_ids: Object.fromEntries(
+        shares.map((s) => [
+          s.id,
+          shareSnapshots.filter((snap) => snap.share_id === s.id).at(-1)?.id ??
+            null,
+        ]),
+      ),
       share_groups: shareGroups.map((g) => ({
         id: g.id,
         name: g.name,
@@ -700,6 +707,9 @@ const shareHandlers = [
     return HttpResponse.json({
       ...share,
       has_snapshot: shareSnapshots.some((snap) => snap.share_id === share.id),
+      newest_snapshot_id:
+        shareSnapshots.filter((snap) => snap.share_id === share.id).at(-1)
+          ?.id ?? null,
       host: null,
       task_state: null,
       export_locations:

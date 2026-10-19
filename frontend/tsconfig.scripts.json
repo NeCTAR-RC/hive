@@ -1,0 +1,13 @@
+{
+  // The node scripts are plain .mjs without JSDoc, so they are checked as
+  // JavaScript with implicit any allowed; everything else stays strict.
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.scripts.tsbuildinfo",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noImplicitAny": false
+  },
+  "include": ["scripts"]
+}

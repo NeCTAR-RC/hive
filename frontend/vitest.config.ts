@@ -16,6 +16,15 @@ export default mergeConfig(
         provider: "v8",
         reporter: ["text", "html", "lcov"],
         reportsDirectory: "./coverage",
+        // The level measured in October 2026 (12.4% statements, 7.7%
+        // branches, 7.3% functions, 12.2% lines), floored: a ratchet so
+        // coverage cannot fall. Raise it as panels gain tests.
+        thresholds: {
+          statements: 12,
+          branches: 7,
+          functions: 7,
+          lines: 12,
+        },
         include: ["src/**/*.{ts,tsx}"],
         exclude: [
           "src/**/*.test.{ts,tsx}",

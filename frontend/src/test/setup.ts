@@ -14,3 +14,13 @@ if (!window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList;
 }
+
+// jsdom has no ResizeObserver; the design system's Tabs, Menu and overlay
+// scrollbars (Modal, Combobox, Select popovers) measure themselves with one.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}

@@ -2,6 +2,11 @@
 # Single image: uvicorn serves the JSON API, the auth receiver and the built
 # SPA from one origin.
 
+# Base images are tag-pinned. Renovate (renovate.json) proposes tag updates
+# for both FROM lines; operators who need reproducible rebuilds should pin by
+# digest (`FROM node:24-alpine@sha256:...`), which Renovate then keeps
+# current through its `pinDigests` support.
+
 # --- Stage 1: build the SPA -------------------------------------------------
 FROM node:24-alpine AS frontend
 ARG ARDC_NPM_REGISTRY=https://verdaccio.artm.rc.nectar.org.au/
@@ -19,8 +24,9 @@ RUN --mount=type=secret,id=npmrc,target=/root/.npmrc,required=false \
 COPY frontend/ ./
 # The SPA imports the Horizon redirect map from the backend package.
 COPY backend/hive/data/horizon-redirects.json /backend/hive/data/horizon-redirects.json
-ARG VERSION
-RUN VITE_HIVE_VERSION=$VERSION corepack pnpm build
+# The SPA reads its version from /api/config at run time, so nothing about
+# the release is baked into the bundle.
+RUN corepack pnpm build
 
 # --- Stage 2: python runtime ------------------------------------------------
 FROM python:3.14-slim AS runtime

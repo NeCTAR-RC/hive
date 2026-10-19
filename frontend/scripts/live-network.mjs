@@ -131,7 +131,7 @@ try {
     .getByRole("grid", { name: "Networks" })
     .getByRole("link", { name: NAME, exact: true });
   await link.waitFor({ timeout: 60_000 });
-  networkId = new URL(await link.getAttribute("href"), base).pathname
+  networkId = new URL((await link.getAttribute("href")) ?? "", base).pathname
     .split("/")
     .pop();
   console.log("network id:", networkId);
@@ -173,7 +173,10 @@ try {
     .getByRole("grid", { name: "Routers" })
     .getByRole("link", { name: NAME, exact: true });
   await routerLink.waitFor({ timeout: 60_000 });
-  routerId = new URL(await routerLink.getAttribute("href"), base).pathname
+  routerId = new URL(
+    (await routerLink.getAttribute("href")) ?? "",
+    base,
+  ).pathname
     .split("/")
     .pop();
   console.log("router id:", routerId);

@@ -6,7 +6,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { apiFetch } from "./api/client";
+import { apiFetch, setCsrfToken } from "./api/client";
 import type {
   AllocationSummary,
   BannerItem,
@@ -31,45 +31,47 @@ export const staleTimes = {
 
 export const configQuery = queryOptions({
   queryKey: ["config"],
-  queryFn: () => apiFetch<PublicConfig>("/api/config"),
+  queryFn: ({ signal }) => apiFetch<PublicConfig>("/api/config", { signal }),
   staleTime: staleTimes.session,
   gcTime: Infinity,
 });
 
 export const sessionQuery = queryOptions({
   queryKey: ["session"],
-  queryFn: () => apiFetch<SessionProbe>("/api/session"),
+  queryFn: ({ signal }) => apiFetch<SessionProbe>("/api/session", { signal }),
   staleTime: staleTimes.session,
 });
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
-  queryFn: () => apiFetch<Me>("/api/me"),
+  queryFn: ({ signal }) => apiFetch<Me>("/api/me", { signal }),
   staleTime: staleTimes.session,
 });
 
 export const profileQuery = queryOptions({
   queryKey: ["me", "profile"],
-  queryFn: () => apiFetch<Profile>("/api/me/profile"),
+  queryFn: ({ signal }) => apiFetch<Profile>("/api/me/profile", { signal }),
   staleTime: staleTimes.static,
 });
 
 export const outagesQuery = queryOptions({
   queryKey: ["outages"],
-  queryFn: () => apiFetch<OutagesResponse>("/api/outages"),
+  queryFn: ({ signal }) =>
+    apiFetch<OutagesResponse>("/api/outages", { signal }),
   staleTime: staleTimes.feed,
 });
 
 export const newsQuery = queryOptions({
   queryKey: ["news"],
-  queryFn: () => apiFetch<NewsResponse>("/api/news/ardc"),
+  queryFn: ({ signal }) => apiFetch<NewsResponse>("/api/news/ardc", { signal }),
   staleTime: staleTimes.feed,
 });
 
 export function allocationQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "allocation"],
-    queryFn: () => apiFetch<AllocationSummary>("/api/allocation/summary"),
+    queryFn: ({ signal }) =>
+      apiFetch<AllocationSummary>("/api/allocation/summary", { signal }),
     staleTime: staleTimes.quota,
   });
 }
@@ -86,8 +88,8 @@ export type UsageParams = {
 export function usageQuery(projectId: string, params?: UsageParams) {
   return queryOptions({
     queryKey: ["project", projectId, "usage", params ?? null],
-    queryFn: () =>
-      apiFetch<UsageSummary>("/api/usage/summary", { query: params }),
+    queryFn: ({ signal }) =>
+      apiFetch<UsageSummary>("/api/usage/summary", { query: params, signal }),
     staleTime: staleTimes.quota,
   });
 }
@@ -95,7 +97,8 @@ export function usageQuery(projectId: string, params?: UsageParams) {
 export function risksQuery(projectId: string) {
   return queryOptions({
     queryKey: ["project", projectId, "risks"],
-    queryFn: () => apiFetch<RisksResponse>("/api/security/risks"),
+    queryFn: ({ signal }) =>
+      apiFetch<RisksResponse>("/api/security/risks", { signal }),
     staleTime: staleTimes.list,
   });
 }
@@ -103,9 +106,9 @@ export function risksQuery(projectId: string) {
 export function bannerQuery(url: string | null) {
   return queryOptions({
     queryKey: ["banner", url],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!url) return null;
-      const response = await fetch(url, { cache: "no-store" });
+      const response = await fetch(url, { cache: "no-store", signal });
       if (!response.ok) return null;
       const items = (await response.json()) as BannerItem[];
       return Array.isArray(items) && items.length > 0 ? items[0]! : null;
@@ -124,9 +127,12 @@ export function useSwitchProject() {
         json: { project_id: projectId },
       }),
     onSuccess: async (me) => {
+      // Drop the old project's data before publishing the new `me`, so
+      // components re-render straight into new-project fetches rather than
+      // starting fetches that the removal would then throw away.
+      queryClient.removeQueries({ queryKey: ["project"] });
       queryClient.setQueryData(meQuery.queryKey, me);
       await queryClient.invalidateQueries({ queryKey: ["session"] });
-      await queryClient.removeQueries({ queryKey: ["project"] });
     },
   });
 }
@@ -136,6 +142,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => apiFetch<void>("/api/auth/logout", { method: "POST" }),
     onSettled: () => {
+      setCsrfToken(null);
       queryClient.clear();
     },
   });

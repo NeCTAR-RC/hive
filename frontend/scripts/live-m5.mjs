@@ -289,7 +289,7 @@ try {
     `  options: ${lbOptions.body.subnets.length} subnets, ${lbOptions.body.instances.length} instances, zones ${lbOptions.body.availability_zones.map((z) => z.name).join(",")}, flavors ${lbOptions.body.flavors.map((f) => f.name).join(",")}`,
   );
 } catch (error) {
-  console.log(`FAILED: ${error.message}`);
+  console.log(`FAILED: ${error instanceof Error ? error.message : error}`);
   failures += 1;
   // Best effort cleanup of the scratch container.
   await api(

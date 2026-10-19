@@ -146,7 +146,7 @@ try {
     .getByRole("grid", { name: "Volumes" })
     .getByRole("link", { name: NAME });
   await link.waitFor({ timeout: 60_000 });
-  volumeId = new URL(await link.getAttribute("href"), base).pathname
+  volumeId = new URL((await link.getAttribute("href")) ?? "", base).pathname
     .split("/")
     .pop();
   console.log("volume id:", volumeId);
@@ -229,7 +229,10 @@ try {
         await page.locator("[role=alertdialog]").allInnerTexts(),
       );
       await snapLink.waitFor({ timeout: 60_000 });
-      snapshotId = new URL(await snapLink.getAttribute("href"), base).pathname
+      snapshotId = new URL(
+        (await snapLink.getAttribute("href")) ?? "",
+        base,
+      ).pathname
         .split("/")
         .pop();
       console.log("snapshot id:", snapshotId);

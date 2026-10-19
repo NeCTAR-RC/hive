@@ -112,7 +112,26 @@ export interface Profile {
   orcid_return_url?: string;
 }
 
+/** backend/hive/schemas/account.py `Affiliation`, for a zod `z.enum`. */
+export const AFFILIATION_IDS = [
+  "faculty",
+  "student",
+  "staff",
+  "employee",
+  "member",
+  "affiliate",
+  "alum",
+  "library-walk-in",
+] as const;
+
+export type AffiliationId = (typeof AFFILIATION_IDS)[number];
+
 export interface ProfileUpdateRequest {
+  /**
+   * One of AFFILIATION_IDS. Still `string` only because
+   * features/account/MyDetailsPage.tsx validates with `z.string()`; tighten
+   * to AffiliationId once it uses `z.enum(AFFILIATION_IDS)`.
+   */
   affiliation: string;
   phone_number: string | null;
   mobile_number: string | null;
@@ -1343,6 +1362,13 @@ export interface Container {
   public_url: string;
 }
 
+/** `truncated` is true when the account holds more containers than the
+ * backend lists. */
+export interface ContainersResponse {
+  items: Container[];
+  truncated: boolean;
+}
+
 export interface ContainerDetail extends Container {
   is_public: boolean;
   read_acl: string | null;
@@ -1886,6 +1912,48 @@ export interface L7RuleSpec {
   admin_state_up?: boolean;
 }
 
+/** PATCH /api/load-balancers/listeners/{id} (`ListenerUpdate`). An omitted
+ * key is left unchanged; `default_pool_id: null` detaches the pool. */
+export interface ListenerUpdate {
+  name?: string;
+  description?: string;
+  connection_limit?: number;
+  timeout_client_data?: number;
+  timeout_member_connect?: number;
+  timeout_member_data?: number;
+  timeout_tcp_inspect?: number;
+  allowed_cidrs?: string[];
+  insert_headers?: Record<string, boolean>;
+  default_tls_container_ref?: string;
+  sni_container_refs?: string[];
+  tls_ciphers?: string | null;
+  default_pool_id?: string | null;
+  admin_state_up?: boolean;
+}
+
+/** PATCH /api/load-balancers/pools/{id} (`PoolUpdate`);
+ * `session_persistence: null` turns persistence off. */
+export interface PoolUpdate {
+  name?: string;
+  description?: string;
+  lb_algorithm?: string;
+  session_persistence?: { type: string; cookie_name?: string } | null;
+  tls_enabled?: boolean;
+  tls_ciphers?: string | null;
+  admin_state_up?: boolean;
+}
+
+/** PATCH /api/load-balancers/pools/{pool}/members/{id} (`MemberUpdate`);
+ * null monitor fields clear the alternate monitor address. */
+export interface MemberUpdate {
+  name?: string;
+  weight?: number;
+  monitor_address?: string | null;
+  monitor_port?: number | null;
+  backup?: boolean;
+  admin_state_up?: boolean;
+}
+
 // --- orchestration (Heat) ------------------------------------------------------
 
 export interface Stack {
@@ -2127,6 +2195,8 @@ export interface ShareOptions {
   access_types: string[];
   access_levels: string[];
   security_service_types: string[];
+  /** Share id to the one snapshot revert accepts (the newest). */
+  newest_snapshot_ids: Record<string, string>;
 }
 
 export interface Share {
@@ -2173,6 +2243,8 @@ export interface ShareDetail extends Share {
     id: string | null;
   }[];
   access_rules: ShareAccessRule[];
+  /** The one snapshot revert accepts (the newest), or null. */
+  newest_snapshot_id: string | null;
 }
 
 export interface SharesResponse extends Items<Share> {
@@ -2244,6 +2316,39 @@ export interface SecurityService {
   created_at: string | null;
 }
 
+/** backend/hive/schemas/shares.py `SecurityServiceCreate.type`. */
+export type SecurityServiceType = "active_directory" | "ldap" | "kerberos";
+
+/** POST /api/shares/security-services (`SecurityServiceCreate`). */
+export interface SecurityServiceCreateRequest {
+  name: string;
+  type: SecurityServiceType;
+  dns_ip: string;
+  server: string;
+  domain: string;
+  ou?: string | null;
+  user?: string | null;
+  password?: string | null;
+  description?: string | null;
+}
+
+/** PATCH /api/shares/security-services/{id} (`SecurityServiceUpdate`). */
+export interface SecurityServiceUpdateRequest {
+  name?: string | null;
+  dns_ip?: string | null;
+  server?: string | null;
+  domain?: string | null;
+  ou?: string | null;
+  user?: string | null;
+  password?: string | null;
+  description?: string | null;
+}
+
+/**
+ * @deprecated The pre-split loose shape, kept only until
+ * features/shares/api.ts moves to SecurityServiceCreateRequest and
+ * SecurityServiceUpdateRequest.
+ */
 export interface SecurityServiceRequest {
   name: string;
   type?: string;

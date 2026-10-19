@@ -6,6 +6,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
@@ -17,102 +18,380 @@ import { AuthLayout } from "../shell/AuthLayout";
 import { matchRedirect } from "../shell/navigation/redirects";
 import { LoginPage } from "../features/auth/LoginPage";
 import { SignedOutPage } from "../features/auth/SignedOutPage";
-import { HomePage } from "../features/home/HomePage";
-import { MyDetailsPage } from "../features/account/MyDetailsPage";
-import { TermsPage } from "../features/terms/TermsPage";
 import { NotFoundPage } from "../features/NotFoundPage";
-import { OverviewPage } from "../features/compute/overview/OverviewPage";
-import { InstancesPage } from "../features/compute/instances/InstancesPage";
-import { InstanceDetailPage } from "../features/compute/instances/InstanceDetailPage";
-import { LaunchPage } from "../features/compute/instances/LaunchPage";
-import { ImagesPage } from "../features/compute/images/ImagesPage";
-import { ImageDetailPage } from "../features/compute/images/ImageDetailPage";
-import { KeyPairsPage } from "../features/compute/keypairs/KeyPairsPage";
-import { KeyPairDetailPage } from "../features/compute/keypairs/KeyPairDetailPage";
-import { ServerGroupsPage } from "../features/compute/servergroups/ServerGroupsPage";
-import { ServerGroupDetailPage } from "../features/compute/servergroups/ServerGroupDetailPage";
-import { SecurityGroupsPage } from "../features/network/securitygroups/SecurityGroupsPage";
-import { SecurityGroupDetailPage } from "../features/network/securitygroups/SecurityGroupDetailPage";
-import { NetworksPage } from "../features/network/networks/NetworksPage";
-import { NetworkDetailPage } from "../features/network/networks/NetworkDetailPage";
-import { SubnetDetailPage } from "../features/network/networks/SubnetDetailPage";
-import { PortDetailPage } from "../features/network/networks/PortDetailPage";
-import { RoutersPage } from "../features/network/routers/RoutersPage";
-import { RouterDetailPage } from "../features/network/routers/RouterDetailPage";
-import { FloatingIpsPage } from "../features/network/floatingips/FloatingIpsPage";
-import { PortForwardingsPage } from "../features/network/floatingips/PortForwardingsPage";
-import { TrunksPage } from "../features/network/trunks/TrunksPage";
-import { TrunkDetailPage } from "../features/network/trunks/TrunkDetailPage";
-import { TopologyPage } from "../features/network/topology/TopologyPage";
-import { ApiAccessPage } from "../features/apiaccess/ApiAccessPage";
-import { VolumesPage } from "../features/volumes/volumes/VolumesPage";
-import { VolumeDetailPage } from "../features/volumes/volumes/VolumeDetailPage";
-import { SnapshotsPage } from "../features/volumes/snapshots/SnapshotsPage";
-import { SnapshotDetailPage } from "../features/volumes/snapshots/SnapshotDetailPage";
-import { BackupsPage } from "../features/volumes/backups/BackupsPage";
-import { BackupDetailPage } from "../features/volumes/backups/BackupDetailPage";
-import { ResetPasswordPage } from "../features/account/ResetPasswordPage";
-import { MembersPage } from "../features/identity/members/MembersPage";
-import { UserLookupPage } from "../features/identity/lookup/UserLookupPage";
-import { UserDetailPage } from "../features/identity/lookup/UserDetailPage";
-import { ApplicationCredentialsPage } from "../features/identity/appcreds/ApplicationCredentialsPage";
-import { ApplicationCredentialDetailPage } from "../features/identity/appcreds/ApplicationCredentialDetailPage";
-import { CredentialsPage } from "../features/identity/credentials/CredentialsPage";
-import { UsageTrendPage } from "../features/usage/UsageTrendPage";
-import { AllocationUsagePage } from "../features/usage/AllocationUsagePage";
-import { SecurityRisksPage } from "../features/security/SecurityRisksPage";
-import { ReservationsPage } from "../features/reservations/ReservationsPage";
-import { CreateReservationPage } from "../features/reservations/CreateReservationPage";
-import { ReservationDetailPage } from "../features/reservations/ReservationDetailPage";
-import { ContainersPage } from "../features/objectstore/ContainersPage";
-import { ContainerPage } from "../features/objectstore/ContainerPage";
-import { ClustersPage } from "../features/kubernetes/ClustersPage";
-import { CreateClusterPage } from "../features/kubernetes/CreateClusterPage";
-import { ClusterDetailPage } from "../features/kubernetes/ClusterDetailPage";
-import { ClusterTemplatesPage } from "../features/kubernetes/ClusterTemplatesPage";
-import { ClusterTemplateDetailPage } from "../features/kubernetes/ClusterTemplateDetailPage";
-import { LoadBalancersPage } from "../features/loadbalancers/LoadBalancersPage";
-import { CreateLoadBalancerPage } from "../features/loadbalancers/CreateLoadBalancerPage";
-import { LoadBalancerDetailPage } from "../features/loadbalancers/LoadBalancerDetailPage";
-import { ListenerDetailPage } from "../features/loadbalancers/ListenerDetailPage";
-import { PoolDetailPage } from "../features/loadbalancers/PoolDetailPage";
-import { StacksPage } from "../features/orchestration/StacksPage";
-import { LaunchStackPage } from "../features/orchestration/LaunchStackPage";
-import { StackDetailPage } from "../features/orchestration/StackDetailPage";
-import { ResourceTypesPage } from "../features/orchestration/ResourceTypesPage";
-import { ResourceTypeDetailPage } from "../features/orchestration/ResourceTypeDetailPage";
-import {
-  TemplateVersionDetailPage,
-  TemplateVersionsPage,
-} from "../features/orchestration/TemplateVersionsPage";
-import { ZonesPage } from "../features/dns/ZonesPage";
-import { ZoneDetailPage } from "../features/dns/ZoneDetailPage";
-import { SharesPage } from "../features/shares/SharesPage";
-import { ShareDetailPage } from "../features/shares/ShareDetailPage";
-import {
-  SnapshotDetailPage as ShareSnapshotDetailPage,
-  SnapshotsPage as ShareSnapshotsPage,
-} from "../features/shares/SnapshotsPage";
-import {
-  SecurityServiceDetailPage,
-  SecurityServicesPage,
-} from "../features/shares/SecurityServicesPage";
-import {
-  ShareGroupDetailPage,
-  ShareGroupSnapshotsPage,
-  ShareGroupsPage,
-} from "../features/shares/ShareGroupsPage";
-import { DbInstancesPage } from "../features/databases/InstancesPage";
-import { LaunchDbInstancePage } from "../features/databases/LaunchInstancePage";
-import { DbInstanceDetailPage } from "../features/databases/InstanceDetailPage";
-import {
-  DbBackupDetailPage,
-  DbBackupsPage,
-} from "../features/databases/BackupsPage";
-import {
-  DbConfigurationDetailPage,
-  DbConfigurationsPage,
-} from "../features/databases/ConfigurationsPage";
+import { RouteError, RoutePending } from "./RouteFallbacks";
+
+// Every other page is a lazily loaded route component, so the login page
+// and the shell no longer download all of the panels. Vite splits each
+// dynamic import into its own chunk, grouped here by feature.
+
+// home
+const HomePage = lazyRouteComponent(
+  () => import("../features/home/HomePage"),
+  "HomePage",
+);
+
+// account
+const MyDetailsPage = lazyRouteComponent(
+  () => import("../features/account/MyDetailsPage"),
+  "MyDetailsPage",
+);
+const ResetPasswordPage = lazyRouteComponent(
+  () => import("../features/account/ResetPasswordPage"),
+  "ResetPasswordPage",
+);
+
+// terms
+const TermsPage = lazyRouteComponent(
+  () => import("../features/terms/TermsPage"),
+  "TermsPage",
+);
+
+// compute
+const OverviewPage = lazyRouteComponent(
+  () => import("../features/compute/overview/OverviewPage"),
+  "OverviewPage",
+);
+const InstancesPage = lazyRouteComponent(
+  () => import("../features/compute/instances/InstancesPage"),
+  "InstancesPage",
+);
+const InstanceDetailPage = lazyRouteComponent(
+  () => import("../features/compute/instances/InstanceDetailPage"),
+  "InstanceDetailPage",
+);
+const LaunchPage = lazyRouteComponent(
+  () => import("../features/compute/instances/LaunchPage"),
+  "LaunchPage",
+);
+const ImagesPage = lazyRouteComponent(
+  () => import("../features/compute/images/ImagesPage"),
+  "ImagesPage",
+);
+const ImageDetailPage = lazyRouteComponent(
+  () => import("../features/compute/images/ImageDetailPage"),
+  "ImageDetailPage",
+);
+const KeyPairsPage = lazyRouteComponent(
+  () => import("../features/compute/keypairs/KeyPairsPage"),
+  "KeyPairsPage",
+);
+const KeyPairDetailPage = lazyRouteComponent(
+  () => import("../features/compute/keypairs/KeyPairDetailPage"),
+  "KeyPairDetailPage",
+);
+const ServerGroupsPage = lazyRouteComponent(
+  () => import("../features/compute/servergroups/ServerGroupsPage"),
+  "ServerGroupsPage",
+);
+const ServerGroupDetailPage = lazyRouteComponent(
+  () => import("../features/compute/servergroups/ServerGroupDetailPage"),
+  "ServerGroupDetailPage",
+);
+
+// network
+const SecurityGroupsPage = lazyRouteComponent(
+  () => import("../features/network/securitygroups/SecurityGroupsPage"),
+  "SecurityGroupsPage",
+);
+const SecurityGroupDetailPage = lazyRouteComponent(
+  () => import("../features/network/securitygroups/SecurityGroupDetailPage"),
+  "SecurityGroupDetailPage",
+);
+const NetworksPage = lazyRouteComponent(
+  () => import("../features/network/networks/NetworksPage"),
+  "NetworksPage",
+);
+const NetworkDetailPage = lazyRouteComponent(
+  () => import("../features/network/networks/NetworkDetailPage"),
+  "NetworkDetailPage",
+);
+const SubnetDetailPage = lazyRouteComponent(
+  () => import("../features/network/networks/SubnetDetailPage"),
+  "SubnetDetailPage",
+);
+const PortDetailPage = lazyRouteComponent(
+  () => import("../features/network/networks/PortDetailPage"),
+  "PortDetailPage",
+);
+const RoutersPage = lazyRouteComponent(
+  () => import("../features/network/routers/RoutersPage"),
+  "RoutersPage",
+);
+const RouterDetailPage = lazyRouteComponent(
+  () => import("../features/network/routers/RouterDetailPage"),
+  "RouterDetailPage",
+);
+const FloatingIpsPage = lazyRouteComponent(
+  () => import("../features/network/floatingips/FloatingIpsPage"),
+  "FloatingIpsPage",
+);
+const PortForwardingsPage = lazyRouteComponent(
+  () => import("../features/network/floatingips/PortForwardingsPage"),
+  "PortForwardingsPage",
+);
+const TrunksPage = lazyRouteComponent(
+  () => import("../features/network/trunks/TrunksPage"),
+  "TrunksPage",
+);
+const TrunkDetailPage = lazyRouteComponent(
+  () => import("../features/network/trunks/TrunkDetailPage"),
+  "TrunkDetailPage",
+);
+const TopologyPage = lazyRouteComponent(
+  () => import("../features/network/topology/TopologyPage"),
+  "TopologyPage",
+);
+
+// apiaccess
+const ApiAccessPage = lazyRouteComponent(
+  () => import("../features/apiaccess/ApiAccessPage"),
+  "ApiAccessPage",
+);
+
+// volumes
+const VolumesPage = lazyRouteComponent(
+  () => import("../features/volumes/volumes/VolumesPage"),
+  "VolumesPage",
+);
+const VolumeDetailPage = lazyRouteComponent(
+  () => import("../features/volumes/volumes/VolumeDetailPage"),
+  "VolumeDetailPage",
+);
+const SnapshotsPage = lazyRouteComponent(
+  () => import("../features/volumes/snapshots/SnapshotsPage"),
+  "SnapshotsPage",
+);
+const SnapshotDetailPage = lazyRouteComponent(
+  () => import("../features/volumes/snapshots/SnapshotDetailPage"),
+  "SnapshotDetailPage",
+);
+const BackupsPage = lazyRouteComponent(
+  () => import("../features/volumes/backups/BackupsPage"),
+  "BackupsPage",
+);
+const BackupDetailPage = lazyRouteComponent(
+  () => import("../features/volumes/backups/BackupDetailPage"),
+  "BackupDetailPage",
+);
+
+// identity
+const MembersPage = lazyRouteComponent(
+  () => import("../features/identity/members/MembersPage"),
+  "MembersPage",
+);
+const UserLookupPage = lazyRouteComponent(
+  () => import("../features/identity/lookup/UserLookupPage"),
+  "UserLookupPage",
+);
+const UserDetailPage = lazyRouteComponent(
+  () => import("../features/identity/lookup/UserDetailPage"),
+  "UserDetailPage",
+);
+const ApplicationCredentialsPage = lazyRouteComponent(
+  () => import("../features/identity/appcreds/ApplicationCredentialsPage"),
+  "ApplicationCredentialsPage",
+);
+const ApplicationCredentialDetailPage = lazyRouteComponent(
+  () => import("../features/identity/appcreds/ApplicationCredentialDetailPage"),
+  "ApplicationCredentialDetailPage",
+);
+const CredentialsPage = lazyRouteComponent(
+  () => import("../features/identity/credentials/CredentialsPage"),
+  "CredentialsPage",
+);
+
+// usage
+const UsageTrendPage = lazyRouteComponent(
+  () => import("../features/usage/UsageTrendPage"),
+  "UsageTrendPage",
+);
+const AllocationUsagePage = lazyRouteComponent(
+  () => import("../features/usage/AllocationUsagePage"),
+  "AllocationUsagePage",
+);
+
+// security
+const SecurityRisksPage = lazyRouteComponent(
+  () => import("../features/security/SecurityRisksPage"),
+  "SecurityRisksPage",
+);
+
+// reservations
+const ReservationsPage = lazyRouteComponent(
+  () => import("../features/reservations/ReservationsPage"),
+  "ReservationsPage",
+);
+const CreateReservationPage = lazyRouteComponent(
+  () => import("../features/reservations/CreateReservationPage"),
+  "CreateReservationPage",
+);
+const ReservationDetailPage = lazyRouteComponent(
+  () => import("../features/reservations/ReservationDetailPage"),
+  "ReservationDetailPage",
+);
+
+// objectstore
+const ContainersPage = lazyRouteComponent(
+  () => import("../features/objectstore/ContainersPage"),
+  "ContainersPage",
+);
+const ContainerPage = lazyRouteComponent(
+  () => import("../features/objectstore/ContainerPage"),
+  "ContainerPage",
+);
+
+// kubernetes
+const ClustersPage = lazyRouteComponent(
+  () => import("../features/kubernetes/ClustersPage"),
+  "ClustersPage",
+);
+const CreateClusterPage = lazyRouteComponent(
+  () => import("../features/kubernetes/CreateClusterPage"),
+  "CreateClusterPage",
+);
+const ClusterDetailPage = lazyRouteComponent(
+  () => import("../features/kubernetes/ClusterDetailPage"),
+  "ClusterDetailPage",
+);
+const ClusterTemplatesPage = lazyRouteComponent(
+  () => import("../features/kubernetes/ClusterTemplatesPage"),
+  "ClusterTemplatesPage",
+);
+const ClusterTemplateDetailPage = lazyRouteComponent(
+  () => import("../features/kubernetes/ClusterTemplateDetailPage"),
+  "ClusterTemplateDetailPage",
+);
+
+// loadbalancers
+const LoadBalancersPage = lazyRouteComponent(
+  () => import("../features/loadbalancers/LoadBalancersPage"),
+  "LoadBalancersPage",
+);
+const CreateLoadBalancerPage = lazyRouteComponent(
+  () => import("../features/loadbalancers/CreateLoadBalancerPage"),
+  "CreateLoadBalancerPage",
+);
+const LoadBalancerDetailPage = lazyRouteComponent(
+  () => import("../features/loadbalancers/LoadBalancerDetailPage"),
+  "LoadBalancerDetailPage",
+);
+const ListenerDetailPage = lazyRouteComponent(
+  () => import("../features/loadbalancers/ListenerDetailPage"),
+  "ListenerDetailPage",
+);
+const PoolDetailPage = lazyRouteComponent(
+  () => import("../features/loadbalancers/PoolDetailPage"),
+  "PoolDetailPage",
+);
+
+// orchestration
+const StacksPage = lazyRouteComponent(
+  () => import("../features/orchestration/StacksPage"),
+  "StacksPage",
+);
+const LaunchStackPage = lazyRouteComponent(
+  () => import("../features/orchestration/LaunchStackPage"),
+  "LaunchStackPage",
+);
+const StackDetailPage = lazyRouteComponent(
+  () => import("../features/orchestration/StackDetailPage"),
+  "StackDetailPage",
+);
+const ResourceTypesPage = lazyRouteComponent(
+  () => import("../features/orchestration/ResourceTypesPage"),
+  "ResourceTypesPage",
+);
+const ResourceTypeDetailPage = lazyRouteComponent(
+  () => import("../features/orchestration/ResourceTypeDetailPage"),
+  "ResourceTypeDetailPage",
+);
+const TemplateVersionDetailPage = lazyRouteComponent(
+  () => import("../features/orchestration/TemplateVersionsPage"),
+  "TemplateVersionDetailPage",
+);
+const TemplateVersionsPage = lazyRouteComponent(
+  () => import("../features/orchestration/TemplateVersionsPage"),
+  "TemplateVersionsPage",
+);
+
+// dns
+const ZonesPage = lazyRouteComponent(
+  () => import("../features/dns/ZonesPage"),
+  "ZonesPage",
+);
+const ZoneDetailPage = lazyRouteComponent(
+  () => import("../features/dns/ZoneDetailPage"),
+  "ZoneDetailPage",
+);
+
+// shares
+const SharesPage = lazyRouteComponent(
+  () => import("../features/shares/SharesPage"),
+  "SharesPage",
+);
+const ShareDetailPage = lazyRouteComponent(
+  () => import("../features/shares/ShareDetailPage"),
+  "ShareDetailPage",
+);
+const ShareSnapshotDetailPage = lazyRouteComponent(
+  () => import("../features/shares/SnapshotsPage"),
+  "SnapshotDetailPage",
+);
+const ShareSnapshotsPage = lazyRouteComponent(
+  () => import("../features/shares/SnapshotsPage"),
+  "SnapshotsPage",
+);
+const SecurityServiceDetailPage = lazyRouteComponent(
+  () => import("../features/shares/SecurityServicesPage"),
+  "SecurityServiceDetailPage",
+);
+const SecurityServicesPage = lazyRouteComponent(
+  () => import("../features/shares/SecurityServicesPage"),
+  "SecurityServicesPage",
+);
+const ShareGroupDetailPage = lazyRouteComponent(
+  () => import("../features/shares/ShareGroupsPage"),
+  "ShareGroupDetailPage",
+);
+const ShareGroupSnapshotsPage = lazyRouteComponent(
+  () => import("../features/shares/ShareGroupsPage"),
+  "ShareGroupSnapshotsPage",
+);
+const ShareGroupsPage = lazyRouteComponent(
+  () => import("../features/shares/ShareGroupsPage"),
+  "ShareGroupsPage",
+);
+
+// databases
+const DbInstancesPage = lazyRouteComponent(
+  () => import("../features/databases/InstancesPage"),
+  "DbInstancesPage",
+);
+const LaunchDbInstancePage = lazyRouteComponent(
+  () => import("../features/databases/LaunchInstancePage"),
+  "LaunchDbInstancePage",
+);
+const DbInstanceDetailPage = lazyRouteComponent(
+  () => import("../features/databases/InstanceDetailPage"),
+  "DbInstanceDetailPage",
+);
+const DbBackupDetailPage = lazyRouteComponent(
+  () => import("../features/databases/BackupsPage"),
+  "DbBackupDetailPage",
+);
+const DbBackupsPage = lazyRouteComponent(
+  () => import("../features/databases/BackupsPage"),
+  "DbBackupsPage",
+);
+const DbConfigurationDetailPage = lazyRouteComponent(
+  () => import("../features/databases/ConfigurationsPage"),
+  "DbConfigurationDetailPage",
+);
+const DbConfigurationsPage = lazyRouteComponent(
+  () => import("../features/databases/ConfigurationsPage"),
+  "DbConfigurationsPage",
+);
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -184,17 +463,20 @@ export const myDetailsRoute = createRoute({
   component: MyDetailsPage,
 });
 
-// Horizon's /auth/switch/<id>/ equivalent: switch, then go home.
-const switchRoute = createRoute({
+// Horizon's /auth/switch/<id>/ equivalent: switch, then go home. This is a
+// state change, so it runs in beforeLoad and never on a hover preload
+// (`defaultPreload: "intent"` preloads links on hover).
+export const switchRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: "/auth/switch/$projectId",
-  loader: async ({ params, context }) => {
+  beforeLoad: async ({ params, context, preload }) => {
+    if (preload) return;
     await apiFetch("/api/session/project", {
       method: "POST",
       json: { project_id: params.projectId },
     });
     context.queryClient.clear();
-    throw redirect({ to: "/" });
+    throw redirect({ to: "/", replace: true });
   },
   component: () => null,
 });
@@ -280,18 +562,6 @@ export const serverGroupRoute = createRoute({
 
 // --- network ---------------------------------------------------------------
 
-export const securityGroupsRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: "/network/security-groups",
-  component: SecurityGroupsPage,
-});
-
-export const securityGroupRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: "/network/security-groups/$groupId",
-  component: SecurityGroupDetailPage,
-});
-
 const listSearch = z.object({
   q: z.string().optional(),
   status: z.string().optional(),
@@ -303,6 +573,19 @@ const createSearch = z.object({
 });
 
 const tabSearch = z.object({ tab: z.string().optional() });
+
+export const securityGroupsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/network/security-groups",
+  validateSearch: createSearch,
+  component: SecurityGroupsPage,
+});
+
+export const securityGroupRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: "/network/security-groups/$groupId",
+  component: SecurityGroupDetailPage,
+});
 
 export const topologyRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
@@ -818,13 +1101,24 @@ export const dbConfigurationRoute = createRoute({
 
 // --- catch-all: Horizon redirects, then 404 --------------------------------
 
-const catchAllRoute = createRoute({
+/**
+ * Backend targets (every `download` row points under /api/) must be a full
+ * document load; a client-side navigation would render the SPA's 404.
+ */
+export function isDocumentTarget(to: string): boolean {
+  return to.startsWith("/api/");
+}
+
+export const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
   beforeLoad: ({ location }) => {
     const match = matchRedirect(location.pathname, location.searchStr);
     if (match?.status === 301) {
-      throw redirect({ href: match.to });
+      throw redirect({
+        href: match.to,
+        ...(isDocumentTarget(match.to) ? { reloadDocument: true } : {}),
+      });
     }
     return { gone: match?.status === 410 };
   },
@@ -934,6 +1228,8 @@ export function createAppRouter(queryClient: QueryClient) {
     context: { queryClient },
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+    defaultErrorComponent: RouteError,
+    defaultPendingComponent: RoutePending,
     scrollRestoration: true,
   });
 }

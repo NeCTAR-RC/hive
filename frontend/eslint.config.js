@@ -33,6 +33,18 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    // The full recommendedTypeChecked set was tried in October 2026 and
+    // raised 169 errors (137 no-misused-promises on react-hook-form's
+    // `onSubmit={form.handleSubmit(...)}`), so only the type-aware rule the
+    // review asked for is on: an unawaited mutation or navigation promise
+    // must be awaited, returned or explicitly `void`ed.
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
     },
   },
   {

@@ -388,7 +388,7 @@ try {
   const configs = await api("/api/databases/configurations");
   console.log(`  configuration groups: ${configs.body.items.length}`);
 } catch (error) {
-  console.log(`FAILED: ${error.message}`);
+  console.log(`FAILED: ${error instanceof Error ? error.message : error}`);
   failures += 1;
 } finally {
   // Best effort cleanup of anything the run left behind.

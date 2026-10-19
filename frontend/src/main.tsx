@@ -5,6 +5,8 @@ import { RouterProvider as AriaRouterProvider } from "react-aria-components";
 import { createQueryClient } from "./app/query-client";
 import { createAppRouter } from "./app/router";
 import { Providers } from "./app/providers";
+import { loadSiteExtras } from "./lib/extras";
+import { configQuery } from "./lib/queries";
 import "./styles/global.scss";
 
 async function prepare() {
@@ -18,6 +20,13 @@ async function prepare() {
 void prepare().then(() => {
   const queryClient = createQueryClient();
   const router = createAppRouter(queryClient);
+  // Analytics and the help widget, when the deployment configures them.
+  queryClient
+    .ensureQueryData(configQuery)
+    .then(loadSiteExtras)
+    .catch(() => {
+      // No config, no extras: pages report the config failure themselves.
+    });
 
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

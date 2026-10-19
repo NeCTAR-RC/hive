@@ -121,7 +121,7 @@ async function visit(route) {
 try {
   for (const route of ROUTES) await visit(route);
   // Follow the first instance, key pair and security group links if any exist.
-  for (const [list, pattern] of [
+  for (const [list, pattern] of /** @type {Array<[string, RegExp]>} */ ([
     ["/compute/instances", /\/compute\/instances\/[^/]+$/],
     ["/compute/key-pairs", /\/compute\/key-pairs\/[^/]+$/],
     ["/network/security-groups", /\/network\/security-groups\/[^/]+$/],
@@ -130,7 +130,7 @@ try {
     ["/storage/volumes", /\/storage\/volumes\/[^/]+$/],
     ["/storage/snapshots", /\/storage\/snapshots\/[^/]+$/],
     ["/storage/backups", /\/storage\/backups\/[^/]+$/],
-  ]) {
+  ])) {
     await page.goto(`${base}${list}`);
     await page
       .waitForLoadState("networkidle", { timeout: 45_000 })

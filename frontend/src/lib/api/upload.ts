@@ -1,7 +1,7 @@
 // Send a file to the backend with upload progress. fetch() cannot report
 // progress, so this is the one place XMLHttpRequest is used; it carries the
 // same CSRF header and error envelope handling as apiFetch.
-import { ApiError, readCookie, type ErrorEnvelope } from "./client";
+import { ApiError, csrfToken, envelopeFrom } from "./client";
 
 export interface UploadOptions {
   onProgress?: (sent: number, total: number) => void;
@@ -19,7 +19,11 @@ export function uploadFile<T>(
     xhr.responseType = "text";
     xhr.setRequestHeader("Accept", "application/json");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.setRequestHeader("X-CSRF-Token", readCookie("hive_csrf") ?? "");
+    xhr.setRequestHeader("X-CSRF-Token", csrfToken());
+    const onAbort = () => xhr.abort();
+    // Drop the abort listener once the request settles, so a long-lived
+    // signal shared by many uploads does not accumulate them.
+    xhr.onloadend = () => options.signal?.removeEventListener("abort", onAbort);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -45,11 +49,7 @@ export function uploadFile<T>(
         resolve(body as T);
         return;
       }
-      const envelope =
-        body && typeof body === "object"
-          ? (body as Partial<ErrorEnvelope>)
-          : { message: xhr.responseText.slice(0, 200) };
-      reject(new ApiError(xhr.status, envelope));
+      reject(new ApiError(xhr.status, envelopeFrom(body)));
     };
 
     if (options.signal) {
@@ -57,9 +57,7 @@ export function uploadFile<T>(
         reject(new DOMException("aborted", "AbortError"));
         return;
       }
-      options.signal.addEventListener("abort", () => xhr.abort(), {
-        once: true,
-      });
+      options.signal.addEventListener("abort", onAbort, { once: true });
     }
     xhr.send(file);
   });

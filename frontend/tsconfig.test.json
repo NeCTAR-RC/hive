@@ -1,0 +1,22 @@
+{
+  // Unit tests, their setup and the MSW mocks: the same compiler options as
+  // the app, plus the vitest globals and jest-dom matchers.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": [
+      "vite/client",
+      "vitest/globals",
+      "@testing-library/jest-dom/vitest",
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test",
+    "src/mocks",
+    "src/vite-env.d.ts"
+  ],
+  "exclude": []
+}

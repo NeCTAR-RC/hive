@@ -394,7 +394,7 @@ export const m5Handlers = [
     }),
   ),
   http.get("/api/object-store/containers", () =>
-    HttpResponse.json({ items: containers }),
+    HttpResponse.json({ items: containers, truncated: false }),
   ),
   http.post("/api/object-store/containers", async ({ request }) => {
     const body = (await request.json()) as { name: string; is_public: boolean };

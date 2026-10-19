@@ -3,6 +3,10 @@ import { defineConfig, devices } from "@playwright/test";
 // End-to-end tests run against a production build with the API mocked in
 // the browser by MSW (VITE_MOCK=1). The mock build goes to dist-mock so a
 // mocked bundle can never be mistaken for the shipping one in dist/.
+//
+// `pnpm test:e2e` always rebuilds dist-mock first (`pnpm build:mock`), so a
+// reused preview server never serves a stale bundle: `vite preview` reads
+// dist-mock from disk on every request, and only the server is reused.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -27,10 +31,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command:
-      "VITE_MOCK=1 vite build --outDir dist-mock && vite preview --outDir dist-mock --port 4173 --strictPort",
+    command: "vite preview --outDir dist-mock --port 4173 --strictPort",
     url: "http://localhost:4173",
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 60_000,
   },
 });

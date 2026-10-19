@@ -1,7 +1,7 @@
 // Every spec imports `test` and `expect` from here. The fixture blocks
 // third-party hosts so remote content (news images, the welcome video, the
 // help widget) never enters the test DOM or slows the run.
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const BLOCKED = [
@@ -30,9 +30,7 @@ export const test = base.extend({
 export { expect };
 
 /** Fail on serious or critical WCAG 2.1 A/AA findings, ignoring iframes. */
-export async function expectNoSeriousA11yIssues(
-  page: Parameters<typeof AxeBuilder>[0] extends { page: infer P } ? P : never,
-) {
+export async function expectNoSeriousA11yIssues(page: Page) {
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .exclude("iframe")
@@ -54,9 +52,7 @@ export async function expectNoSeriousA11yIssues(
   ).toEqual([]);
 }
 
-export async function expectNoHorizontalScroll(
-  page: Parameters<typeof expectNoSeriousA11yIssues>[0],
-) {
+export async function expectNoHorizontalScroll(page: Page) {
   const [scrollWidth, clientWidth] = await page.evaluate(() => [
     document.scrollingElement?.scrollWidth ?? 0,
     document.scrollingElement?.clientWidth ?? 0,

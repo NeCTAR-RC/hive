@@ -1,0 +1,34 @@
+---
+features:
+  - |
+    Google Analytics and the Freshworks help widget are loaded when the
+    deployment sets ``HIVE_GA_ID`` and ``HIVE_FRESHWORKS_WIDGET_ID``.
+    "Request Help" opens the widget once it has loaded and falls back to
+    the support site otherwise.
+fixes:
+  - |
+    The Horizon address ``/project/api_access/ec2/`` now opens the
+    Credentials page instead of an error, and Horizon download addresses
+    such as ``/project/api_access/openrc/`` download the file instead of
+    showing "Page not found" when followed inside the dashboard.
+  - |
+    Panels are now loaded on demand, so the login page and the dashboard
+    shell start faster and no longer download every panel up front.
+  - |
+    A page that fails to load shows the dashboard's error message with its
+    support reference and a retry button, and an expired session goes to
+    the login page, instead of a developer error screen.
+  - |
+    Following a project switch link no longer switches project when the
+    pointer only hovers over it.
+  - |
+    An error page from the network in front of the dashboard (such as a
+    502 from the ingress) is reported as "the dashboard service is
+    unavailable" instead of showing raw HTML in a notification.
+  - |
+    Switching project no longer fetches the new project's data twice.
+upgrade:
+  - |
+    The production image no longer ships the mock API service worker, and
+    the ``VITE_HIVE_VERSION`` build variable is gone; the dashboard reads
+    its version from ``/api/config``.

@@ -12,6 +12,16 @@ export interface ErrorEnvelope {
   detail?: unknown;
 }
 
+const KNOWN_ENVELOPE_KEYS = new Set([
+  "error",
+  "message",
+  "service",
+  "request_id",
+  "upstream_request_id",
+  "login_url",
+  "detail",
+]);
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -19,6 +29,9 @@ export class ApiError extends Error {
   readonly requestId: string | null;
   readonly loginUrl: string | null;
   readonly detail: unknown;
+  /** Any other key the backend put in the envelope (`provisioning_status`
+   * on a busy load balancer, `floating_ip_id` after a failed association). */
+  readonly extra: Record<string, unknown>;
 
   constructor(status: number, envelope: Partial<ErrorEnvelope>) {
     super(envelope.message ?? `request failed with status ${status}`);
@@ -29,6 +42,9 @@ export class ApiError extends Error {
     this.requestId = envelope.request_id ?? null;
     this.loginUrl = envelope.login_url ?? null;
     this.detail = envelope.detail;
+    this.extra = Object.fromEntries(
+      Object.entries(envelope).filter(([key]) => !KNOWN_ENVELOPE_KEYS.has(key)),
+    );
   }
 
   get isAuth(): boolean {
@@ -37,7 +53,34 @@ export class ApiError extends Error {
 }
 
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
-const CSRF_COOKIE = "hive_csrf";
+// The backend's default `HIVE_CSRF_COOKIE_NAME`. The cookie name is a
+// deployment setting, so the token from the /api/session probe wins; the
+// cookie is only the fallback for a request made before the probe ran.
+const DEFAULT_CSRF_COOKIE = "hive_csrf";
+const SESSION_PROBE = "/api/session";
+
+/** Shown when an error body is not the JSON envelope (an ingress HTML 502). */
+export const UNAVAILABLE_MESSAGE =
+  "the dashboard service is unavailable; try again shortly";
+
+let probedCsrfToken: string | null = null;
+
+/** Record the CSRF token the session probe returned (null clears it). */
+export function setCsrfToken(token: string | null | undefined): void {
+  probedCsrfToken = token || null;
+}
+
+/** The value for the X-CSRF-Token header on unsafe requests. */
+export function csrfToken(): string {
+  return probedCsrfToken ?? readCookie(DEFAULT_CSRF_COOKIE) ?? "";
+}
+
+/** The error envelope from a parsed body, or the fixed unavailable message. */
+export function envelopeFrom(body: unknown): Partial<ErrorEnvelope> {
+  return body && typeof body === "object"
+    ? (body as Partial<ErrorEnvelope>)
+    : { error: "unavailable", message: UNAVAILABLE_MESSAGE };
+}
 
 type Listener = (error: ApiError) => void;
 let unauthenticatedListener: Listener | null = null;
@@ -82,7 +125,7 @@ export async function apiFetch<T>(
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (!SAFE.has(method)) {
-    headers.set("X-CSRF-Token", readCookie(CSRF_COOKIE) ?? "");
+    headers.set("X-CSRF-Token", csrfToken());
     if (init.json !== undefined) {
       headers.set("Content-Type", "application/json");
     }
@@ -120,15 +163,15 @@ export async function apiFetch<T>(
     }
   }
   if (!response.ok) {
-    const envelope =
-      body && typeof body === "object"
-        ? (body as Partial<ErrorEnvelope>)
-        : { message: text.slice(0, 200) };
-    const error = new ApiError(response.status, envelope);
+    const error = new ApiError(response.status, envelopeFrom(body));
     if (error.isAuth && unauthenticatedListener) {
       unauthenticatedListener(error);
     }
     throw error;
+  }
+  if (path === SESSION_PROBE && method === "GET") {
+    const probe = body as { csrf_token?: string } | null;
+    setCsrfToken(probe?.csrf_token);
   }
   return body as T;
 }
