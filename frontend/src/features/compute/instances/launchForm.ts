@@ -6,7 +6,7 @@ import type { useForm } from "react-hook-form";
 import { z } from "zod";
 import type { LaunchOptions } from "../../../lib/api/types";
 import { typesForZone } from "../../volumes/volumes/rules";
-import { findImage, volumeSizeFloor } from "./launch";
+import { findImage, launchZone, volumeSizeFloor } from "./launch";
 
 export const launchSchema = z
   .object({
@@ -16,7 +16,8 @@ export const launchSchema = z
       .min(1, "Enter an instance name")
       .max(255, "At most 255 characters"),
     description: z.string().trim().max(255, "At most 255 characters"),
-    availability_zone: z.string().min(1, "Choose an availability zone"),
+    // "" lets the scheduler choose (Horizon's "Any Availability Zone").
+    availability_zone: z.string(),
     count: z
       .number({ message: "Enter how many instances to launch" })
       .int()
@@ -108,8 +109,9 @@ export function useSourceTypeReset(form: LaunchFormApi): void {
  * Keep the new-volume fields consistent with the rest of the form, as
  * Horizon's source step does: the size floor follows the chosen image
  * (source.controller.js checkVolumeForImage) and the flavour's root disk
- * (its flavour watcher), a size below the floor is raised to it, and a
- * volume type the chosen zone does not offer is dropped (the type picker
+ * (its flavour watcher), a size below the floor is raised to it, the new
+ * volume is turned off when no zone will be sent (Nectar patch 216995ea1)
+ * and a volume type the zone does not offer is dropped (the type picker
  * is Hive's own addition).
  */
 export function useNewVolumeRules(
@@ -144,12 +146,17 @@ export function useNewVolumeRules(
     const flavor = data.flavors?.find((f) => f.id === flavorId);
     const next = volumeSizeFloor(image, flavor);
     if (next !== floor) form.setValue("volume_size_min_gb", next);
-    if (createVolume && (size === undefined || size < next)) {
+    const effective = launchZone(data.flavors, flavorId, zone);
+    if (createVolume && !effective) {
+      // The toggle needs a zone (see the source step); choosing "any" or a
+      // reservation flavour afterwards turns it off.
+      form.setValue("create_volume", false, { shouldDirty: true });
+    } else if (createVolume && (size === undefined || size < next)) {
       form.setValue("volume_size_gb", next, { shouldDirty: true });
     }
     if (
       volumeType &&
-      !typesForZone(data, zone).some((t) => t.name === volumeType)
+      !typesForZone(data, effective).some((t) => t.name === volumeType)
     ) {
       form.setValue("volume_type", "");
     }

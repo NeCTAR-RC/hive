@@ -637,15 +637,20 @@ async def launch_options(ctx: Context) -> dict:
     return payload
 
 
-def launch_body(ctx: Context, req) -> tuple[dict, dict]:
-    """Translate a LaunchRequest into nova's create-server body."""
+def launch_body(
+    ctx: Context, req, flavor: dict | None = None
+) -> tuple[dict, dict]:
+    """Translate a LaunchRequest into nova's create-server body; ``flavor``
+    is the chosen flavour, which decides whether the zone is sent."""
     server: dict = {
         "name": req.name,
         "flavorRef": req.flavor_id,
-        "availability_zone": req.availability_zone,
         "min_count": req.count,
         "max_count": req.count,
     }
+    zone = ctx.flavor_rules.launch_zone(flavor, req.availability_zone)
+    if zone:
+        server["availability_zone"] = zone
     if req.source.type in ("image", "snapshot") and not req.create_volume:
         server["imageRef"] = req.source.id
     elif req.source.type in ("image", "snapshot"):
@@ -702,7 +707,13 @@ def launch_body(ctx: Context, req) -> tuple[dict, dict]:
 
 
 async def launch(ctx: Context, req) -> dict:
-    server, extra = launch_body(ctx, req)
+    # Only a chosen zone needs the flavour, to drop it for a reservation
+    # flavour; read it from nova, since a new reservation's flavour may not
+    # be in the cached list yet.
+    flavor = (
+        await ctx.nova.flavor(req.flavor_id) if req.availability_zone else None
+    )
+    server, extra = launch_body(ctx, req, flavor)
     created = await ctx.nova.create_server(server, extra)
     if "server" in created:
         ids = [created["server"].get("id")]

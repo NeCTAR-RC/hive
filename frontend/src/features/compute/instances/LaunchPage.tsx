@@ -1,5 +1,5 @@
 // The launch wizard. One react-hook-form across seven steps, each validated
-// on Next; the Nectar rules (AZ required, classic network first and
+// on Next; the Nectar rules (classic network first and
 // preselected, otherwise only a sole network, community images hidden until
 // searched, SU per hour and the preemptible notice on flavours) come from
 // the backend's launch options.
@@ -81,6 +81,7 @@ import {
   flavorDisplayName,
   flavorGroups,
   flavorQuotaProblem,
+  launchZone,
 } from "./launch";
 import {
   focusTarget,
@@ -238,7 +239,12 @@ export function LaunchPage() {
         count: values.count,
         source: { type: values.source_type, id: values.source_id },
         flavor_id: values.flavor_id,
-        availability_zone: values.availability_zone,
+        availability_zone:
+          launchZone(
+            options.data?.flavors,
+            values.flavor_id,
+            values.availability_zone,
+          ) || null,
         networks: values.networks,
         ports: values.ports,
         security_groups: values.security_groups,
@@ -523,11 +529,20 @@ function StepBody({
 }
 
 function DetailsStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
-  const zones = (data.availability_zones ?? []).map((zone) => ({
-    id: zone.name,
-    label: zone.available ? zone.name : `${zone.name} (unavailable)`,
-    isDisabled: !zone.available,
-  }));
+  // Horizon offers "Any Availability Zone" first and defaults to it
+  // (launch-instance-model.service.js onGetAvailabilityZones).
+  const zones = [
+    { id: "", label: "Any availability zone" },
+    ...(data.availability_zones ?? []).map((zone) => ({
+      id: zone.name,
+      label: zone.available ? zone.name : `${zone.name} (unavailable)`,
+      isDisabled: !zone.available,
+    })),
+  ];
+  const flavorId = useWatch({ control: form.control, name: "flavor_id" });
+  const reserved = Boolean(
+    data.flavors?.find((f) => f.id === flavorId)?.is_reservation,
+  );
   return (
     <div className={styles.fields}>
       <TextInput
@@ -545,10 +560,13 @@ function DetailsStep({ form, data }: { form: FormApi; data: LaunchOptions }) {
         control={form.control}
         name="availability_zone"
         label="Availability zone"
-        description="Where the instance runs. Volumes can only attach to instances in their own zone."
+        description={
+          reserved
+            ? "Set by the reservation: a reservation flavour runs on its reserved hosts."
+            : "Where the instance runs, or any zone the scheduler picks. Volumes can only attach to instances in their own zone."
+        }
         options={zones}
-        isRequired
-        placeholder="Choose a zone"
+        isDisabled={reserved}
       />
       <NumberInput
         control={form.control}
@@ -1038,6 +1056,9 @@ function Summary({
     (id) => networkName.get(id) ?? id,
   );
   const rate = flavor?.su_rate ?? null;
+  const zoneLabel = flavor?.is_reservation
+    ? "Set by the reservation"
+    : values.availability_zone || "Any";
   return (
     <aside className={styles.summary} aria-label="Summary">
       <Panel title="Summary" headingLevel={3}>
@@ -1048,7 +1069,7 @@ function Summary({
               label: "Count",
               value: Number.isFinite(values.count) ? values.count : "",
             },
-            { label: "Availability zone", value: values.availability_zone },
+            { label: "Availability zone", value: zoneLabel },
             { label: "Source", value: source?.name ?? "" },
             { label: "Volume", value: volume },
             { label: "Flavour", value: flavorName },

@@ -480,7 +480,7 @@ export interface LaunchRequest {
   count: number;
   source: { type: LaunchSourceType; id: string };
   flavor_id: string;
-  availability_zone: string;
+  availability_zone: string | null;
   networks: string[];
   ports: string[];
   security_groups: string[];

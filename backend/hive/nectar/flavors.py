@@ -116,6 +116,17 @@ class FlavorRules:
     def is_reservation(self, flavor: dict) -> bool:
         return self.reservation_id(flavor) is not None
 
+    def launch_zone(self, flavor: dict | None, zone: str | None) -> str | None:
+        """The availability zone to send nova for a launch: none for a
+        reservation flavour, whose ``aggregate_instance_extra_specs``
+        already pins the reserved hosts (Blazar flavour plugin, above), so
+        any zone the user picked is ignored rather than left to conflict;
+        otherwise the chosen zone, or none to let the scheduler choose
+        (Horizon's "Any Availability Zone")."""
+        if not zone or (flavor is not None and self.is_reservation(flavor)):
+            return None
+        return zone
+
     def class_info(self, class_id: str) -> dict:
         """A class as the wizard describes it: the table entry, else the
         raw class name with no description."""

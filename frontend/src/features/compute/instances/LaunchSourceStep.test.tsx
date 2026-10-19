@@ -42,6 +42,14 @@ const DATA = {
       disk_gb: 30,
       is_reservation: false,
     },
+    {
+      id: "res-1",
+      name: "reservation:res-1",
+      vcpus: 2,
+      ram_mb: 4096,
+      disk_gb: 30,
+      is_reservation: true,
+    },
   ],
   flavor_classes: [],
   volume_types: [
@@ -112,13 +120,14 @@ function Harness({ initial = {} }: { initial?: Partial<LaunchForm> }) {
   });
   useSourceTypeReset(form);
   useNewVolumeRules(form, DATA);
-  const [sourceId, deleteVolume, size, volumeType] = useWatch({
+  const [sourceId, deleteVolume, size, volumeType, createVolume] = useWatch({
     control: form.control,
     name: [
       "source_id",
       "delete_volume_on_termination",
       "volume_size_gb",
       "volume_type",
+      "create_volume",
     ],
   });
   return (
@@ -136,6 +145,10 @@ function Harness({ initial = {} }: { initial?: Partial<LaunchForm> }) {
       >
         Set flavour
       </button>
+      <button type="button" onClick={() => form.setValue("flavor_id", "res-1")}>
+        Set reservation flavour
+      </button>
+      <output aria-label="Create volume">{String(createVolume)}</output>
       <output aria-label="Source id">{sourceId}</output>
       <output aria-label="Delete volume">{String(deleteVolume)}</output>
       <output aria-label="Volume size">
@@ -150,6 +163,25 @@ describe("SourceStep", () => {
   beforeAll(() => {
     stubResizeObserver();
     Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("turns the new volume off for a reservation flavour, which sends no zone", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const toggle = screen.getByRole("switch", { name: /Create a new volume/ });
+    await user.click(screen.getByRole("button", { name: "Set zone" }));
+    await user.click(screen.getByRole("radio", { name: /Ubuntu 24.04/ }));
+    await user.click(toggle);
+    expect(screen.getByLabelText("Create volume")).toHaveTextContent("true");
+
+    await user.click(
+      screen.getByRole("button", { name: "Set reservation flavour" }),
+    );
+    expect(screen.getByLabelText("Create volume")).toHaveTextContent("false");
+    expect(toggle).toBeDisabled();
+    expect(
+      screen.getByText(/Not available with a reservation flavour/),
+    ).toBeInTheDocument();
   });
 
   it("clears the chosen source when the boot-source type changes", async () => {

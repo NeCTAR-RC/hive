@@ -159,6 +159,21 @@ export function flavorGroups(
   return groups;
 }
 
+/**
+ * The zone a launch is sent with: "" (the scheduler chooses, Horizon's
+ * "Any Availability Zone") when none is chosen, and always "" for a
+ * reservation flavour, whose reserved hosts decide where it runs. The
+ * backend drops the zone for a reservation flavour as well.
+ */
+export function launchZone(
+  flavors: Pick<Flavor, "id" | "is_reservation">[] | null | undefined,
+  flavorId: string,
+  zone: string,
+): string {
+  const flavor = flavors?.find((f) => f.id === flavorId);
+  return flavor?.is_reservation ? "" : zone;
+}
+
 /** The warre reservation a reservation flavour belongs to, if listed. */
 export function reservationForFlavor(
   flavor: Pick<Flavor, "id" | "is_reservation">,

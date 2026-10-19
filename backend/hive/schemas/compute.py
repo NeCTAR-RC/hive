@@ -19,7 +19,9 @@ class LaunchRequest(BaseModel):
     count: int = Field(default=1, ge=1, le=100)
     source: LaunchSource
     flavor_id: str
-    availability_zone: str = Field(min_length=1)
+    # None (or "") lets the scheduler choose, Horizon's "Any Availability
+    # Zone" (launch-instance-model.service.js onGetAvailabilityZones).
+    availability_zone: str | None = None
     networks: list[str] = Field(default_factory=list)
     ports: list[str] = Field(default_factory=list)
     security_groups: list[str] = Field(default_factory=list)

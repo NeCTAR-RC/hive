@@ -1,0 +1,13 @@
+---
+features:
+  - |
+    The launch wizard no longer requires an availability zone. "Any
+    availability zone" is offered first and is the default, as in Horizon,
+    and the instance is then sent to nova with no zone so the scheduler
+    chooses. Creating a new volume from an image still needs a chosen zone.
+fixes:
+  - |
+    Launching with a reservation flavour no longer sends an availability
+    zone to nova: the reservation's hosts decide where the instance runs,
+    so any zone chosen in the wizard is ignored. The backend enforces this
+    too, and the wizard disables the zone picker for a reservation flavour.

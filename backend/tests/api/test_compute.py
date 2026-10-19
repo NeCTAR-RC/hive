@@ -193,6 +193,16 @@ def nova(upstream, compute_catalog):
     upstream.get(f"{NOVA}/flavors/detail").mock(
         return_value=httpx.Response(200, json={"flavors": FLAVORS})
     )
+
+    def one_flavor(request, fid):
+        flavor = next((f for f in FLAVORS if f["id"] == fid), None)
+        if flavor is None:
+            return httpx.Response(404, json={})
+        return httpx.Response(200, json={"flavor": flavor})
+
+    upstream.get(
+        url__regex=rf"^{NOVA}/flavors/(?P<fid>(?!detail$)[^/]+)$"
+    ).mock(side_effect=one_flavor)
     upstream.get(f"{NOVA}/os-availability-zone").mock(
         return_value=httpx.Response(
             200,
@@ -562,6 +572,41 @@ async def test_launch_builds_nova_body(user, nova):
         == base64.b64encode(b"#!/bin/sh\necho hi\n").decode()
     )
     assert sent["os:scheduler_hints"] == {"group": "sg-grp"}
+    assert server["availability_zone"] == "melbourne-qh2"
+
+    # No zone (Horizon's "Any Availability Zone"): the scheduler chooses.
+    for zone in (None, ""):
+        any_zone = await user.post(
+            "/api/compute/instances",
+            json={
+                "name": "anywhere",
+                "source": {"type": "image", "id": "img-ubuntu"},
+                "flavor_id": "f-small",
+                "availability_zone": zone,
+                "networks": [CLASSIC],
+            },
+            headers=csrf_headers(user),
+        )
+        assert any_zone.status_code == 202, any_zone.text
+        server = json.loads(route.calls.last.request.content)["server"]
+        assert "availability_zone" not in server
+
+    # A reservation flavour ignores the chosen zone.
+    reserved = await user.post(
+        "/api/compute/instances",
+        json={
+            "name": "reserved",
+            "source": {"type": "image", "id": "img-ubuntu"},
+            "flavor_id": "res-1",
+            "availability_zone": "melbourne-qh2",
+            "networks": [CLASSIC],
+        },
+        headers=csrf_headers(user),
+    )
+    assert reserved.status_code == 202, reserved.text
+    server = json.loads(route.calls.last.request.content)["server"]
+    assert "availability_zone" not in server
+    assert server["flavorRef"] == "res-1"
 
     volume_boot = await user.post(
         "/api/compute/instances",

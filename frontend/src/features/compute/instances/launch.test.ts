@@ -13,6 +13,7 @@ import {
   flavorGroups,
   flavorQuotaProblem,
   GIB,
+  launchZone,
   reservationForFlavor,
   volumeSizeFloor,
 } from "./launch";
@@ -249,5 +250,22 @@ describe("flavorDisplayName", () => {
     expect(
       flavorDisplayName(flavor({ id: "m3" }), reservations, () => "x"),
     ).toBe("m3");
+  });
+});
+
+describe("launchZone", () => {
+  const flavors = [
+    { id: "m3", is_reservation: false },
+    { id: "res-1", is_reservation: true },
+  ];
+
+  it("sends the chosen zone, or none for any zone", () => {
+    expect(launchZone(flavors, "m3", "melbourne-qh2")).toBe("melbourne-qh2");
+    expect(launchZone(flavors, "m3", "")).toBe("");
+    expect(launchZone(flavors, "", "melbourne-qh2")).toBe("melbourne-qh2");
+  });
+
+  it("ignores the chosen zone for a reservation flavour", () => {
+    expect(launchZone(flavors, "res-1", "melbourne-qh2")).toBe("");
   });
 });

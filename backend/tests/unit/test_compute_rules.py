@@ -170,6 +170,16 @@ class TestFlavorRules:
             == "r"
         )
 
+    def test_launch_zone(self):
+        r = FlavorRules()
+        reserved = {"id": "x", "name": "reservation:res-2", "extra_specs": {}}
+        plain = {"id": "f", "name": "m3.small", "extra_specs": {}}
+        assert r.launch_zone(plain, "melbourne-qh2") == "melbourne-qh2"
+        assert r.launch_zone(None, "melbourne-qh2") == "melbourne-qh2"
+        assert r.launch_zone(plain, "") is None
+        assert r.launch_zone(plain, None) is None
+        assert r.launch_zone(reserved, "melbourne-qh2") is None
+
     def test_flavor_classes_known_then_unknown(self):
         r = FlavorRules()
 

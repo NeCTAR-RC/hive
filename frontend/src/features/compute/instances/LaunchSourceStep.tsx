@@ -25,6 +25,7 @@ import {
   findSourceItem,
   GIB,
   imageMeta,
+  launchZone,
   volumeMeta,
   type SourceItem,
 } from "./launch";
@@ -50,7 +51,7 @@ export function SourceStep({
   const [query, setQuery] = useState("");
   const errorId = useId();
   const listRef = useRef<HTMLDivElement | null>(null);
-  const [type, zone, flavorId, createVolume, floor] = useWatch({
+  const [type, chosenZone, flavorId, createVolume, floor] = useWatch({
     control: form.control,
     name: [
       "source_type",
@@ -60,6 +61,8 @@ export function SourceStep({
       "volume_size_min_gb",
     ],
   });
+  const zone = launchZone(data.flavors, flavorId, chosenZone);
+  const reserved = Boolean(chosenZone) && !zone;
   const { field, fieldState } = useController({
     control: form.control,
     name: "source_id",
@@ -257,8 +260,9 @@ export function SourceStep({
           />
           {!zone && (
             <p className={styles.hint}>
-              Choose an availability zone on the Details step first; the volume
-              is created in that zone.
+              {reserved
+                ? "Not available with a reservation flavour: the reservation decides the availability zone."
+                : "Choose an availability zone on the Details step first; the volume is created in that zone."}
             </p>
           )}
           {createVolume && (
