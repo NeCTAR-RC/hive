@@ -4,8 +4,8 @@ import { Outlet, useNavigate, useRouter } from "@tanstack/react-router";
 import { setUnauthenticatedHandler } from "../lib/api/client";
 import { configQuery, meQuery } from "../lib/queries";
 import { DESKTOP, useMediaQuery } from "../lib/useMediaQuery";
-import { ArdcFooter } from "./ArdcFooter/ArdcFooter";
-import { ArdcHeader } from "./ArdcHeader/ArdcHeader";
+import { ArdcFooter } from "./ArdcComponents/ArdcFooter";
+import { ArdcMegamenu } from "./ArdcComponents/ArdcMegamenu";
 import { DashboardBar } from "./DashboardBar/DashboardBar";
 import { SessionTimeoutWarning } from "./SessionTimeoutWarning";
 import { Sidebar } from "./Sidebar/Sidebar";
@@ -50,7 +50,7 @@ export function AppLayout() {
   return (
     <div className={styles.page}>
       <SkipLink />
-      <ArdcHeader />
+      <ArdcMegamenu />
       <DashboardBar
         me={me}
         config={config}

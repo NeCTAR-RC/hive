@@ -1,0 +1,9 @@
+---
+features:
+  - |
+    The ARDC header and footer are now the ARDC website's own mega menu and
+    footer web components, loaded from ardc.edu.au as the Nectar status site
+    (langstroth) does, replacing the locally built copies. The mega menu is
+    hidden if its loader fails. The default Content Security Policy now
+    allows ARDC fonts and the Cloudflare Turnstile challenge used by the
+    footer's newsletter sign-up form.

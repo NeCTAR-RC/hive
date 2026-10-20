@@ -15,7 +15,7 @@ import type { Me, PublicConfig } from "../../lib/api/types";
 import { openHelpWidget } from "../../lib/help";
 import { useLogout } from "../../lib/queries";
 import { notify } from "../../lib/notify";
-import { SUPPORT_LINKS } from "../ArdcHeader/menu-data";
+import { SUPPORT_LINKS } from "../links";
 import { ServicesMenu } from "../ServicesMenu/ServicesMenu";
 import styles from "./DashboardBar.module.scss";
 

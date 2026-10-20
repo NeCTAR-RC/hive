@@ -18,16 +18,23 @@ ENV_PREFIX = "HIVE_"
 CommaList = Annotated[list[str], NoDecode]
 
 # Reported, not enforced, until the third-party embeds are verified.
+# The ARDC mega menu and footer web components (as langstroth embeds them)
+# load from ardc.edu.au, fetch its manifest, inject <style> elements and
+# load its Figtree fonts; the footer's sign-up form embeds a Cloudflare
+# Turnstile challenge (script, iframe and verification requests).
 DEFAULT_CSP = (
     "default-src 'self'; "
     "script-src 'self' https://www.googletagmanager.com "
-    "https://*.freshworks.com https://ardc.edu.au; "
+    "https://*.freshworks.com https://ardc.edu.au "
+    "https://challenges.cloudflare.com; "
     "connect-src 'self' https://*.google-analytics.com "
-    "https://*.freshworks.com https://ardc.edu.au; "
+    "https://*.freshworks.com https://ardc.edu.au "
+    "https://challenges.cloudflare.com; "
     "img-src 'self' data: https:; "
     "style-src 'self' 'unsafe-inline'; "
-    "font-src 'self' data:; "
-    "frame-src https://*.freshworks.com https://www.youtube-nocookie.com; "
+    "font-src 'self' data: https://ardc.edu.au; "
+    "frame-src https://*.freshworks.com https://www.youtube-nocookie.com "
+    "https://challenges.cloudflare.com; "
     "frame-ancestors 'none'; base-uri 'self'; "
     # The ORCID unlink on My Details is a form POST to the manuka accounts
     # service, exactly as Horizon does it.

@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
-import { ArdcFooter } from "./ArdcFooter/ArdcFooter";
+import { ArdcFooter } from "./ArdcComponents/ArdcFooter";
 import { SkipLink } from "./SkipLink";
 import styles from "./AuthLayout.module.scss";
 

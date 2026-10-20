@@ -20,7 +20,7 @@ import {
 } from "../../lib/queries";
 import { readLocal, writeLocal } from "../../lib/storage";
 import { openHelpWidget } from "../../lib/help";
-import { SUPPORT_LINKS } from "../../shell/ArdcHeader/menu-data";
+import { SUPPORT_LINKS } from "../../shell/links";
 import { useDocumentTitle } from "../../lib/useDocumentTitle";
 import styles from "./HomePage.module.scss";
 
