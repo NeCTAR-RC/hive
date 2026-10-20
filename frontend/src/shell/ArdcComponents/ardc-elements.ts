@@ -5,7 +5,6 @@ type ArdcElementProps = DetailedHTMLProps<
   HTMLAttributes<HTMLElement>,
   HTMLElement
 > & {
-  "data-host"?: string;
   "data-content-width"?: "wide";
   "data-show-ardc-logo"?: string;
 };
@@ -14,7 +13,6 @@ declare module "react" {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicElements {
-      "ardc-megamenu": ArdcElementProps;
       "ardc-footer": ArdcElementProps;
     }
   }

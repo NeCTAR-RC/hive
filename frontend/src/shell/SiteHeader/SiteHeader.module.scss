@@ -1,0 +1,257 @@
+@use "mixins" as *;
+
+// Measurements follow the DS "Temporary Header" template in its full
+// container width: a 20px band carrying the Explore ARDC tab, a 47px logo
+// and 70px link targets with a 4px purple state line. Narrow screens get
+// the template's mobile layout.
+
+.header {
+  background: var(--hive-color-surface);
+  border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
+  font-family: var(--hive-font-family);
+}
+
+.band {
+  display: none;
+
+  @include up($bp-lg) {
+    display: block;
+    height: 1.25rem;
+    background: var(--hive-color-purple-50);
+    border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
+  }
+}
+
+.container {
+  position: relative;
+  padding: var(--hive-space-4) var(--hive-gutter);
+
+  @include up($bp-lg) {
+    padding: 0 var(--hive-space-8);
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-4);
+  min-height: 2.75rem;
+
+  @include up($bp-lg) {
+    align-items: stretch;
+    gap: var(--hive-space-6);
+    padding-top: var(--hive-space-6);
+  }
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-6);
+  flex: 1;
+  min-width: 0;
+  color: var(--hive-color-text-heading);
+  text-decoration: none;
+
+  @include up($bp-lg) {
+    padding-bottom: var(--hive-space-5);
+  }
+
+  img {
+    display: block;
+    height: 2.9375rem;
+    width: auto;
+  }
+
+  &[data-focus-visible] {
+    outline: var(--hive-focus-ring);
+    outline-offset: var(--hive-focus-ring-offset);
+  }
+}
+
+.product {
+  width: 6.25rem;
+  font-size: var(--hive-font-size-base);
+  line-height: 1.125rem;
+  text-wrap: pretty;
+}
+
+.nav {
+  display: none;
+
+  @include up($bp-lg) {
+    display: flex;
+    align-self: flex-end;
+  }
+
+  ul {
+    display: flex;
+    align-items: stretch;
+    gap: var(--hive-space-8);
+    height: 4.375rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  li {
+    display: flex;
+  }
+}
+
+// A link or button styled as a header link: the template's text link with
+// a 4px state line on hover, focus and while its menu is open.
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-top: 0.25rem solid transparent;
+  border-bottom: 0.25rem solid transparent;
+  color: var(--hive-color-text-body);
+  font: inherit;
+  font-size: var(--hive-font-size-base);
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover,
+  &[data-hovered],
+  &[data-pressed],
+  &[aria-expanded="true"] {
+    color: var(--hive-color-text-heading);
+    border-bottom-color: var(--hive-color-brand-purple);
+  }
+
+  &:focus-visible,
+  &[data-focus-visible] {
+    outline: var(--hive-focus-ring);
+    outline-offset: var(--hive-focus-ring-offset);
+  }
+
+  svg {
+    flex: none;
+  }
+}
+
+.user {
+  max-width: 14rem;
+
+  @include up($bp-lg) {
+    align-self: flex-end;
+    height: 4.375rem;
+  }
+}
+
+.userName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login {
+  display: flex;
+  align-items: center;
+
+  @include up($bp-lg) {
+    align-self: flex-end;
+    height: 4.375rem;
+  }
+}
+
+// Layout only: a 44px touch target; the DS link button draws the rest.
+.navToggle {
+  flex: none;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  margin-right: calc(-1 * var(--hive-space-2));
+}
+
+.compactOnly {
+  @include up($bp-lg) {
+    display: none;
+  }
+}
+
+// The Explore ARDC tab: floating at the bottom left on narrow screens,
+// hanging from the band at the top right on wide ones.
+.explore {
+  position: fixed;
+  left: var(--hive-space-4);
+  bottom: var(--hive-space-4);
+  z-index: var(--hive-z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-6);
+  height: 3.25rem;
+  padding: 0 var(--hive-space-6) 0 var(--hive-space-4);
+  background: var(--hive-color-purple-50);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius-lg);
+  box-shadow: var(--hive-shadow-sm);
+  color: var(--hive-color-text-heading);
+  font-size: var(--hive-font-size-base);
+  font-weight: var(--hive-font-weight-bold);
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+
+  &:focus-visible {
+    outline: var(--hive-focus-ring);
+    outline-offset: var(--hive-focus-ring-offset);
+  }
+
+  @include up($bp-lg) {
+    position: absolute;
+    top: calc(-1 * var(--hive-border-width));
+    right: var(--hive-space-8);
+    bottom: auto;
+    left: auto;
+    z-index: 1;
+    justify-content: space-between;
+    width: 11.5625rem;
+    height: 1.25rem;
+    padding: 0 var(--hive-space-5) 0 1.625rem;
+    border-top: 0;
+    border-radius: 0 0 var(--hive-radius) var(--hive-radius);
+    box-shadow: none;
+  }
+}
+
+// The label rides up across the band edge, as in the template.
+.exploreLabel,
+.squares {
+  @include up($bp-lg) {
+    position: relative;
+    top: -0.625rem;
+  }
+}
+
+.squares {
+  display: grid;
+  grid-template-columns: 0.4375rem 0.4375rem;
+  gap: 1px;
+  flex: none;
+
+  span {
+    width: 0.4375rem;
+    height: 0.4375rem;
+  }
+
+  span:nth-child(1) {
+    background: var(--hive-color-brand-blue);
+  }
+
+  span:nth-child(2) {
+    background: var(--hive-color-brand-pink);
+  }
+
+  span:nth-child(3) {
+    background: var(--hive-color-brand-yellow);
+  }
+
+  span:nth-child(4) {
+    background: var(--hive-color-brand-purple);
+  }
+}

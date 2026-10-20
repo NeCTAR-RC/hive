@@ -18,9 +18,9 @@ ENV_PREFIX = "HIVE_"
 CommaList = Annotated[list[str], NoDecode]
 
 # Reported, not enforced, until the third-party embeds are verified.
-# The ARDC mega menu and footer web components (as langstroth embeds them)
-# load from ardc.edu.au, fetch its manifest, inject <style> elements and
-# load its Figtree fonts; the footer's sign-up form embeds a Cloudflare
+# The ARDC footer web component (as langstroth embeds it) loads from
+# ardc.edu.au, fetches its manifest, injects <style> elements and loads its
+# Figtree fonts; its sign-up form embeds a Cloudflare
 # Turnstile challenge (script, iframe and verification requests).
 DEFAULT_CSP = (
     "default-src 'self'; "

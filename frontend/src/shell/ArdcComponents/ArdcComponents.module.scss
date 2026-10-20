@@ -1,20 +1,5 @@
 // Host-element layout only: the ARDC components style their own content.
 
-.megamenuBand {
-  background: var(--hive-color-surface);
-}
-
-// Reserve space for the mega menu while its script loads, so the page does
-// not shift (CLS), as langstroth does. Hidden if the loader fails.
-.megamenu {
-  display: block;
-  min-height: 1.25rem;
-
-  &[hidden] {
-    display: none;
-  }
-}
-
 .footer {
   margin-top: auto;
 }

@@ -1,0 +1,9 @@
+---
+features:
+  - |
+    The site header now follows the ARDC UI React design system's
+    "Temporary Header" template at full container width: the Nectar logo
+    and product name, the support links, the account menu and an Explore ARDC
+    tab linking to ardc.edu.au. It replaces the ARDC mega menu web component
+    and the separate dashboard bar. Login, signed-out and terms pages now
+    show the header too, with a Log In button off the login page.

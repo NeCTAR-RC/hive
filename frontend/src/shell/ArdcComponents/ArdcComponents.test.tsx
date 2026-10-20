@@ -1,7 +1,6 @@
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ArdcFooter } from "./ArdcFooter";
-import { ArdcMegamenu } from "./ArdcMegamenu";
 import { loadArdcComponent, resetArdcComponentsForTests } from "./loader";
 
 const LOADERS =
@@ -19,22 +18,17 @@ describe("ARDC web components", () => {
     document.head.innerHTML = "";
   });
 
-  it("appends each loader once, as a classic external script", () => {
-    void loadArdcComponent("megamenu");
-    void loadArdcComponent("megamenu");
+  it("appends the loader once, as a classic external script", () => {
+    void loadArdcComponent("footer");
+    void loadArdcComponent("footer");
     expect(document.head.querySelectorAll("script")).toHaveLength(1);
-    expect(loader("megamenu")?.type).toBe("");
+    expect(loader("footer")?.type).toBe("");
   });
 
-  it("hides the mega menu when its loader fails", async () => {
-    const { container } = render(<ArdcMegamenu />);
-    const menu = container.querySelector<HTMLElement>("ardc-megamenu")!;
-    expect(menu.getAttribute("data-host")).toBe("ARDC Main Website");
-    expect(menu.hidden).toBe(false);
-    await act(async () => {
-      loader("megamenu")!.dispatchEvent(new Event("error"));
-    });
-    expect(menu.hidden).toBe(true);
+  it("rejects when the loader fails", async () => {
+    const loaded = loadArdcComponent("footer");
+    loader("footer")!.dispatchEvent(new Event("error"));
+    await expect(loaded).rejects.toThrow("ARDC footer loader failed");
   });
 
   it("gives the footer its links in the slots langstroth uses", () => {

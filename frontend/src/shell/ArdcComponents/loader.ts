@@ -1,11 +1,11 @@
-// The ARDC website's own mega menu and footer, as web components, the way
-// langstroth (status.rc.nectar.org.au) embeds them. Each loader is a plain
-// external script from ardc.edu.au, appended once with no inline <script>;
-// it fetches a manifest from ardc.edu.au, then the component bundle, Figtree
-// fonts and (footer sign-up form) Cloudflare Turnstile, which the CSP in
+// The ARDC website's own footer, as a web component, the way langstroth
+// (status.rc.nectar.org.au) embeds it. The loader is a plain external
+// script from ardc.edu.au, appended once with no inline <script>; it fetches
+// a manifest from ardc.edu.au, then the component bundle, Figtree fonts and
+// (sign-up form) Cloudflare Turnstile, which the CSP in
 // backend/hive/config.py allows.
 
-export type ArdcComponent = "megamenu" | "footer";
+export type ArdcComponent = "footer";
 
 const LOADER_BASE =
   "https://ardc.edu.au/wp-content/plugins/ardc-custom-web-components/dist/loaders";

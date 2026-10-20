@@ -5,9 +5,8 @@ import { setUnauthenticatedHandler } from "../lib/api/client";
 import { configQuery, meQuery } from "../lib/queries";
 import { DESKTOP, useMediaQuery } from "../lib/useMediaQuery";
 import { ArdcFooter } from "./ArdcComponents/ArdcFooter";
-import { ArdcMegamenu } from "./ArdcComponents/ArdcMegamenu";
-import { DashboardBar } from "./DashboardBar/DashboardBar";
 import { SessionTimeoutWarning } from "./SessionTimeoutWarning";
+import { SiteHeader } from "./SiteHeader/SiteHeader";
 import { Sidebar } from "./Sidebar/Sidebar";
 import { SkipLink } from "./SkipLink";
 import styles from "./AppLayout.module.scss";
@@ -50,13 +49,11 @@ export function AppLayout() {
   return (
     <div className={styles.page}>
       <SkipLink />
-      <ArdcMegamenu />
-      <DashboardBar
+      <SiteHeader
         me={me}
         config={config}
         navOpen={navOpen}
-        onNavToggle={() => setNavOpen((open) => !open)}
-        showNavToggle={!isDesktop}
+        onNavToggle={isDesktop ? undefined : () => setNavOpen((open) => !open)}
       />
       <div className={styles.body}>
         <Sidebar
