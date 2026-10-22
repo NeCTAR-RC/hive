@@ -9,6 +9,12 @@ const API = process.env.HIVE_DEV_API ?? "http://127.0.0.1:8000";
 /** A build or dev server with the API mocked in the browser (VITE_MOCK=1). */
 const MOCK = process.env.VITE_MOCK === "1";
 
+// Vite rejects Host headers other than localhost and IPs; accept the one
+// the browser uses when the dev server listens on 0.0.0.0 (HIVE_DEV_HOST).
+const PUBLIC_HOST = process.env.HIVE_PUBLIC_URL
+  ? new URL(process.env.HIVE_PUBLIC_URL).hostname
+  : undefined;
+
 /**
  * Serves and emits the files in mock-public/ in mock mode only, so the
  * shipping build never contains them: MSW's service worker (MSW's install
@@ -152,6 +158,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    allowedHosts: PUBLIC_HOST ? [PUBLIC_HOST] : [],
     // Only the backend's own routes are proxied; /auth/login and friends
     // are SPA pages.
     proxy: {

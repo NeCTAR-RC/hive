@@ -3,6 +3,9 @@
 #
 #   scripts/dev-stack.sh start     redis (docker compose), the API on :8000
 #                                  with reload and Vite on :5173
+#                                  (HIVE_DEV_HOST / HIVE_DEV_PORT, in .env or
+#                                  the shell, move Vite, e.g. 0.0.0.0 and
+#                                  8080; set HIVE_PUBLIC_URL to match)
 #   scripts/dev-stack.sh restart   restart the API and Vite (redis and your
 #                                  session stay), for example after a
 #                                  settings change in .env
@@ -22,9 +25,23 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 RUN=.dev
 API_PORT=8000
-VITE_PORT=5173
 LOGIN_PORT=8765
 mkdir -p "$RUN"
+
+# .env is loaded for every subcommand so that HIVE_DEV_HOST / HIVE_DEV_PORT
+# set there move Vite for start, status and login alike (start refuses to
+# run without the file; the other subcommands fall back to the defaults).
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+VITE_HOST=${HIVE_DEV_HOST:-localhost}
+VITE_PORT=${HIVE_DEV_PORT:-5173}
+# The URL a browser opens: 0.0.0.0 is a bind address, not an address to
+# visit, so a stack reached from another machine states HIVE_PUBLIC_URL.
+VITE_URL=${HIVE_PUBLIC_URL:-http://localhost:$VITE_PORT}
 
 # The API entry point: an existing tox or venv install if there is one,
 # else a .tox/dev virtualenv is created.
@@ -97,10 +114,6 @@ start_services() {
   fi
   venv
   docker compose up -d redis
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
   if alive api; then
     echo "API already running (pid $(cat "$RUN/api.pid"))"
   else
@@ -109,7 +122,7 @@ start_services() {
   if alive vite; then
     echo "Vite already running (pid $(cat "$RUN/vite.pid"))"
   else
-    spawn vite bash -c "cd frontend && exec pnpm dev"
+    spawn vite bash -c "cd frontend && exec pnpm dev --host $VITE_HOST --port $VITE_PORT"
   fi
   if ! wait_http "http://127.0.0.1:$API_PORT/healthz" 60; then
     echo "the API did not come up; see $RUN/api.log" >&2
@@ -139,7 +152,7 @@ status() {
   done
   echo "redis: $(docker compose ps -a --format '{{.State}}' redis 2>/dev/null || echo unknown)"
   echo "API    http://127.0.0.1:$API_PORT  $(curl -s "http://127.0.0.1:$API_PORT/readyz" || echo "(not answering)")"
-  echo "Vite   http://localhost:$VITE_PORT  HTTP $(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$VITE_PORT/" || true)"
+  echo "Vite   $VITE_URL  HTTP $(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$VITE_PORT/" || true)"
   if alive login; then
     echo "login: one-shot page waiting at $(grep -m 1 "^http://127.0.0.1:$LOGIN_PORT" "$RUN/login.log" || echo '(starting)')"
   fi
