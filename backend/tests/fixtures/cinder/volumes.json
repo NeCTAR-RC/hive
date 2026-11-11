@@ -1,0 +1,37 @@
+[
+  {
+    "id": "vol-1",
+    "name": "data",
+    "description": "scratch",
+    "size": 20,
+    "status": "in-use",
+    "volume_type": "standard",
+    "availability_zone": "melbourne-qh2",
+    "bootable": "false",
+    "encrypted": false,
+    "attachments": [
+      {
+        "attachment_id": "att-1",
+        "server_id": "srv-1",
+        "device": "/dev/vdb",
+        "attached_at": "2026-10-01T00:00:00Z"
+      }
+    ],
+    "created_at": "2026-09-01T00:00:00Z",
+    "metadata": {}
+  },
+  {
+    "id": "vol-2",
+    "name": "boot",
+    "size": 30,
+    "status": "available",
+    "volume_type": "qh2-ssd",
+    "availability_zone": "melbourne-qh2",
+    "bootable": "true",
+    "attachments": [],
+    "volume_image_metadata": {
+      "image_id": "img-ubuntu",
+      "image_name": "Ubuntu 24.04"
+    }
+  }
+]

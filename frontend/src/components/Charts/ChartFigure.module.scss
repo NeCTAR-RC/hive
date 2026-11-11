@@ -1,5 +1,6 @@
-@use "mixins" as *;
-
+/// A chart with its caption row (gap "Charts"): caption row and chart 8px
+/// apart, the design system's small step (DERIVED-SPACING, 8px). Own
+/// decision.
 .figure {
   display: flex;
   flex-direction: column;
@@ -8,6 +9,8 @@
   min-width: 0;
 }
 
+/// The caption with the "View as table" button at the end, 8px apart when
+/// they wrap (gap "Charts"). Own decision.
 .head {
   display: flex;
   flex-wrap: wrap;
@@ -16,45 +19,36 @@
   gap: var(--hive-space-2);
 }
 
+/// Body/16/Bold in Grey-900, the Info - Sidebar title (sidebar-blocks spec,
+/// line 154), as a chart names itself inside a block.
 .caption {
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-text-heading);
 }
 
+/// The chart fills the block's width and may shrink in a grid track (gap
+/// "Charts").
 .chart {
   width: 100%;
   min-width: 0;
 }
 
+/// The table view keeps the chart's height and scrolls inside it, so
+/// swapping views does not move the page.
 .tableWrap {
   overflow: auto;
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius);
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--hive-font-size-sm);
-
-  th,
-  td {
-    padding: var(--hive-space-1) var(--hive-space-2);
-    text-align: left;
-    border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
-  }
-
-  thead th {
-    position: sticky;
-    top: 0;
-    background: var(--hive-color-page);
-  }
-
-  tbody th {
-    font-weight: var(--hive-font-weight-normal);
-  }
-}
-
+/// Figures in the data table take tabular digits (gap "Numeric columns in a
+/// table").
 .numeric {
-  text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/// The table view's library `Pagination`, centred under the table as the
+/// pagination spec places it (gap "Table footer"); the figure's 8px gap
+/// sets it under the table.
+.pager {
+  display: flex;
+  justify-content: center;
 }

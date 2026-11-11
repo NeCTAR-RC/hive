@@ -1,0 +1,16 @@
+{
+  "id": 42,
+  "project_id": "p1",
+  "project_name": "pt-50",
+  "status": "A",
+  "start_date": "2026-01-01",
+  "end_date": "2026-12-31",
+  "bundle": "Silver",
+  "quotas": [
+    {
+      "zone": "nectar",
+      "resource": "rating.budget",
+      "quota": 3650
+    }
+  ]
+}

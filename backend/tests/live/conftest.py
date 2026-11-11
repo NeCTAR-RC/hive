@@ -8,29 +8,17 @@ against Keystone, manuka, langstroth and friends.
 
 import os
 from pathlib import Path
-import shlex
 
 import fakeredis.aioredis
 import httpx
 import pytest
 
 from hive.config import Settings
+from hive.devtools.cred import read_cred
 from hive.web.app import create_app
 
-
-def read_cred(path: str) -> dict:
-    values = {}
-    for raw in Path(path).read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :]
-        key, sep, value = line.partition("=")
-        if sep:
-            parts = shlex.split(value) if value else [""]
-            values[key.strip()] = parts[0] if parts else ""
-    return values
+# The Origin the live login posts from, standing in for manuka's.
+LIVE_ORIGIN = "https://accounts.live.test"
 
 
 @pytest.fixture(scope="session")
@@ -61,7 +49,7 @@ def live_settings(keystone_url):
         keystone_url=keystone_url,
         public_url=public,
         cookie_secure=False,
-        websso_allowed_origins=[],
+        websso_allowed_origins=[LIVE_ORIGIN],
         web_static=None,
         log_format="console",
         log_level="WARNING",
@@ -96,4 +84,4 @@ async def unscoped_token(live_app, cred):
         cred["OS_PASSWORD"],
         cred.get("OS_USER_DOMAIN_NAME", "Default"),
     )
-    return result.token
+    return result.token.get_secret_value()

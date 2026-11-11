@@ -1,6 +1,7 @@
 // The allocation burn-down: cumulative service units against a straight
-// guide from zero to the budget, as nectar_usage.js draws with Chart.js.
-// Loaded lazily through LazyBurnDownChart.
+// guide from zero to the budget, as nectar_usage.js draws with Chart.js on
+// a time axis with one tick per month. Loaded lazily through
+// LazyBurnDownChart.
 import {
   CartesianGrid,
   Legend,
@@ -11,8 +12,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDate, formatNumber } from "../../lib/format";
-import styles from "./DailyLineChart.module.scss";
+import { formatMonthYear, formatNumber } from "../../lib/format";
+import { ChartTooltip } from "./ChartTooltip";
+import {
+  axisProps,
+  CHART_MARGIN,
+  cursorProps,
+  GUIDE_DASH,
+  GUIDE_STROKE,
+  gridProps,
+  SERIES_STROKE,
+} from "./chartTheme";
+import { dayTime, monthTicks, timeDay } from "./timeAxis";
 
 export interface BurnDownChartProps {
   cumulative: { date: string; value: number | null }[];
@@ -21,36 +32,41 @@ export interface BurnDownChartProps {
   guideLabel: string;
 }
 
-const TICK = { fontSize: 12, fill: "var(--hive-color-text-muted)" };
-const AXIS = "var(--hive-color-rule)";
+interface BurnDownRow {
+  date: string;
+  /** The date's time, the x value: days without a point keep their room. */
+  time: number;
+  used?: number | null;
+  guide?: number;
+}
 
-const monthTick = new Intl.DateTimeFormat("en-AU", {
-  month: "short",
-  year: "2-digit",
-  timeZone: "UTC",
-});
-
-function BurnTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: { name?: string; value?: number | null }[];
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className={styles.tooltip}>
-      <div className={styles.tooltipDate}>{formatDate(label)}</div>
-      {payload.map((entry) =>
-        entry.value === null || entry.value === undefined ? null : (
-          <div key={entry.name}>
-            {entry.name}: {formatNumber(entry.value)}
-          </div>
-        ),
-      )}
-    </div>
+/**
+ * One row per date with both series, in date order; the guide is
+ * interpolated by Recharts between its two end points.
+ */
+function mergeSeries({
+  cumulative,
+  guide,
+}: Pick<BurnDownChartProps, "cumulative" | "guide">): BurnDownRow[] {
+  const byDate = new Map<string, BurnDownRow>();
+  for (const point of cumulative) {
+    byDate.set(point.date, {
+      date: point.date,
+      time: dayTime(point.date),
+      used: point.value,
+    });
+  }
+  for (const point of guide) {
+    byDate.set(point.date, {
+      ...byDate.get(point.date),
+      date: point.date,
+      time: dayTime(point.date),
+      guide: point.value,
+    });
+  }
+  // ISO dates sort correctly as plain strings.
+  return [...byDate.values()].sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
   );
 }
 
@@ -60,60 +76,38 @@ export default function BurnDownChart({
   usedLabel,
   guideLabel,
 }: BurnDownChartProps) {
-  // One row per date with both series; the guide is interpolated by
-  // Recharts between its two end points.
-  const byDate = new Map<
-    string,
-    { date: string; used?: number | null; guide?: number }
-  >();
-  for (const point of cumulative) {
-    byDate.set(point.date, { date: point.date, used: point.value });
-  }
-  for (const point of guide) {
-    byDate.set(point.date, {
-      ...byDate.get(point.date),
-      date: point.date,
-      guide: point.value,
-    });
-  }
-  const data = [...byDate.values()].sort((a, b) =>
-    a.date.localeCompare(b.date),
-  );
+  const axis = axisProps();
+  const rows = mergeSeries({ cumulative, guide });
+  const start = rows[0]?.time ?? Number.NaN;
+  const end = rows.at(-1)?.time ?? Number.NaN;
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart
-        data={data}
-        margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-        accessibilityLayer={false}
-      >
-        <CartesianGrid stroke={AXIS} strokeDasharray="3 3" vertical={false} />
+      <LineChart data={rows} margin={CHART_MARGIN} accessibilityLayer={false}>
+        <CartesianGrid {...gridProps} />
         <XAxis
-          dataKey="date"
-          tickFormatter={(value: string) => monthTick.format(new Date(value))}
-          minTickGap={40}
-          tick={TICK}
-          stroke={AXIS}
-          tickLine={false}
+          dataKey="time"
+          type="number"
+          scale="time"
+          domain={[start, end]}
+          ticks={monthTicks(start, end)}
+          tickFormatter={(time: number) => formatMonthYear(timeDay(time))}
+          minTickGap={24}
+          {...axis}
         />
         <YAxis
           width={56}
-          tick={TICK}
-          stroke={AXIS}
-          tickLine={false}
           axisLine={false}
           tickFormatter={(value: number) => formatNumber(value)}
+          {...axis}
         />
-        <Tooltip
-          content={<BurnTooltip />}
-          cursor={{ stroke: "var(--hive-chart-other)" }}
-        />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Tooltip content={<ChartTooltip />} cursor={cursorProps} />
+        <Legend wrapperStyle={{ fontSize: axis.tick.fontSize }} />
         <Line
           type="monotone"
           dataKey="guide"
           name={guideLabel}
-          stroke="var(--hive-chart-other)"
-          strokeDasharray="6 4"
+          stroke={GUIDE_STROKE}
+          strokeDasharray={GUIDE_DASH}
           strokeWidth={2}
           dot={false}
           connectNulls
@@ -123,7 +117,7 @@ export default function BurnDownChart({
           type="monotone"
           dataKey="used"
           name={usedLabel}
-          stroke="var(--hive-chart-1)"
+          stroke={SERIES_STROKE}
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}

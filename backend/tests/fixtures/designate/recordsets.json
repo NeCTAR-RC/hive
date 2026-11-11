@@ -1,0 +1,33 @@
+[
+  {
+    "id": "rs-soa",
+    "zone_id": "z-1",
+    "name": "example.com.",
+    "type": "SOA",
+    "records": [
+      "ns1. admin. 1 2 3 4 5"
+    ],
+    "status": "ACTIVE"
+  },
+  {
+    "id": "rs-ns",
+    "zone_id": "z-1",
+    "name": "example.com.",
+    "type": "NS",
+    "records": [
+      "ns1.example.net."
+    ],
+    "status": "ACTIVE"
+  },
+  {
+    "id": "rs-a",
+    "zone_id": "z-1",
+    "name": "www.example.com.",
+    "type": "A",
+    "records": [
+      "10.0.0.1"
+    ],
+    "status": "ACTIVE",
+    "ttl": 300
+  }
+]

@@ -4,6 +4,7 @@ from hive.clients.nectar import ManukaClient
 from hive.clients.openstack import KeystoneIdentityClient
 from hive.errors import BadRequest, Conflict, Forbidden, NotFound
 from hive.nectar import members as rules
+from hive.schemas.responses.identity import MemberRow, MembersResponse
 from hive.services.context import Context
 
 
@@ -17,16 +18,20 @@ def _choices(ctx: Context) -> list[dict]:
     )
 
 
-async def list_members(ctx: Context, current_user_id: str) -> dict:
+async def list_members(ctx: Context, current_user_id: str) -> MembersResponse:
     keystone = KeystoneIdentityClient(ctx.http, ctx.settings, ctx.scoped)
     assignments = await keystone.role_assignments(ctx.project_id)
-    return {
-        "items": rules.member_rows(assignments, current_user_id),
-        "roles": _choices(ctx),
-    }
+    return MembersResponse.model_validate(
+        {
+            "items": rules.member_rows(assignments, current_user_id),
+            "roles": _choices(ctx),
+        }
+    )
 
 
-async def add_member(ctx: Context, email: str, role_id: str) -> dict:
+async def add_member(
+    ctx: Context, current_user_id: str, email: str, role_id: str
+) -> MemberRow:
     """Resolve the account through manuka, then grant the role
     (``project_members/forms.py:47-69``)."""
     choices = _choices(ctx)
@@ -55,13 +60,15 @@ async def add_member(ctx: Context, email: str, role_id: str) -> dict:
     keystone = KeystoneIdentityClient(ctx.http, ctx.settings, ctx.scoped)
     await keystone.grant_project_role(ctx.project_id, user_id, role_id)
     role_name = next(c["name"] for c in choices if c["id"] == role_id)
-    return {
-        "id": f"{user_id}-{role_id}",
-        "user_id": user_id,
-        "name": user.get("name") or email,
-        "role_id": role_id,
-        "role_name": role_name,
-    }
+    return MemberRow.model_validate(
+        rules.member_row(
+            user_id,
+            user.get("name") or email,
+            role_id,
+            role_name,
+            current_user_id,
+        )
+    )
 
 
 async def remove_member(

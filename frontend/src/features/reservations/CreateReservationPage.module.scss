@@ -1,107 +1,165 @@
 @use "mixins" as *;
 
+/// The page intro under the title: Body/16 Grey-700 (typography spec, body
+/// text), no wider than span 9 of the grid (894px, the narrow single column;
+/// gap "Reading measure").
+.intro {
+  max-width: var(--hive-grid-span-9);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
+}
+
+/// The page's sections 32px apart (library `content-block-stack`).
 .stack {
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/// "Sidebar right" (layouts spec): the flavour classes beside the limits,
+/// the limits span 4 of the grid (the sidebar block's 384px), 24px apart;
+/// stacked until 1280px.
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+  align-items: start;
+
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
+  }
+}
+
+/// The side column's two blocks, 24px apart (grids spec, 24px gap).
+.aside {
+  display: grid;
+  gap: var(--hive-grid-gap);
+}
+
+/// A panel's parts (tabs, note, alert; toolbar, chart) 16px apart
+/// (DERIVED-SPACING, inter-field row gap).
+.panelBody {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-4);
 }
 
-.columns {
-  display: grid;
-  gap: var(--hive-space-4);
-  align-items: start;
-
-  @include up($bp-lg) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+/// A flavour class's heading over its text, 12px apart (library
+/// `content-block-intro`).
+.classBody {
+  @include content-block-intro;
 }
 
-.lead {
-  margin: 0 0 var(--hive-space-4);
-}
-
-.subheading {
-  margin: 0 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-lg);
-  font-weight: var(--hive-font-weight-semibold);
-}
-
+/// The class heading: Body/16/Bold Grey-900 (typography spec).
 .classHeading {
-  margin: var(--hive-space-3) 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-base);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-text-heading);
 }
 
+/// The class text: Body/16 Grey-700 (typography spec, body text).
 .classText {
-  margin: 0 0 var(--hive-space-3);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
 }
 
+/// The "Note" badge beside its sentence, 8px apart (DERIVED-SPACING, 8px).
 .note {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hive-space-2);
-  margin: var(--hive-space-3) 0 var(--hive-space-4);
 }
 
-.usage {
-  margin: 0;
+/// The limit meters, 16px apart (DERIVED-SPACING, inter-field row gap).
+.limits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
 }
 
+/// Text in a panel: Body/16 Grey-700 (typography spec, body text).
+.text {
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
+}
+
+/// The chart's filters in one wrapping row, 12px apart and start-aligned
+/// (gap "Table toolbar").
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
+  align-items: flex-end;
   gap: var(--hive-space-3);
-  margin: 0 0 var(--hive-space-4);
 }
 
+/// The class filter: its label 4px over the toggle group, as the library
+/// heads a field (text-input spec, Input Field with Labels).
 .field {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--hive-space-1);
 }
 
+/// The class filter's label: Body/16/Bold Grey-700, the library field label.
 .fieldLabel {
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
 }
 
+/// The zone select at a toolbar filter's width, span 3 of the grid.
 .zone {
-  min-width: 14rem;
+  min-width: var(--hive-toolbar-filter);
 }
 
+/// The feedback block at the CTA - Sidebar block's own width, span 4
+/// (sidebar-blocks spec, CTA-Sidebar, line 3: 384px).
 .feedback {
-  padding: var(--hive-space-6) var(--hive-space-4);
-  text-align: center;
-
-  h2 {
-    margin: 0 0 var(--hive-space-3);
-    font-size: var(--hive-font-size-xl);
-  }
-
-  p {
-    max-width: 40rem;
-    margin: 0 auto var(--hive-space-4);
-  }
+  max-width: var(--hive-grid-span-4);
 }
 
-/* reserve dialog */
+/// The block's text 24px above its button (CTA-Sidebar, line 3: the block
+/// gap); the title sits 8px above the text (the panel's own gap).
+.cta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-6);
+}
 
+/// The button keeps its own width ("Buttons_Chevron_Light BG", line 69).
+.action {
+  display: flex;
+  align-items: flex-start;
+}
+
+/// The reserve dialog's groups (the flavour, the dates beside the
+/// eligibility) 24px apart, without rules (DERIVED-SPACING, fieldset to
+/// fieldset).
+.reserve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-6);
+}
+
+/// The flavour's name over its details, 12px apart (library
+/// `content-block-intro`).
 .reserveHead {
-  margin: 0 0 var(--hive-space-4);
+  @include content-block-intro;
 }
 
+/// The flavour's name: Heading/H5 Grey-900 (typography spec).
 .reserveFlavor {
-  margin: 0 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-xl);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
 }
 
+/// The dates group beside the eligibility card from 768px, 24px apart
+/// (DERIVED-SPACING, fieldset to fieldset); stacked before.
 .reserveColumns {
   display: grid;
-  gap: var(--hive-space-4);
+  gap: var(--hive-space-6);
   align-items: start;
 
   @include up($bp-md) {
@@ -109,76 +167,55 @@
   }
 }
 
+/// A group's parts 16px apart (DERIVED-SPACING, inter-field row gap).
+.reserveGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+}
+
+/// A heading or figure with its line under it, 4px apart (the library
+/// field label to helper gap).
+.reserveIntro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+/// A group heading ("Confirm dates", "Eligibility status"): Heading/H5
+/// Grey-900 (typography spec), as dialog group headings are.
 .reserveHeading {
-  margin: 0 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--hive-color-text-muted);
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
 }
 
+/// Text in a group: Body/16 Grey-700 (typography spec, body text).
+.reserveText {
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
+}
+
+/// The reserved day count: Heading/H5 Grey-900 (typography spec).
 .reserveDays {
-  margin: var(--hive-space-3) 0 var(--hive-space-1);
-  font-size: var(--hive-font-size-lg);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
 }
 
-.reserveSu {
-  margin: 0 0 var(--hive-space-3);
-  color: var(--hive-color-text-muted);
-}
-
-.eligibility {
-  @include panel;
-
-  padding: var(--hive-space-4);
-  background: var(--hive-color-page);
-}
-
+/// A figure, its label and its meter, 8px apart (DERIVED-SPACING, 8px).
 .figure {
-  margin: 0 0 var(--hive-space-4);
-}
-
-.figureValue {
-  margin: 0;
-  font-size: var(--hive-font-size-3xl);
-  font-weight: var(--hive-font-weight-semibold);
-  line-height: 1.1;
-}
-
-.figureLabel {
-  margin: 0 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-muted);
-}
-
-.verdict {
-  text-align: center;
-
-  p {
-    margin: 0 0 var(--hive-space-2);
-  }
-}
-
-.eligible,
-.notEligible {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
   gap: var(--hive-space-2);
-  font-size: var(--hive-font-size-xl);
-  font-weight: var(--hive-font-weight-semibold);
-
-  svg {
-    width: 1.25rem;
-    height: 1.25rem;
-  }
 }
 
-.eligible {
-  color: var(--hive-color-success-strong);
+/// The figure ("9 / 20") in Heading/H3 Grey-900 (gap "Stat figure").
+.figureValue {
+  font: var(--hive-text-h3);
+  color: var(--hive-color-text-heading);
 }
 
-.notEligible {
-  color: var(--hive-color-danger-strong);
+/// The figure's label: Body/14 Grey-500, the library field helper style.
+.figureLabel {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
 }

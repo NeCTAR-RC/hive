@@ -16,6 +16,9 @@ the one whose ``tenant_id`` is the current project
 from datetime import date, datetime, time, UTC
 import json
 
+from hive.nectar.violation import RuleViolation
+from hive.times import today_utc
+
 EXPIRES_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 CREDENTIAL_TYPES = ("totp", "ec2", "cert")
 
@@ -53,13 +56,14 @@ def expires_at(
     day = (
         date.fromisoformat(expiration_date)
         if expiration_date
-        else (today or datetime.now(UTC).date())
+        else (today or today_utc())
     )
     clock = time.fromisoformat(expiration_time) if expiration_time else time()
     return datetime.combine(day, clock).strftime(EXPIRES_FORMAT)
 
 
 def roles_payload(names: list[str]) -> list[dict] | None:
+    """Roles by name, as Horizon sends them (``forms.py:110-115``)."""
     cleaned = [name for name in names if name]
     return [{"name": name} for name in cleaned] or None
 
@@ -71,11 +75,11 @@ def parse_access_rules(text: str | None) -> list[dict] | None:
     try:
         rules = json.loads(text)
     except ValueError as exc:
-        raise ValueError("Access rules must be a JSON list.") from exc
+        raise RuleViolation("Access rules must be a JSON list.") from exc
     if not isinstance(rules, list) or not all(
         isinstance(rule, dict) for rule in rules
     ):
-        raise ValueError("Access rules must be a JSON list of objects.")
+        raise RuleViolation("Access rules must be a JSON list of objects.")
     return rules
 
 
@@ -91,6 +95,7 @@ def application_credential_body(
     unrestricted: bool,
     today: date | None = None,
 ) -> dict:
+    """The create body (app credential ``forms.py:96-155``)."""
     body: dict = {"name": name, "unrestricted": bool(unrestricted)}
     if description:
         body["description"] = description
@@ -109,6 +114,7 @@ def application_credential_body(
 
 
 def ec2_for_project(credentials: list[dict], project_id: str) -> dict | None:
+    """The project's EC2 credential (api_access ``views.py:42-69``)."""
     for credential in credentials:
         if credential.get("tenant_id") == project_id:
             return credential

@@ -2,27 +2,34 @@
 // or one IP's rules when `?floating_ip=` is given (Horizon's "show" view).
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
-import type { PortForwarding } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useProjectId } from "../../../lib/useProject";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
+import type { PortForwarding } from "../../../lib/api/types/network";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { portForwardingsRoute } from "../../../app/router";
 import {
+  deletePortForwarding,
   floatingIpsQuery,
+  portForwardingWriteKeys,
   portForwardingsQuery,
-  useDeletePortForwardings,
 } from "../api";
-import { PortForwardingDialog } from "./FloatingIpDialogs";
-import styles from "./PortForwardingsPage.module.scss";
+import { PortForwardingDialog } from "./dialogs/PortForwardingDialog";
+import { portForwardingColumns } from "./portForwardingColumns";
+
+const portForwardingsRoute = getRouteApi("/app/network/port-forwardings");
+
+/** The rule dialog that is open: adding to the chosen IP, or editing. */
+type Dialog = { kind: "add" } | { kind: "edit"; rule: PortForwarding } | null;
+
+/** A rule as toasts name it: its external address and port. */
+const ruleName = (rule: PortForwarding) =>
+  `${rule.floating_ip_address}:${rule.external_port}`;
 
 const CRUMBS = [
   { label: "Project" },
@@ -30,31 +37,48 @@ const CRUMBS = [
   { label: "Floating IPs", href: "/network/floating-ips" },
 ];
 
+/**
+ * The port forwarding rules list, filtered by floating IP in the URL. Add
+ * rule waits for an unassociated IP to be chosen.
+ */
 export function PortForwardingsPage() {
   const projectId = useProjectId();
-  const search = portForwardingsRoute.useSearch();
-  const navigate = useNavigate({ from: portForwardingsRoute.fullPath });
-  const floatingIpId = search.floating_ip ?? "";
+  const search = useListSearch(portForwardingsRoute);
+  const floatingIpId = search.params.floating_ip ?? "";
   const rules = useQuery(
     portForwardingsQuery(projectId, floatingIpId || undefined),
   );
+  const table = useQueryTable(rules, {
+    noun: "port forwarding rules",
+    emptyTitle: "No port forwarding rules",
+    noMatchTitle: "No rules match",
+    search,
+    placeholder: "Search by address, port or description",
+    resetKey: floatingIpId,
+  });
   const fips = useQuery(floatingIpsQuery(projectId));
-  const remove = useDeletePortForwardings(projectId);
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<PortForwarding | null>(null);
-  const [removing, setRemoving] = useState<PortForwarding[] | null>(null);
-
-  const q = search.q ?? "";
-  const setSearch = (patch: { q?: string; floating_ip?: string }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        if (!next.floating_ip) delete next.floating_ip;
-        return next;
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const bulk = useBulkAction<PortForwarding, "delete">({
+    noun: { one: "port forwarding rule", many: "port forwarding rules" },
+    name: ruleName,
+    getId: (rule) => rule.id,
+    invalidates: portForwardingWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        // `eligible` lets through only rules that name their IP.
+        request: (rule) =>
+          deletePortForwarding(rule.floating_ip_id ?? "", rule.id),
+        eligible: (rule) => Boolean(rule.floating_ip_id),
+        skippedWhy: "they belong to no floating IP",
+        title: (rules) =>
+          rules.length === 1
+            ? "Delete this port forwarding rule?"
+            : `Delete ${rules.length} rules?`,
+        body: <p>This cannot be undone.</p>,
       },
-      replace: true,
-    });
+    },
+  });
 
   // Rules can only be added to IPs that are not associated with a port.
   const candidates = useMemo(
@@ -62,68 +86,6 @@ export function PortForwardingsPage() {
     [fips.data],
   );
   const selected = candidates.find((f) => f.id === floatingIpId);
-
-  const columns = useMemo<ColumnDef<PortForwarding>[]>(
-    () => [
-      {
-        id: "external",
-        label: "External",
-        isRowHeader: true,
-        cell: (row) => (
-          <code>
-            {row.floating_ip_address}:{row.external_port}
-          </code>
-        ),
-        sortValue: (row) => `${row.floating_ip_address} ${row.external_port}`,
-        textValue: (row) => `${row.floating_ip_address} ${row.external_port}`,
-      },
-      {
-        id: "protocol",
-        label: "Protocol",
-        cell: (row) => row.protocol.toUpperCase(),
-        sortValue: (row) => row.protocol,
-      },
-      {
-        id: "internal",
-        label: "Internal",
-        cell: (row) => (
-          <code>
-            {row.internal_ip_address}:{row.internal_port}
-          </code>
-        ),
-        textValue: (row) => `${row.internal_ip_address} ${row.internal_port}`,
-      },
-      {
-        id: "description",
-        label: "Description",
-        cell: (row) => row.description,
-        textValue: (row) => row.description,
-        hideBelow: "md",
-      },
-    ],
-    [],
-  );
-  const rows = useMemo(
-    () => filterRows(rules.data?.items ?? [], q, columns),
-    [rules.data, q, columns],
-  );
-  const confirmRemove = (targets: PortForwarding[]) => {
-    const requests = targets.flatMap((r) =>
-      r.floating_ip_id
-        ? [{ floatingIpId: r.floating_ip_id, ruleId: r.id }]
-        : [],
-    );
-    remove.mutate(requests, {
-      onSuccess: () => {
-        notify.success(
-          requests.length === 1
-            ? "Port forwarding rule deleted."
-            : `${requests.length} port forwarding rules deleted.`,
-        );
-        setRemoving(null);
-      },
-    });
-  };
 
   return (
     <>
@@ -138,7 +100,7 @@ export function PortForwardingsPage() {
           <Button
             variant="primary"
             size="sm"
-            onPress={() => setAdding(true)}
+            onPress={() => setDialog({ kind: "add" })}
             isDisabled={!selected}
           >
             Add rule
@@ -148,28 +110,17 @@ export function PortForwardingsPage() {
       <DataTable
         id="port-forwardings"
         label="Port forwarding rules"
-        columns={columns}
-        rows={rows}
+        columns={portForwardingColumns}
         getRowId={(row) => row.id}
-        isLoading={rules.isPending}
-        isFetching={rules.isFetching}
-        error={rules.error}
-        onRetry={() => void rules.refetch()}
-        onRefresh={() => void rules.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder: "Search by address, port or description",
-        }}
-        resetKey={`${q}|${floatingIpId}`}
+        {...table}
+        {...bulk.tableProps}
         filters={
           <Select
             aria-label="Floating IP"
             labelPosition="side"
-            className={styles.ipFilter}
             selectedKey={floatingIpId}
             onSelectionChange={(key: Key | null) =>
-              setSearch({ floating_ip: key === null ? "" : String(key) })
+              search.patch({ floating_ip: key === null ? "" : String(key) })
             }
           >
             <Label>Floating IP</Label>
@@ -187,11 +138,6 @@ export function PortForwardingsPage() {
             ))}
           </Select>
         }
-        emptyTitle={
-          rules.data && rules.data.items.length > 0
-            ? "No rules match"
-            : "No port forwarding rules"
-        }
         emptyBody={
           <p>
             A rule binds a port on an unassociated floating IP to a port on an
@@ -202,13 +148,13 @@ export function PortForwardingsPage() {
           {
             id: "edit",
             label: "Edit rule",
-            onAction: () => setEditing(row),
+            onAction: () => setDialog({ kind: "edit", rule: row }),
           },
           {
             id: "delete",
             label: "Delete rule",
             tone: "danger",
-            onAction: () => setRemoving([row]),
+            onAction: () => bulk.run("delete", [row]),
           },
         ]}
         batchActions={[
@@ -216,44 +162,27 @@ export function PortForwardingsPage() {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (chosen) => setRemoving(chosen),
+            onAction: (chosen) => bulk.run("delete", chosen),
           },
         ]}
       />
-      {adding && selected && (
+      {dialog?.kind === "add" && selected && (
         <PortForwardingDialog
-          projectId={projectId}
           floatingIp={selected}
-          onClose={() => setAdding(false)}
+          onClose={() => setDialog(null)}
         />
       )}
-      {editing && editing.floating_ip_id && (
+      {dialog?.kind === "edit" && dialog.rule.floating_ip_id && (
         <PortForwardingDialog
-          projectId={projectId}
           floatingIp={{
-            id: editing.floating_ip_id,
-            floating_ip_address: editing.floating_ip_address,
+            id: dialog.rule.floating_ip_id,
+            floating_ip_address: dialog.rule.floating_ip_address,
           }}
-          rule={editing}
-          onClose={() => setEditing(null)}
+          rule={dialog.rule}
+          onClose={() => setDialog(null)}
         />
       )}
-      <ConfirmDialog
-        isOpen={removing !== null}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        title={
-          removing && removing.length > 1
-            ? `Delete ${removing.length} rules?`
-            : "Delete this port forwarding rule?"
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        isPending={remove.isPending}
-        error={remove.error}
-        onConfirm={() => removing && confirmRemove(removing)}
-      >
-        <p>This cannot be undone.</p>
-      </ConfirmDialog>
+      {bulk.dialog}
     </>
   );
 }

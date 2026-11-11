@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnDef } from "./DataTable";
-import { filterRows } from "./filter";
+import { containsWords, filterRows, queryWords } from "./filter";
 
 interface Row {
   name: string;
@@ -40,5 +40,18 @@ describe("filterRows", () => {
 
   it("ignores columns without a text value", () => {
     expect(filterRows(rows, "secret", columns)).toHaveLength(0);
+  });
+});
+
+describe("queryWords and containsWords", () => {
+  it("splits a query into lower-cased words; a blank one has none", () => {
+    expect(queryWords("  Web  DB ")).toEqual(["web", "db"]);
+    expect(queryWords("   ")).toEqual([]);
+  });
+
+  it("matches text holding every word, in any case and order", () => {
+    expect(containsWords("Web server default", ["default", "web"])).toBe(true);
+    expect(containsWords("Web server", ["web", "db"])).toBe(false);
+    expect(containsWords("anything", [])).toBe(true);
   });
 });

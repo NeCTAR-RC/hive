@@ -7,32 +7,21 @@ result ``partial`` rather than failing the whole page; partial results are
 not cached so the next request retries.
 """
 
-from fastapi import Response
-import httpx
-
-from hive.cache.redis import Cache, CacheResult
+from hive.cache import policy
+from hive.cache.redis import CacheResult
 from hive.clients.nectar import AllocationsClient, CloudKittyClient
-from hive.config import Settings
 from hive.errors import HiveError
 from hive.nectar import allocation as rules
-from hive.session.model import ScopedToken
-
-TTL = 600
-STALE_TTL = 7200
-
-
-def apply_cache_headers(response: Response, result: CacheResult) -> None:
-    response.headers["X-Hive-Cache"] = result.state
+from hive.services.context import Context
 
 
 def _error(source: str, exc: HiveError) -> dict:
     return {"source": source, "error": exc.code, "message": exc.message}
 
 
-async def fetch_allocation_summary(
-    http: httpx.AsyncClient, settings: Settings, scoped: ScopedToken
-) -> dict:
-    project = scoped.project
+async def fetch_allocation_summary(ctx: Context) -> dict:
+    settings = ctx.settings
+    project = ctx.scoped.project
     result: dict = {
         "allocation": None,
         "su_budget": None,
@@ -50,7 +39,7 @@ async def fetch_allocation_summary(
     }
     allocation = None
     try:
-        client = AllocationsClient(http, settings, scoped)
+        client = AllocationsClient(ctx.http, settings, ctx.scoped)
         base = {"project_id": project.id, "status": rules.APPROVED}
         rows = await client.allocations(**base, parent_request__isnull="True")
         allocation = rules.pick_current(rows)
@@ -72,9 +61,9 @@ async def fetch_allocation_summary(
     end = allocation.get("end_date")
     if begin and end:
         try:
-            usage = await CloudKittyClient(http, settings, scoped).summary(
-                begin, end
-            )
+            usage = await CloudKittyClient(
+                ctx.http, settings, ctx.scoped
+            ).summary(begin, end)
             rows = (usage or {}).get("results") or []
             rate = rows[0].get("rate", 0) if rows else 0
             result["su_used"] = round(float(rate or 0), 2)
@@ -85,24 +74,16 @@ async def fetch_allocation_summary(
 
 
 async def allocation_summary(
-    http: httpx.AsyncClient,
-    settings: Settings,
-    cache: Cache,
-    scoped: ScopedToken,
-    refresh: bool = False,
+    ctx: Context, refresh: bool = False
 ) -> CacheResult:
-    key = cache.project_key(scoped.project.id, "allocation")
     if refresh:
-        await cache.invalidate(key)
+        await ctx.forget(policy.ALLOCATION)
 
     async def fetch():
-        return await fetch_allocation_summary(http, settings, scoped)
+        return await fetch_allocation_summary(ctx)
 
-    return await cache.get_or_fetch(
-        key,
+    return await ctx.cached(
+        policy.ALLOCATION,
         fetch,
-        ttl=TTL,
-        stale_ttl=STALE_TTL,
-        name="allocation",
         should_cache=lambda value: not value.get("partial"),
     )

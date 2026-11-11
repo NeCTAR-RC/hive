@@ -1,0 +1,40 @@
+---
+features:
+  - |
+    Volumes can be transferred to another project: Create transfer shows
+    the transfer ID and authorisation key once, Cancel transfer
+    withdraws it, and Accept transfer on the Volumes page takes a volume
+    another project offers (greyed out when the volume quota is used
+    up). New endpoints ``POST`` and ``DELETE
+    /api/volumes/{volume_id}/transfer`` and ``POST
+    /api/volumes/transfers/accept`` use Cinder's ``/volume-transfers``
+    API.
+  - |
+    Change volume type (``POST /api/volumes/{volume_id}/retype``) offers
+    the other types that serve the volume's availability zone and the
+    migration policy; the backend refuses the current type and a type
+    limited to other zones.
+  - |
+    Update metadata edits a volume's or a volume snapshot's metadata as
+    key and value rows (``PUT /api/volumes/{volume_id}/metadata`` and
+    ``PUT /api/volumes/snapshots/{snapshot_id}/metadata``), and the
+    snapshot detail page lists its metadata.
+  - |
+    A volume in an error status shows Cinder's latest user message under
+    its title, as the instance page shows a fault (the volume detail
+    reply carries it as ``fault``). The volume, snapshot and backup
+    detail pages show the status under the title.
+fixes:
+  - |
+    When the wizard is launched from a volume, a note under the zone
+    field names the volume's zone and says that a volume boots only in
+    its own zone.
+  - |
+    Create volume from a snapshot opens over the page it was started
+    from, so Cancel stays there. The create dialog still opens from
+    ``/storage/volumes?create=true`` with ``image``, ``snapshot`` or
+    ``volume`` naming the source.
+  - |
+    Manage attachments warns to unmount the file system before a detach
+    and stays open after it, so the volume can be attached to another
+    instance once it is free.

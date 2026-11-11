@@ -1,23 +1,57 @@
-// Launch wizard rules shared by the page, its steps and their tests. The
-// defaults follow Horizon's launch dialog (launch-instance-model.service.js
-// onGetNetworks, Gerrit change 71399): the classic network is preselected
-// when it is offered, otherwise a network is preselected only when it is
-// the sole choice.
+// Pure rules of the launch wizard: the source deep link, Nectar's network
+// default, the source list each boot source type offers and what an empty
+// one says, the flavours too small for an image, the quota a launch needs,
+// the smallest new boot volume and the types it can take, and the user
+// data size limit. The flavour classes live in launchFlavors.ts.
 import type {
   ComputeLimits,
   Flavor,
-  FlavorClass,
   Image,
   LaunchOptions,
   LaunchSourceType,
-  LaunchVolume,
-  Network,
-  Reservation,
-} from "../../../lib/api/types";
+} from "../../../lib/api/types/compute";
+import type { Network } from "../../../lib/api/types/network";
+import type { VolumeType } from "../../../lib/api/types/volumes";
 import { formatBytes, formatGb, formatMb } from "../../../lib/format";
+import { quotaPair, type QuotaPair } from "../../../lib/quota";
 
-export const GIB = 1024 ** 3;
+/**
+ * The boot source a deep link names (`?source=<type>:<id>`, as the image
+ * and volume pages link to the wizard), or null when the value is missing
+ * or not a known type with an id.
+ */
+export function parseSource(
+  value: string | undefined,
+): { type: LaunchSourceType; id: string } | null {
+  if (!value) return null;
+  const [type, id] = value.split(":", 2);
+  if (!id) return null;
+  if (!["image", "snapshot", "volume", "volume_snapshot"].includes(type ?? ""))
+    return null;
+  return { type: type as LaunchSourceType, id };
+}
 
+/**
+ * The note under the zone field while the chosen source is a volume: the
+ * zone it lives in, which is the only zone it can boot an instance in.
+ */
+export function volumeZoneNote(
+  options: Pick<LaunchOptions, "volumes">,
+  type: LaunchSourceType,
+  id: string,
+): string | null {
+  if (type !== "volume") return null;
+  const volume = options.volumes?.find((v) => v.id === id);
+  if (!volume?.availability_zone) return null;
+  return `The volume ${volume.name} is in ${volume.availability_zone}, and a volume can only boot an instance in its own zone.`;
+}
+
+/**
+ * The networks preselected when the wizard opens, as Horizon's launch dialog
+ * applies them (launch-instance-model.service.js onGetNetworks, Gerrit change
+ * 71399): the classic network when it is offered, otherwise a network only
+ * when it is the sole choice.
+ */
 export function defaultNetworkIds(
   networks: Pick<Network, "id" | "is_classic">[] | null | undefined,
 ): string[] {
@@ -29,184 +63,41 @@ export function defaultNetworkIds(
 }
 
 /**
- * Why a flavour cannot be launched within the project's compute quota, or
- * null when it fits. Horizon's flavour step greys out a flavour whose cores
- * or RAM times the instance count exceed what is left
- * (launch-instance/flavor/flavor.controller.js getErrorMessages). An
- * unlimited (negative) or unreported limit never blocks.
+ * The chosen networks in the order the form keeps them, which is the
+ * instance's interface order, each with its name; a network the options do
+ * not list keeps its id as its name, so reordering never drops it.
  */
-export function flavorQuotaProblem(
-  flavor: { vcpus: number | null; ram_mb: number | null },
-  limits: ComputeLimits | null | undefined,
-  count: number,
-): string | null {
-  const instances = Number.isFinite(count) && count > 0 ? count : 1;
-  const left = (max: number | undefined, used: number | undefined) =>
-    max === undefined || max < 0 ? Infinity : max - (used ?? 0);
-  const cores = left(limits?.maxTotalCores, limits?.totalCoresUsed);
-  if ((flavor.vcpus ?? 0) * instances > cores) {
-    return "Needs more vCPUs than your quota has left";
-  }
-  const ram = left(limits?.maxTotalRAMSize, limits?.totalRAMUsed);
-  if ((flavor.ram_mb ?? 0) * instances > ram) {
-    return "Needs more RAM than your quota has left";
-  }
-  return null;
+export function chosenNetworks(
+  networks: Pick<Network, "id" | "name" | "is_classic">[] | null | undefined,
+  ids: string[],
+): { id: string; name: string; isClassic: boolean }[] {
+  return ids.map((id) => {
+    const network = networks?.find((n) => n.id === id);
+    return {
+      id,
+      name: network?.name ?? id,
+      isClassic: network?.is_classic ?? false,
+    };
+  });
 }
 
-/** The image or instance snapshot a source choice names, if any. */
-export function findImage(
-  data: LaunchOptions,
-  type: LaunchSourceType | undefined,
-  id: string | undefined,
-): Image | undefined {
-  if (!id || (type !== "image" && type !== "snapshot")) return undefined;
-  const list = (type === "image" ? data.images : data.snapshots) ?? [];
-  return list.find((image) => image.id === id);
-}
+/** The parts of the launch options the source step lists from. */
+export type SourceOptions = Pick<
+  LaunchOptions,
+  "images" | "snapshots" | "volumes" | "volume_snapshots"
+>;
 
-/**
- * The smallest volume an image can boot from, as Horizon's source step
- * floors it (source.controller.js checkVolumeForImage: the image rounded up
- * to whole gigabytes, or its min_disk, whichever is larger) and its flavour
- * watcher raises it (never below the flavour's root disk).
- */
-export function volumeSizeFloor(
-  image: Pick<Image, "size" | "min_disk"> | undefined,
-  flavor: Pick<Flavor, "disk_gb"> | undefined,
-): number {
-  const fromImage = image
-    ? Math.max(Math.ceil((image.size ?? 0) / GIB), image.min_disk ?? 0)
-    : 0;
-  const fromFlavor =
-    flavor?.disk_gb !== null && flavor?.disk_gb !== undefined
-      ? flavor.disk_gb
-      : 0;
-  return Math.max(1, fromImage, fromFlavor);
-}
-
-export const RESERVED_GROUP = "reserved";
-export const OTHER_GROUP = "other";
-
-/**
- * The class chooser group a flavour sits in. A reservation flavour is
- * grouped as reserved whatever class Blazar copied onto it from the
- * source flavour; a flavour with no class is "other".
- */
-export function flavorGroupId(
-  flavor: Pick<Flavor, "flavor_class" | "is_reservation">,
-): string {
-  if (flavor.is_reservation) return RESERVED_GROUP;
-  return flavor.flavor_class || OTHER_GROUP;
-}
-
-export interface FlavorGroup {
-  id: string;
-  title: string;
-  description: string | null;
-  count: number;
-}
-
-/**
- * The groups the flavour step offers: Reserved first when the project has
- * reservation flavours (a reservation hand-off lands there), then the
- * classes the backend describes in its order, then Other for flavours
- * with no class. Without the backend's class list the classes present are
- * offered under their raw names.
- */
-export function flavorGroups(
-  classes: FlavorClass[] | null | undefined,
-  flavors: Flavor[],
-): FlavorGroup[] {
-  const groups: FlavorGroup[] = [];
-  const reserved = flavors.filter((f) => f.is_reservation).length;
-  if (reserved) {
-    groups.push({
-      id: RESERVED_GROUP,
-      title: "Reserved",
-      description: "Flavours from your project's active reservations.",
-      count: reserved,
-    });
-  }
-  if (classes) {
-    groups.push(...classes.filter((c) => c.count > 0));
-  } else {
-    const counts = new Map<string, number>();
-    for (const flavor of flavors) {
-      if (flavor.is_reservation || !flavor.flavor_class) continue;
-      counts.set(
-        flavor.flavor_class,
-        (counts.get(flavor.flavor_class) ?? 0) + 1,
-      );
-    }
-    groups.push(
-      ...[...counts]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([id, count]) => ({ id, title: id, description: null, count })),
-    );
-  }
-  const other = flavors.filter(
-    (f) => !f.is_reservation && !f.flavor_class,
-  ).length;
-  if (other) {
-    groups.push({
-      id: OTHER_GROUP,
-      title: "Other",
-      description: null,
-      count: other,
-    });
-  }
-  return groups;
-}
-
-/**
- * The zone a launch is sent with: "" (the scheduler chooses, Horizon's
- * "Any Availability Zone") when none is chosen, and always "" for a
- * reservation flavour, whose reserved hosts decide where it runs. The
- * backend drops the zone for a reservation flavour as well.
- */
-export function launchZone(
-  flavors: Pick<Flavor, "id" | "is_reservation">[] | null | undefined,
-  flavorId: string,
-  zone: string,
-): string {
-  const flavor = flavors?.find((f) => f.id === flavorId);
-  return flavor?.is_reservation ? "" : zone;
-}
-
-/** The warre reservation a reservation flavour belongs to, if listed. */
-export function reservationForFlavor(
-  flavor: Pick<Flavor, "id" | "is_reservation">,
-  reservations: Reservation[] | undefined,
-): Reservation | undefined {
-  if (!flavor.is_reservation) return undefined;
-  return reservations?.find((r) => r.compute_flavor === flavor.id);
-}
-
-/**
- * How the wizard names a flavour: a reservation flavour by its warre
- * reservation's flavour and end date ("ardc.g3.xlarge reservation (until
- * 21 Oct 2026)") once the reservations list is available, otherwise the
- * nova name.
- */
-export function flavorDisplayName(
-  flavor: Pick<Flavor, "id" | "name" | "is_reservation">,
-  reservations: Reservation[] | undefined,
-  formatEnd: (value: string) => string,
-): string {
-  const reservation = reservationForFlavor(flavor, reservations);
-  if (!reservation) return flavor.name;
-  const until = reservation.end ? ` (until ${formatEnd(reservation.end)})` : "";
-  return `${reservation.flavor.name} reservation${until}`;
-}
-
+/** One row of the source step's radio list. */
 export interface SourceItem {
   id: string;
   name: string;
   meta: string;
+  /** Community images stay out of the list until the user searches. */
+  hiddenUntilSearch: boolean;
 }
 
-export function imageMeta(image: Image): string {
+/** A short "visibility, size, minimums" line for an image or snapshot. */
+function imageMeta(image: Image): string {
   const parts = [
     image.is_snapshot ? "snapshot" : image.visibility,
     formatBytes(image.size),
@@ -216,38 +107,299 @@ export function imageMeta(image: Image): string {
   return parts.filter(Boolean).join(", ");
 }
 
-export function volumeMeta(volume: LaunchVolume): string {
-  return `${formatGb(volume.size_gb)}${
-    volume.availability_zone ? `, ${volume.availability_zone}` : ""
-  }`;
+/** Images or snapshots as source rows, by name; `hidden` reads the flag. */
+function imageItems<T extends Image>(
+  images: T[],
+  hidden: (image: T) => boolean,
+): SourceItem[] {
+  return images
+    .map((image) => ({
+      id: image.id,
+      name: image.name ?? image.id,
+      meta: imageMeta(image),
+      hiddenUntilSearch: hidden(image),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The chosen source as the step and the summary name it. */
-export function findSourceItem(
-  data: LaunchOptions,
-  type: LaunchSourceType | undefined,
-  id: string | undefined,
-): SourceItem | undefined {
-  if (!id || !type) return undefined;
+/**
+ * Every source of a type that can boot in the chosen zone, before any
+ * search. Volumes are zone bound (Nova attaches them only in their own
+ * zone), so a volume shows when it has no zone or the wizard has none yet.
+ */
+function candidates(
+  options: SourceOptions,
+  type: LaunchSourceType,
+  zone: string,
+): SourceItem[] {
   switch (type) {
     case "image":
-    case "snapshot": {
-      const image = findImage(data, type, id);
-      return image
-        ? { id, name: image.name ?? image.id, meta: imageMeta(image) }
-        : undefined;
-    }
-    case "volume": {
-      const volume = (data.volumes ?? []).find((v) => v.id === id);
-      return volume
-        ? { id, name: volume.name, meta: volumeMeta(volume) }
-        : undefined;
-    }
-    default: {
-      const snapshot = (data.volume_snapshots ?? []).find((s) => s.id === id);
-      return snapshot
-        ? { id, name: snapshot.name, meta: formatGb(snapshot.size_gb) }
-        : undefined;
-    }
+      return imageItems(
+        options.images ?? [],
+        (image) => image.hidden_until_search,
+      );
+    case "snapshot":
+      return imageItems(options.snapshots ?? [], () => false);
+    case "volume":
+      return (options.volumes ?? [])
+        .filter(
+          (volume) =>
+            !zone ||
+            !volume.availability_zone ||
+            volume.availability_zone === zone,
+        )
+        .map((volume) => ({
+          id: volume.id,
+          name: volume.name,
+          meta: `${formatGb(volume.size_gb)}${volume.availability_zone ? `, ${volume.availability_zone}` : ""}`,
+          hiddenUntilSearch: false,
+        }));
+    case "volume_snapshot":
+      return (options.volume_snapshots ?? []).map((snapshot) => ({
+        id: snapshot.id,
+        name: snapshot.name,
+        meta: formatGb(snapshot.size_gb),
+        hiddenUntilSearch: false,
+      }));
   }
+}
+
+/**
+ * The sources the source step lists for a type, zone and search text:
+ * names matching the search (case-insensitive), with community images
+ * hidden until there is a search, as Horizon's source step does. The
+ * chosen source stays listed whatever the search shows, so its checked
+ * radio is never hidden; a volume outside the zone is still left out.
+ */
+export function sourceItems(
+  options: SourceOptions,
+  type: LaunchSourceType,
+  zone: string,
+  search: string,
+  chosenId: string,
+): SourceItem[] {
+  const needle = search.trim().toLowerCase();
+  return candidates(options, type, zone).filter(
+    (item) =>
+      item.id === chosenId ||
+      (needle
+        ? item.name.toLowerCase().includes(needle)
+        : !item.hiddenUntilSearch),
+  );
+}
+
+/**
+ * The chosen source as the source step's "Selected" line and the summary
+ * name it, whatever zone it is in, or undefined when none is chosen or the
+ * options do not list it.
+ */
+export function findSourceItem(
+  options: SourceOptions,
+  type: LaunchSourceType,
+  id: string,
+): SourceItem | undefined {
+  if (!id) return undefined;
+  return candidates(options, type, "").find((item) => item.id === id);
+}
+
+/**
+ * Whether the chosen source is one the wizard offers for the chosen type
+ * and zone. A source chosen under another type or zone is not, and
+ * launching with it would boot the wrong thing or be rejected by Nova.
+ */
+export function isSourceOffered(
+  options: SourceOptions,
+  type: LaunchSourceType,
+  zone: string,
+  id: string,
+): boolean {
+  return candidates(options, type, zone).some((item) => item.id === id);
+}
+
+/**
+ * What the source list says when it lists nothing: the search matched
+ * nothing, or the project has no source of the type. Volumes boot only in
+ * their own zone, so an empty volume list in a chosen zone says so.
+ */
+export function emptySourceText(
+  type: LaunchSourceType,
+  zone: string,
+  search: string,
+): string {
+  if (search.trim()) return "Nothing matches your search.";
+  switch (type) {
+    case "image":
+      return "No images are available to this project.";
+    case "snapshot":
+      return "This project has no instance snapshots.";
+    case "volume":
+      return zone
+        ? `No bootable volumes in ${zone}. A volume boots an instance only in its own zone: choose another zone on the Details step, or make a volume in ${zone} bootable.`
+        : "This project has no bootable volumes. A volume must be available and marked bootable.";
+    case "volume_snapshot":
+      return "This project has no volume snapshots.";
+  }
+}
+
+/** The figures under a limit, as "8 of 32 in use". */
+function inUse(
+  { used, max }: QuotaPair,
+  format: (value: number) => string = String,
+): string {
+  return `${format(used)} of ${max === null ? "unlimited" : format(max)} in use`;
+}
+
+/** How much of a quota is left, or null when it is unlimited. */
+function left({ used, max }: QuotaPair): number | null {
+  return max === null ? null : Math.max(0, max - used);
+}
+
+/**
+ * Why the project cannot launch `count` more instances, or null when it
+ * can (or the quota is unlimited or unknown).
+ */
+export function instanceQuotaProblem(
+  limits: ComputeLimits | null | undefined,
+  count: number,
+): string | null {
+  const instances = quotaPair(
+    limits,
+    "maxTotalInstances",
+    "totalInstancesUsed",
+  );
+  const room = left(instances);
+  if (room === null || count <= room) return null;
+  return room === 0
+    ? `Your project has no room for another instance (${inUse(instances)}). Free up quota first.`
+    : `Your project can launch ${room} more ${room === 1 ? "instance" : "instances"} (${inUse(instances)}). Reduce the count or free up quota.`;
+}
+
+/**
+ * Why `count` instances of `flavor` do not fit the project's vCPU or RAM
+ * quota, or null when they fit (or the quota is unlimited or unknown), as
+ * Horizon's flavour step flags a flavour over quota.
+ */
+export function flavorQuotaProblem(
+  limits: ComputeLimits | null | undefined,
+  flavor: Pick<Flavor, "vcpus" | "ram_mb">,
+  count: number,
+): string | null {
+  const many =
+    count > 1
+      ? `${count} instances of this flavour need`
+      : "This flavour needs";
+  const cores = quotaPair(limits, "maxTotalCores", "totalCoresUsed");
+  const coresLeft = left(cores);
+  const vcpus = (flavor.vcpus ?? 0) * count;
+  if (coresLeft !== null && vcpus > coresLeft) {
+    return `${many} ${vcpus} vCPUs; your project has ${coresLeft} left (${inUse(cores)}).`;
+  }
+  const ram = quotaPair(limits, "maxTotalRAMSize", "totalRAMUsed");
+  const ramLeft = left(ram);
+  const mb = (flavor.ram_mb ?? 0) * count;
+  if (ramLeft !== null && mb > ramLeft) {
+    return `${many} ${formatMb(mb)} of RAM; your project has ${formatMb(ramLeft)} left (${inUse(ram, formatMb)}).`;
+  }
+  return null;
+}
+
+/** Bytes in a gigabyte, as Glance and Horizon count image sizes. */
+const GIB = 1024 ** 3;
+
+/**
+ * The smallest new volume an image or snapshot needs, in GB: its size
+ * rounded up, or its minimum disk when larger (Horizon's source step,
+ * checkVolumeForImage; the backend checks the same).
+ */
+function imageVolumeFloor(
+  image: Pick<Image, "size" | "min_disk"> | undefined,
+): number {
+  const sizeGb = Math.ceil((image?.size ?? 0) / GIB);
+  return Math.max(sizeGb, image?.min_disk ?? 0, 1);
+}
+
+/**
+ * The smallest new boot volume, in GB: what the image needs, raised to the
+ * chosen flavour's root disk, as Horizon's source step raises the size when
+ * the flavour changes (source.controller.js, its flavour watcher).
+ */
+export function volumeSizeFloor(
+  image: Pick<Image, "size" | "min_disk"> | undefined,
+  flavor: Pick<Flavor, "disk_gb"> | undefined,
+): number {
+  return Math.max(imageVolumeFloor(image), flavor?.disk_gb ?? 0);
+}
+
+/**
+ * The new volume's size field description: the floor, and when the
+ * flavour's root disk raises it, both reasons.
+ */
+export function volumeSizeNote(
+  image: Pick<Image, "size" | "min_disk"> | undefined,
+  flavor: Pick<Flavor, "name" | "disk_gb"> | undefined,
+): string {
+  const fromImage = imageVolumeFloor(image);
+  const floor = volumeSizeFloor(image, flavor);
+  if (!flavor?.disk_gb) return `At least ${floor} GB for this source.`;
+  return `At least ${floor} GB: the source needs ${fromImage} GB and the ${flavor.name} flavour's root disk is ${flavor.disk_gb} GB.`;
+}
+
+/**
+ * The volume types a new boot volume can take in a zone: every type, or
+ * when types name zones, those serving the zone. The same rule as the
+ * volume panels' `typesForZone` (features/volumes/volumes/rules.ts), over
+ * the launch options.
+ */
+export function volumeTypesForZone(
+  options: Pick<LaunchOptions, "volume_types" | "has_zoned_types">,
+  zone: string,
+): VolumeType[] {
+  const types = options.volume_types ?? [];
+  if (!options.has_zoned_types) return types;
+  return types.filter((t) => !t.zones || t.zones.includes(zone));
+}
+
+/**
+ * Why a flavour is too small for the chosen image or snapshot, or null when
+ * it fits (or no image is chosen). A flavour with no root disk boots from a
+ * volume, and so does any flavour when a new volume is chosen: then only
+ * its RAM is checked against the image's minimum.
+ */
+export function flavorTooSmall(
+  flavor: Pick<Flavor, "disk_gb" | "ram_mb">,
+  image: Pick<Image, "min_disk" | "min_ram"> | undefined,
+  newVolume: boolean,
+): string | null {
+  if (!image) return null;
+  if (
+    !newVolume &&
+    image.min_disk &&
+    flavor.disk_gb !== null &&
+    flavor.disk_gb > 0 &&
+    flavor.disk_gb < image.min_disk
+  ) {
+    return `Disk is smaller than the image's minimum (${image.min_disk} GB)`;
+  }
+  if (
+    image.min_ram &&
+    flavor.ram_mb !== null &&
+    flavor.ram_mb < image.min_ram
+  ) {
+    return `RAM is below the image's minimum (${formatMb(image.min_ram)})`;
+  }
+  return null;
+}
+
+/** Nova's limit on the base64-encoded user data, in characters. */
+const USER_DATA_ENCODED_LIMIT = 65535;
+
+/**
+ * Whether a customisation script is over Nova's user data limit. The
+ * backend sends the script's UTF-8 bytes base64 encoded
+ * (backend/hive/services/compute.py, launch), and Nova caps that encoding
+ * at 65535 characters, so the script itself may hold at most 49149 bytes.
+ */
+export function userDataTooLarge(script: string): boolean {
+  const bytes = new TextEncoder().encode(script).length;
+  return 4 * Math.ceil(bytes / 3) > USER_DATA_ENCODED_LIMIT;
 }

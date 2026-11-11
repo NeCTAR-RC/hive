@@ -1,79 +1,65 @@
-// Backup row actions behind one hook, as useVolumeActions.
+// Every volume backup action behind one hook, as useVolumeActions:
+// `run(action, backups)` runs the delete on the batch after asking, or
+// opens the restore dialog.
 import { useState, type ReactNode } from "react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import type { VolumeBackup } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useDeleteBackups } from "../api";
-import type { BackupActionId } from "../status";
-import { RestoreBackupDialog } from "./RestoreBackupDialog";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { allows } from "../../../lib/actions";
+import type { VolumeBackup } from "../../../lib/api/types/volumes";
+import { backupWriteKeys, deleteBackup } from "../api";
+import { availableBackupActions, type BackupActionId } from "../status";
+import { RestoreBackupDialog } from "./dialogs/RestoreBackupDialog";
 
-type Dialog =
-  | { kind: "delete"; backups: VolumeBackup[] }
-  | { kind: "restore"; backup: VolumeBackup }
-  | null;
+const getId = (backup: VolumeBackup) => backup.id;
+const getName = (backup: VolumeBackup) => backup.name || backup.id;
 
-export function useBackupActions(projectId: string): {
-  run: (backup: VolumeBackup, action: BackupActionId) => void;
-  runDelete: (backups: VolumeBackup[]) => void;
-  dialogs: ReactNode;
-} {
-  const remove = useDeleteBackups(projectId);
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const close = () => setDialog(null);
+/**
+ * The backup actions for a list and a detail page alike. Delete runs on a
+ * batch, skipping the backups Horizon would not delete now; restore works
+ * on the first backup given.
+ */
+export function useBackupActions() {
+  const [restoring, setRestoring] = useState<VolumeBackup | null>(null);
+  const bulk = useBulkAction<VolumeBackup, "delete">({
+    noun: { one: "backup", many: "backups" },
+    name: getName,
+    getId,
+    invalidates: backupWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        body: <p>Deleted volume backups are not recoverable.</p>,
+        eligible: (backup) => allows(availableBackupActions(backup), "delete"),
+        request: (backup) => deleteBackup(backup.id),
+      },
+    },
+  });
 
-  const run = (backup: VolumeBackup, action: BackupActionId) => {
-    if (action === "delete") setDialog({ kind: "delete", backups: [backup] });
-    else setDialog({ kind: "restore", backup });
+  const run = (action: BackupActionId, backups: VolumeBackup[]) => {
+    const [first] = backups;
+    if (!first) return;
+    if (action === "delete") bulk.run("delete", backups);
+    else setRestoring(first);
   };
 
-  let dialogs: ReactNode = null;
-  if (dialog?.kind === "delete") {
-    const { backups } = dialog;
-    dialogs = (
-      <ConfirmDialog
-        isOpen
-        onOpenChange={(open) => !open && close()}
-        title={
-          backups.length === 1
-            ? `Delete backup ${backups[0]?.name || backups[0]?.id}?`
-            : `Delete ${backups.length} backups?`
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        isPending={remove.isPending}
-        error={remove.error}
-        onConfirm={() =>
-          remove.mutate(
-            backups.map((b) => b.id),
-            {
-              onSuccess: () => {
-                notify.success(
-                  backups.length === 1
-                    ? `Deleting backup ${backups[0]?.name || backups[0]?.id}.`
-                    : `Deleting ${backups.length} backups.`,
-                );
-                close();
-              },
-            },
-          )
-        }
-      >
-        <p>Deleted volume backups are not recoverable.</p>
-      </ConfirmDialog>
-    );
-  } else if (dialog?.kind === "restore") {
-    dialogs = (
+  let formDialog: ReactNode = null;
+  if (restoring) {
+    formDialog = (
       <RestoreBackupDialog
-        projectId={projectId}
-        backup={dialog.backup}
-        onClose={close}
+        backup={restoring}
+        onClose={() => setRestoring(null)}
       />
     );
   }
 
   return {
     run,
-    runDelete: (backups) => setDialog({ kind: "delete", backups }),
-    dialogs,
+    dialogs: (
+      <>
+        {formDialog}
+        {bulk.dialog}
+      </>
+    ),
+    tableProps: bulk.tableProps,
   };
 }

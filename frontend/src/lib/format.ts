@@ -1,4 +1,15 @@
-const LOCALE = "en-AU";
+/** The one locale every user-visible format and comparison uses. */
+export const LOCALE = "en-AU";
+
+/**
+ * Compares display text the way people read it: numbers inside strings by
+ * value ("vm-2" before "vm-10"), ignoring case and accents. One instance,
+ * because building a collator per comparison is the slow part of a sort.
+ */
+export const collator = new Intl.Collator(LOCALE, {
+  numeric: true,
+  sensitivity: "base",
+});
 
 const dateTime = new Intl.DateTimeFormat(LOCALE, {
   dateStyle: "medium",
@@ -42,17 +53,41 @@ const calendarDate = new Intl.DateTimeFormat(LOCALE, {
   timeZone: "UTC",
 });
 
-/** "9 Oct 2026" for a date-only value such as a usage bucket. */
+/**
+ * "9 Oct 2026" for a date-only value such as a usage bucket. Read as a UTC
+ * calendar day, so "2026-10-09" never shows as the 8th west of UTC.
+ */
 export function formatCalendarDate(value: string | null | undefined) {
   const date = parseDate(value);
   return date ? calendarDate.format(date) : "";
+}
+
+const monthYear = new Intl.DateTimeFormat(LOCALE, {
+  month: "short",
+  year: "2-digit",
+  timeZone: "UTC",
+});
+
+/** "Oct 26" for a month axis; ISO dates are read as UTC calendar days. */
+export function formatMonthYear(value: string | null | undefined) {
+  const date = parseDate(value);
+  return date ? monthYear.format(date) : "";
 }
 
 export function formatNumber(value: number | null | undefined) {
   return value === null || value === undefined ? "" : number.format(value);
 }
 
-/** "3 minutes ago" style wording for a past timestamp. */
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const MONTH = 30 * DAY;
+const YEAR = 365 * DAY;
+
+/**
+ * "3 minutes ago" style wording for a timestamp, in the largest unit that
+ * keeps the number small: "2 months ago" rather than "61 days ago".
+ */
 export function formatRelative(
   value: string | number | null | undefined,
   now = Date.now(),
@@ -61,10 +96,13 @@ export function formatRelative(
   if (!date) return "";
   const seconds = Math.round((date.getTime() - now) / 1000);
   const abs = Math.abs(seconds);
-  if (abs < 60) return relative.format(seconds, "second");
-  if (abs < 3600) return relative.format(Math.round(seconds / 60), "minute");
-  if (abs < 86400) return relative.format(Math.round(seconds / 3600), "hour");
-  return relative.format(Math.round(seconds / 86400), "day");
+  if (abs < MINUTE) return relative.format(seconds, "second");
+  if (abs < HOUR)
+    return relative.format(Math.round(seconds / MINUTE), "minute");
+  if (abs < DAY) return relative.format(Math.round(seconds / HOUR), "hour");
+  if (abs < MONTH) return relative.format(Math.round(seconds / DAY), "day");
+  if (abs < YEAR) return relative.format(Math.round(seconds / MONTH), "month");
+  return relative.format(Math.round(seconds / YEAR), "year");
 }
 
 /** SU figures use at most two decimals; -1 means unlimited. */
@@ -80,12 +118,23 @@ export function formatSuRate(rate: number | null | undefined) {
   return `${number.format(rate)} SU/hour`;
 }
 
-/** Megabytes as "512 MB" or "4 GB". */
+/**
+ * A value with its unit, as "50000 ms" or "5 s", written as the API sends
+ * it; empty when there is no value, so `KeyValueList` shows its dash.
+ */
+export function formatWithUnit(
+  value: number | string | null | undefined,
+  unit: string,
+) {
+  if (value === null || value === undefined || value === "") return "";
+  return `${String(value)} ${unit}`;
+}
+
+/** Megabytes as "512 MB", "4 GB" or "1.5 GB". */
 export function formatMb(mb: number | null | undefined) {
   if (mb === null || mb === undefined) return "";
-  if (mb >= 1024 && mb % 1024 === 0) return `${mb / 1024} GB`;
   if (mb >= 1024) return `${number.format(mb / 1024)} GB`;
-  return `${mb} MB`;
+  return `${number.format(mb)} MB`;
 }
 
 /** Gigabytes as "30 GB". */

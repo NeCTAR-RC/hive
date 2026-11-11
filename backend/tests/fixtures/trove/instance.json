@@ -1,0 +1,28 @@
+{
+  "id": "db-1",
+  "name": "appdb",
+  "status": "HEALTHY",
+  "datastore": {
+    "type": "mysql",
+    "version": "8.0"
+  },
+  "flavor": {
+    "id": "db3.small"
+  },
+  "volume": {
+    "size": 5,
+    "used": 1.5
+  },
+  "addresses": [
+    {
+      "type": "private",
+      "address": "10.0.0.7"
+    }
+  ],
+  "access": {
+    "allowed_cidrs": [
+      "0.0.0.0/0"
+    ]
+  },
+  "created": "2026-10-01T00:00:00"
+}

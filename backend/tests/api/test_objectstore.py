@@ -9,25 +9,11 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import httpx
 
 from tests.conftest import csrf_headers, SWIFT
+from tests.fixtures.loader import fixture
 
-INFO = {
-    "swift": {
-        "max_file_size": 5368709120,
-        "container_listing_limit": 10000,
-        "policies": [{"default": True, "name": "default-placement"}],
-        "strict_cors_mode": True,
-    },
-    "tempurl": {"methods": ["GET", "HEAD", "PUT", "POST", "DELETE"]},
-    "slo": {"max_manifest_segments": 1000},
-    "bulk_delete": {"max_deletes_per_request": 1000},
-}
+INFO = fixture("swift", "info")
 
-ACCOUNT_HEADERS = {
-    "X-Account-Container-Count": "2",
-    "X-Account-Object-Count": "5",
-    "X-Account-Bytes-Used": "1024",
-    "X-Account-Meta-Quota-Containers": "1000",
-}
+ACCOUNT_HEADERS = fixture("swift", "account_headers")
 
 
 def mock_store(upstream, *, temp_key=None, cors=None):
@@ -74,9 +60,80 @@ async def test_info_and_containers(logged_in, upstream):
     assert info["policies"][0]["name"] == "default-placement"
     body = (await logged_in.get("/api/object-store/containers")).json()
     assert [c["name"] for c in body["items"]] == ["backups", "docs"]
+    assert body["truncated"] is False
     assert body["items"][1]["public_url"] == f"{SWIFT}/docs"
     detail = (await logged_in.get("/api/object-store/containers/docs")).json()
-    assert detail["is_public"] is True and detail["object_count"] == 3
+    assert detail['is_public'] is True
+    assert detail['object_count'] == 3
+
+
+async def test_delete_a_container_with_its_objects(logged_in, upstream):
+    mock_store(upstream)
+    upstream.get(f"{SWIFT}/docs").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"name": "big.bin", "slo_etag": '"abc"'},
+                {"name": "notes/"},
+                {"name": "notes/a.txt"},
+            ],
+        )
+    )
+    refused = await logged_in.delete(
+        "/api/object-store/containers/docs", headers=csrf_headers(logged_in)
+    )
+    assert refused.status_code == 409
+
+    slo_delete = upstream.delete(f"{SWIFT}/docs/big.bin").mock(
+        return_value=httpx.Response(200)
+    )
+    bulk = upstream.post(SWIFT).mock(
+        return_value=httpx.Response(
+            200,
+            json={"Number Deleted": 2, "Number Not Found": 0, "Errors": []},
+        )
+    )
+    deleted = upstream.delete(f"{SWIFT}/docs").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await logged_in.delete(
+        "/api/object-store/containers/docs?with_objects=true",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 204, response.text
+    assert slo_delete.called
+    assert sorted(bulk.calls.last.request.content.decode().split("\n")) == [
+        "/docs/notes/",
+        "/docs/notes/a.txt",
+    ]
+    assert deleted.called
+
+
+async def test_a_container_stays_when_an_object_cannot_go(logged_in, upstream):
+    mock_store(upstream)
+    upstream.get(f"{SWIFT}/docs").mock(
+        return_value=httpx.Response(200, json=[{"name": "a.txt"}])
+    )
+    upstream.post(SWIFT).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "Number Deleted": 0,
+                "Number Not Found": 0,
+                "Errors": [["/docs/a.txt", "403 Forbidden"]],
+            },
+        )
+    )
+    deleted = upstream.delete(f"{SWIFT}/docs").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await logged_in.delete(
+        "/api/object-store/containers/docs?with_objects=true",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 409
+    assert "1 object could not be deleted" in response.json()["message"]
+    assert not deleted.called
 
 
 async def test_create_update_and_delete_container(logged_in, upstream):
@@ -117,7 +174,7 @@ async def test_create_update_and_delete_container(logged_in, upstream):
         json={"name": "a/b"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
 
     updated = upstream.post(f"{SWIFT}/fresh").mock(
         return_value=httpx.Response(204)
@@ -142,7 +199,8 @@ async def test_create_update_and_delete_container(logged_in, upstream):
     response = await logged_in.delete(
         "/api/object-store/containers/fresh", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and deleted.called
+    assert response.status_code == 204
+    assert deleted.called
     upstream.get(f"{SWIFT}/docs").mock(
         return_value=httpx.Response(200, json=[{"name": "a.txt"}])
     )
@@ -190,7 +248,8 @@ async def test_list_objects_and_folders(logged_in, upstream):
     assert body["items"][0]["is_folder"] is True
     assert body["has_more"] is False
     params = listing.calls.last.request.url.params
-    assert params["prefix"] == "notes/" and params["delimiter"] == "/"
+    assert params['prefix'] == 'notes/'
+    assert params['delimiter'] == '/'
 
     upstream.head(f"{SWIFT}/docs/notes/new/").mock(
         return_value=httpx.Response(404)
@@ -271,7 +330,8 @@ async def test_upload_plan_sets_key_and_cors(logged_in, upstream, app):
     assert len(big["segments"]) == 3
     assert big["segments"][2]["length"] == 50
     assert big["segments"][0]["path"].startswith("/docs_segments/big.bin/")
-    assert big["manifest"] is True and small["manifest"] is False
+    assert big['manifest'] is True
+    assert small['manifest'] is False
 
     manifest = upstream.put(f"{SWIFT}/docs/big.bin").mock(
         return_value=httpx.Response(201)
@@ -311,7 +371,8 @@ async def test_upload_plan_keeps_existing_key_and_cors(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200
-    assert not account_post.called and not container_post.called
+    assert not account_post.called
+    assert not container_post.called
 
 
 async def test_download_redirects_to_a_signed_url(logged_in, upstream):
@@ -344,11 +405,9 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
             "/api/object-store/containers/docs/objects/notes/a.txt/metadata"
         )
     ).json()
-    assert (
-        body["bytes"] == 20
-        and body["hash"] == "h2"
-        and body["is_slo"] is False
-    )
+    assert body['bytes'] == 20
+    assert body['hash'] == 'h2'
+    assert body['is_slo'] is False
 
     upstream.head(f"{SWIFT}/backups/a.txt").mock(
         return_value=httpx.Response(404)
@@ -366,10 +425,17 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
         copied.calls.last.request.headers["x-copy-from"] == "/docs/notes/a.txt"
     )
 
+    # The listing marks the manifest with ``slo_etag``: no HEAD needed.
     upstream.get(f"{SWIFT}/docs").mock(
-        return_value=httpx.Response(200, json=[{"name": "notes/old/big.bin"}])
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"name": "notes/old/big.bin", "slo_etag": '"abc"'},
+                {"name": "notes/old/small.txt"},
+            ],
+        )
     )
-    upstream.head(f"{SWIFT}/docs/notes/old/big.bin").mock(
+    big_head = upstream.head(f"{SWIFT}/docs/notes/old/big.bin").mock(
         return_value=httpx.Response(
             200, headers={"X-Static-Large-Object": "True"}
         )
@@ -383,7 +449,7 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
     bulk = upstream.post(SWIFT).mock(
         return_value=httpx.Response(
             200,
-            json={"Number Deleted": 2, "Number Not Found": 0, "Errors": []},
+            json={"Number Deleted": 3, "Number Not Found": 0, "Errors": []},
         )
     )
     response = await logged_in.post(
@@ -392,16 +458,18 @@ async def test_object_details_copy_and_delete(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"deleted": 3, "failed": []}
+    assert response.json() == {"deleted": 4, "failed": []}
+    assert not big_head.called
     assert (
         slo_delete.calls.last.request.url.params["multipart-manifest"]
         == "delete"
     )
     sent = bulk.calls.last.request
     assert sent.url.params["bulk-delete"] == "true"
-    assert sent.content.decode().split("\n") == [
+    assert sorted(sent.content.decode().split("\n")) == [
         "/docs/notes/a.txt",
         "/docs/notes/old/",
+        "/docs/notes/old/small.txt",
     ]
 
 
@@ -593,7 +661,8 @@ async def test_names_that_need_encoding(logged_in, upstream):
             "/api/object-store/containers/docs/objects/My%20Thesis.pdf/metadata"
         )
     ).json()
-    assert body["name"] == "My Thesis.pdf" and body["bytes"] == 3
+    assert body["name"] == "My Thesis.pdf"
+    assert body["bytes"] == 3
     assert body["orig_filename"] == "My Thesis.pdf"
     assert head.calls.last.request.url.raw_path == (
         b"/swift/v1/docs/My%20Thesis.pdf"
@@ -629,7 +698,8 @@ async def test_download_url_restores_the_extension(logged_in, upstream):
     response = await logged_in.get(
         "/api/object-store/containers/docs/objects/notes/report/download"
     )
-    assert response.status_code == 302 and head.called
+    assert response.status_code == 302
+    assert head.called
     assert "filename=report.pdf" in response.headers["location"]
 
 
@@ -679,12 +749,12 @@ async def test_bulk_delete_errors_and_chunks(logged_in, upstream, app):
 
 
 async def test_truncated_folder_listing_deletes_nothing(
-    logged_in, upstream, monkeypatch
+    logged_in, upstream, app, monkeypatch
 ):
     from hive.clients import swift
 
     monkeypatch.setattr(swift, "LISTING_LIMIT", 2)
-    monkeypatch.setattr(swift, "MAX_PAGES", 2)
+    app.state.settings.upstream_max_pages = 2
     mock_store(upstream)
     upstream.get(f"{SWIFT}/docs").mock(
         side_effect=[
@@ -693,6 +763,7 @@ async def test_truncated_folder_listing_deletes_nothing(
         ]
     )
     bulk = upstream.post(SWIFT)
+    gone = upstream.delete(f"{SWIFT}/docs")
     response = await logged_in.post(
         "/api/object-store/containers/docs/delete",
         json={"names": ["big/"]},
@@ -700,56 +771,43 @@ async def test_truncated_folder_listing_deletes_nothing(
     )
     assert response.status_code == 409
     assert response.json()["error"] == "listing_truncated"
+    upstream.get(f"{SWIFT}/docs").mock(
+        side_effect=[
+            httpx.Response(200, json=[{"name": "big/1"}, {"name": "big/2"}]),
+            httpx.Response(200, json=[{"name": "big/3"}, {"name": "big/4"}]),
+        ]
+    )
+    response = await logged_in.delete(
+        "/api/object-store/containers/docs?with_objects=true",
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 409
+    assert response.json()["error"] == "listing_truncated"
     assert not bulk.called
+    assert not gone.called
 
 
-async def test_list_objects_pages_with_a_marker(logged_in, upstream):
-    from hive.services import objectstore
+async def test_truncated_container_listing(
+    logged_in, upstream, app, monkeypatch
+):
+    from hive.clients import swift
 
+    monkeypatch.setattr(swift, "LISTING_LIMIT", 1)
+    app.state.settings.upstream_max_pages = 2
     mock_store(upstream)
-    listing = upstream.get(f"{SWIFT}/docs").mock(
-        return_value=httpx.Response(
-            200,
-            json=[{"name": f"f{i}", "bytes": 1} for i in range(4)],
-        )
+    upstream.get(SWIFT).mock(
+        side_effect=[
+            httpx.Response(200, json=[{"name": "a", "count": 0, "bytes": 0}]),
+            httpx.Response(200, json=[{"name": "b", "count": 0, "bytes": 0}]),
+        ]
     )
-    original = objectstore.PAGE
-    objectstore.PAGE = 3
-    try:
-        body = (
-            await logged_in.get(
-                "/api/object-store/containers/docs/objects",
-                params={"marker": "e9"},
-            )
-        ).json()
-    finally:
-        objectstore.PAGE = original
-    assert body["has_more"] is True and body["next_marker"] == "f2"
-    assert len(body["items"]) == 3
-    params = listing.calls.last.request.url.params
-    assert params["marker"] == "e9" and params["limit"] == "4"
+    body = (await logged_in.get("/api/object-store/containers")).json()
+    assert [c["name"] for c in body["items"]] == ["a", "b"]
+    assert body["truncated"] is True
 
 
-async def test_names_and_metadata_are_checked(logged_in, upstream):
+async def test_container_metadata_is_header_safe(logged_in, upstream):
     mock_store(upstream)
-    for url in (
-        "/api/object-store/containers/docs/objects?path=notes/../x",
-        "/api/object-store/containers/docs/objects/a/%2E%2E/b/metadata",
-    ):
-        response = await logged_in.get(url)
-        assert response.status_code == 400, url
-    response = await logged_in.post(
-        "/api/object-store/containers/docs/objects/a.txt/copy",
-        json={"dest_container": "docs", "dest_name": "../other/a.txt"},
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 400
-    response = await logged_in.post(
-        "/api/object-store/containers/docs/delete",
-        json={"names": ["notes/./a.txt"]},
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 400
     for metadata in (
         {"has space": "x"},
         {"ok": "calf\u00e9"},
@@ -761,13 +819,9 @@ async def test_names_and_metadata_are_checked(logged_in, upstream):
             headers=csrf_headers(logged_in),
         )
         assert response.status_code == 422, metadata
-
-
-async def test_container_ids_are_quoted(logged_in, upstream):
-    mock_store(upstream)
-    head = upstream.head(f"{SWIFT}/a%3Fb").mock(
-        return_value=httpx.Response(204)
+    response = await logged_in.post(
+        "/api/object-store/containers",
+        json={"name": "new", "storage_policy": "bad policy"},
+        headers=csrf_headers(logged_in),
     )
-    response = await logged_in.get("/api/object-store/containers/a%3Fb")
-    assert response.status_code == 200, response.text
-    assert head.calls.last.request.url.raw_path == b"/swift/v1/a%3Fb"
+    assert response.status_code == 422

@@ -1,0 +1,21 @@
+{
+  "id": "vp-1",
+  "name": "",
+  "network_id": "net-priv",
+  "project_id": "p1",
+  "device_id": "srv-1",
+  "device_owner": "compute:nova",
+  "admin_state_up": true,
+  "status": "ACTIVE",
+  "mac_address": "fa:16:3e:00:00:01",
+  "fixed_ips": [
+    {
+      "subnet_id": "sub-priv",
+      "ip_address": "192.168.1.20"
+    }
+  ],
+  "security_groups": [
+    "sg-1"
+  ],
+  "port_security_enabled": true
+}

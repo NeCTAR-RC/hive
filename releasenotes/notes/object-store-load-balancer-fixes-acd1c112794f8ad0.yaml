@@ -1,0 +1,10 @@
+---
+fixes:
+  - |
+    The OpenStack RC file, clouds.yaml, database logs, the Kubernetes CA
+    certificate and the reservation calendar now name their file with
+    RFC 6266 ``filename*`` and an ASCII fallback, as object downloads
+    already did.
+  - |
+    Editing a load balancer L7 rule clears its key when the rule's new
+    type has none.

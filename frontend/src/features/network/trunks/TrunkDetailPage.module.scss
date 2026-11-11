@@ -1,11 +1,14 @@
 @use "mixins" as *;
 
+/// The trunk panel beside its subports, span 6 each from 1024px, 24px
+/// apart (grids spec, 12 columns with a 24px gap); stacked below.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--hive-grid-gap);
 
   @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

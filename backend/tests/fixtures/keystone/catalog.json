@@ -1,0 +1,998 @@
+{
+  "catalog": [
+    {
+      "endpoints": [
+        {
+          "id": "bd9a0fa1d18eb642750611c3e4eac3b0",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://keystone.rc.nectar.org.au:5000/v3/",
+          "region": "Melbourne"
+        },
+        {
+          "id": "c5162f02b597bdf7925a5791b88af7dc",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://keystone.int.rc.nectar.org.au:5000/v3/",
+          "region": "Melbourne"
+        },
+        {
+          "id": "113d02fb587b232b64828b95be7bba18",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://keystone.adm.rc.nectar.org.au:35357/v3/",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "1db089a9f84e14e95f11dcb5c57fa10d",
+      "type": "identity",
+      "name": "keystone"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "c72a3ddd26af587e65e880306e383962",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://nova.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "bc6e964551a43760274aece71471027c",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://nova.int.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "5a65e30244f9f2d822c7a39919071527",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://nova.adm.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "596b3cd3a2af6959985f637cf00082bf",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://nova-akl.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "a47335e597f23fcf2252b74e782b09b7",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://nova-akl.int.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "fc4eb8270ed398fa8327b073f3cb1b3a",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://nova-akl.adm.rc.nectar.org.au:8774/v2.1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        }
+      ],
+      "id": "24989d8ee41c1575924630844ad094b5",
+      "type": "compute",
+      "name": "nova"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "f6bbe3f65cef56ff9037403bbcb5f8cb",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://nova.rc.nectar.org.au:8774/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "4800876a4d7132602dd9ef2bc8771e52",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://nova.int.rc.nectar.org.au:8774/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "5c5827048a005bb63932f8829e1debef",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://nova.adm.rc.nectar.org.au:8774/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "91c1bef807ea66b4c050f3f859baea6c",
+      "type": "compute_legacy",
+      "name": "nova_legacy"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "0687d3b220a19135e681e517323a9dbe",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://nova.rc.nectar.org.au:8773/services/Cloud",
+          "region": "Melbourne"
+        },
+        {
+          "id": "1c68afccea3a71ff85621ffd1d402b7c",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://nova.int.rc.nectar.org.au:8773/services/Cloud",
+          "region": "Melbourne"
+        },
+        {
+          "id": "0e051c96a2d94bbd9954b1d5a974e789",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://nova.adm.rc.nectar.org.au:8773/services/Cloud",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "80ad2de755faf5339dd68ac77cef9277",
+      "type": "ec2",
+      "name": "nova_ec2"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "5d63af762297f5bf50059b35ec4f950e",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://placement.rc.nectar.org.au:8778",
+          "region": "Melbourne"
+        },
+        {
+          "id": "95a74e08f1215ac083465b8fada3107f",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://placement.int.rc.nectar.org.au:8778",
+          "region": "Melbourne"
+        },
+        {
+          "id": "5bd4e34ffaeb1a0e9cccfd322d018c9b",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://placement.adm.rc.nectar.org.au:8778",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "7843fc5bea024e9b274e26db43b7e680",
+      "type": "placement",
+      "name": "placement"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "72af270d9faf9b09860ae78c9d490a21",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://cinder.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "30be8223610bfadc8530a3642d03052f",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://cinder.int.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "8662f662c8b2a9c0990401f96af5306e",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://cinder.adm.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "e6d1ed81187ac78c168d9b4a845b5dae",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://cinder-akl.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "12293015ed4b356a27fa18e079c2af0e",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://cinder-akl.int.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "85503b6911436d30929993dcdec6e8f3",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://cinder-akl.adm.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        }
+      ],
+      "id": "46a7ee6658b3016c40f33a393771fa41",
+      "type": "volumev3",
+      "name": "cinderv3"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "37d961f8efbefebc9818164249bba5c1",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://cinder.rc.nectar.org.au:8776/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "bf0075c06d92060bf34772cc23cbd275",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://cinder.int.rc.nectar.org.au:8776/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "cdf2aceeb2390c097b27ae04942a0fe1",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://cinder.adm.rc.nectar.org.au:8776/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "1f773e12f2158ddc65d1ed5ad1dc8934",
+      "type": "volumev2",
+      "name": "cinderv2"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "9d3cf8c6af78726fec6f74d7b8d21055",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://cinder.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "79b77e8408a0e1f42f3a39de221f49a0",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://cinder.int.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "2c4b5541bb574133078acc6e5ba1caeb",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://cinder.adm.rc.nectar.org.au:8776/v3/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "c3f6525966cd6da8dfea3f83b13af72f",
+      "type": "block-storage",
+      "name": "cinder"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "2d238c4563d907273745fd8f10682600",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://image.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "0ffff96ed8a97250ca31283e45bfc604",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://image.int.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "51fd0d4b4488adcb1763d1029ab2687e",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://image.adm.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "264e39e172cd7e6611e01ac219f28724",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://image-akl.rc.nectar.org.au",
+          "region": "Auckland"
+        },
+        {
+          "id": "462a6ebcfd19d9ec9b65f08c03f4281e",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://image-akl.int.rc.nectar.org.au",
+          "region": "Auckland"
+        },
+        {
+          "id": "6830b5a7e734aaa660fb190fed2ee67c",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://image-akl.adm.rc.nectar.org.au",
+          "region": "Auckland"
+        }
+      ],
+      "id": "0e76292794888d4f1fa75fb3aff4ca27",
+      "type": "image",
+      "name": "glance"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "400236e24d272e5f6acad3894918e584",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://neutron.rc.nectar.org.au:9696",
+          "region": "Melbourne"
+        },
+        {
+          "id": "968adf8b5893c25628df2422353717be",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://neutron.int.rc.nectar.org.au:9696",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f8d588c49c65dcd1d8c0f3671717a098",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://neutron.adm.rc.nectar.org.au:9696",
+          "region": "Melbourne"
+        },
+        {
+          "id": "9d6c3d3287af23c3ead79c8f51ca19fe",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://neutron-akl.rc.nectar.org.au:9696",
+          "region": "Auckland"
+        },
+        {
+          "id": "7b232936793c0fd67d6301ff7a03ed2d",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://neutron-akl.int.rc.nectar.org.au:9696",
+          "region": "Auckland"
+        },
+        {
+          "id": "468515bcda456c85b131e1b973c38163",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://neutron-akl.adm.rc.nectar.org.au:9696",
+          "region": "Auckland"
+        }
+      ],
+      "id": "c112e88173d4d3c5c1409a17bee48376",
+      "type": "network",
+      "name": "neutron"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "94fa39ea94acda44cc2becc463fb10c5",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://object-store.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "da5e8ef33550bb2832dd00cf703f161b",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://object-store.int.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "988126b34eaef8e69b0182ed4701c2aa",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://object-store.adm.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "8f8966f147d4d8281742437f43bc23b3",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://object-store-akl.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "c2d8c794f7e547f12f5990da317be528",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://object-store-akl.int.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        },
+        {
+          "id": "32d7b5cc0f202ad4de81fc82570da3eb",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://object-store-akl.adm.rc.nectar.org.au/v1/AUTH_0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Auckland"
+        }
+      ],
+      "id": "e7ba8c19cb75168f887d5983d94b9785",
+      "type": "object-store",
+      "name": "swift"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "1c2522741f8d47bc5ff4faea8152fdda",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://object-store.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "46036c66404a4ada8b68a088fcad982d",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://object-store.int.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "bfc02bf7ee61d70924a374edbb994abb",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://object-store.adm.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "45548e0e94513c391857e042e3687357",
+          "interface": "public",
+          "region_id": "Auckland",
+          "url": "https://object-store-akl.rc.nectar.org.au",
+          "region": "Auckland"
+        },
+        {
+          "id": "aa277bcdcac171a44cf9dce98557ff5e",
+          "interface": "internal",
+          "region_id": "Auckland",
+          "url": "http://object-store-akl.int.rc.nectar.org.au",
+          "region": "Auckland"
+        },
+        {
+          "id": "934386fe6c22c7ea0f08b30001aa5bc9",
+          "interface": "admin",
+          "region_id": "Auckland",
+          "url": "http://object-store-akl.adm.rc.nectar.org.au",
+          "region": "Auckland"
+        }
+      ],
+      "id": "dd33a084ba223dd231b0aa962f77a592",
+      "type": "s3",
+      "name": "swift_s3"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "427e7cb13a6a8154a4ea59bf3084c669",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://heat.rc.nectar.org.au:8004/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "80f718f821b6e306e7bd829c3fdd93e1",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://heat.int.rc.nectar.org.au:8004/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "ddf84eafbf4e316eae72281c04d74252",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://heat.adm.rc.nectar.org.au:8004/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "3bed53b85f36a6d290904f9dd6931f6c",
+      "type": "orchestration",
+      "name": "heat"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "dcc86c5723840393e46e5cfaf7d1625e",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://heat.rc.nectar.org.au:8000/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "9639ab94628b147185273cf942f86536",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://heat.int.rc.nectar.org.au:8000/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "b5f3f1492b5b3f901d950d18dca53619",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://heat.adm.rc.nectar.org.au:8000/v1",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "7721b21827566e83774c034fb8ea2054",
+      "type": "cloudformation",
+      "name": "heat-cfn"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "3a3bd190cba5284725e0df1e737bdc77",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://gnocchi.rc.nectar.org.au:8041",
+          "region": "Melbourne"
+        },
+        {
+          "id": "1ec377bffb4cfe5a1b749843489fc122",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://gnocchi.int.rc.nectar.org.au:8041",
+          "region": "Melbourne"
+        },
+        {
+          "id": "461993c0274346aae3f84c21e8da3d44",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://gnocchi.adm.rc.nectar.org.au:8041",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "c5a39a3a7b3df7a7c25d3954cca5306e",
+      "type": "metric",
+      "name": "gnocchi"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "6c9e5b860dbbef9183e5307f438fd41b",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://cloudkitty.rc.nectar.org.au:8889",
+          "region": "Melbourne"
+        },
+        {
+          "id": "b9fb1d37ddaa395e57f10c8d98d9c726",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://cloudkitty.int.rc.nectar.org.au:8889",
+          "region": "Melbourne"
+        },
+        {
+          "id": "ecac1645f6a97c2e8ca106f75b7697b7",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://cloudkitty.adm.rc.nectar.org.au:8889",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "3c2d687ef032e625aa4a2b1cfca9751d",
+      "type": "rating",
+      "name": "cloudkitty"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "d186ecdb4e2a5cb4f1c08f5e9bb1c0d2",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://aodh.rc.nectar.org.au:8042",
+          "region": "Melbourne"
+        },
+        {
+          "id": "b2fc5855c2c0e7a7ddb50b4ea8c064f3",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://aodh.int.rc.nectar.org.au:8042",
+          "region": "Melbourne"
+        },
+        {
+          "id": "d833d72340a1c0963281feb2795c8fd1",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://aodh.adm.rc.nectar.org.au:8042",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "59d5705440c15b4023cecab761013f18",
+      "type": "alarming",
+      "name": "aodh"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "f162ecf928a3ebe5bf70f3cee952bf7f",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://octavia.rc.nectar.org.au:9876",
+          "region": "Melbourne"
+        },
+        {
+          "id": "54b3b5f2fd268adc304f19c67fb9ffc1",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://octavia.int.rc.nectar.org.au:9876",
+          "region": "Melbourne"
+        },
+        {
+          "id": "2301e36bb6ed888d5fe6c61e6b2d3fa4",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://octavia.adm.rc.nectar.org.au:9876",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "ece3db3240b2168803892cb2b54e1259",
+      "type": "load-balancer",
+      "name": "octavia"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "7f764f124de8b82a4ab467087537cb1a",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://magnum.rc.nectar.org.au:9511/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "4024b877621d405c145519b12ffc2bf7",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://magnum.int.rc.nectar.org.au:9511/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "58206fe61c54b3f91f7652b82ad2fa12",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://magnum.adm.rc.nectar.org.au:9511/v1",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "8715ebd9bac02e3f3c307613b130edcb",
+      "type": "container-infra",
+      "name": "magnum"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "d2db71b855237f88df797845bb446a03",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://designate.rc.nectar.org.au:9001",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f93a907e93feef29211b71afd7614c0d",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://designate.int.rc.nectar.org.au:9001",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f641318c3d3263fa63164f497cda20a7",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://designate.adm.rc.nectar.org.au:9001",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "abbc90e006c2d9b123e8a882a6985559",
+      "type": "dns",
+      "name": "designate"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "79ea5e293f3c9655d5c8c72281a11575",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://manila.rc.nectar.org.au:8786/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "0921f46f414e044fc6c47bbff34cea9c",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://manila.int.rc.nectar.org.au:8786/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "57e3483d7a4c5fd58cd1dc5c107b41c3",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://manila.adm.rc.nectar.org.au:8786/v2/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "c4622ca72eeaf35e686a2aed6f7981e5",
+      "type": "sharev2",
+      "name": "manilav2"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "db14b572f98a0406049f7cce312a9fb6",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://manila.rc.nectar.org.au:8786/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f4b42d0c929b0a045ca5df9355779a0e",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://manila.int.rc.nectar.org.au:8786/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "8b764d2c25758d62153b5e959349c409",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://manila.adm.rc.nectar.org.au:8786/v1/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "aab90dfe8c6f152a4fb071f5f4f9df80",
+      "type": "share",
+      "name": "manila"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "fc3e7dd6e19ada7d8dc31bc2f73d458b",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://trove.rc.nectar.org.au:8779/v1.0/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "1eca7df644c21eb25fc9b02d368bfcc8",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://trove.int.rc.nectar.org.au:8779/v1.0/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        },
+        {
+          "id": "8dbfedc419117b7d24b838f918df7269",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://trove.adm.rc.nectar.org.au:8779/v1.0/0bdf024c921848c4b74d9e69af9edba4",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "6d613a1ee01eec4c0f8ca66df0db71dc",
+      "type": "database",
+      "name": "trove"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "508d96d5e7da16e3ccedee1aeafda515",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://barbican.rc.nectar.org.au:9311",
+          "region": "Melbourne"
+        },
+        {
+          "id": "0b9db743df6c4daea705d986cf2706c3",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://barbican.int.rc.nectar.org.au:9311",
+          "region": "Melbourne"
+        },
+        {
+          "id": "799e580b54f7275d8f4cf42374e79c51",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://barbican.adm.rc.nectar.org.au:9311",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "5568409d6aa191267374d426cc0bb915",
+      "type": "key-manager",
+      "name": "barbican"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "3362f3ce57f6106725bb3990a248b008",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://blazar.rc.nectar.org.au:1234/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f4998a31881a89443166b8bd83b4c3e9",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://blazar.int.rc.nectar.org.au:1234/v1",
+          "region": "Melbourne"
+        },
+        {
+          "id": "e365a6d9b614f78ce93f424a70856b65",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://blazar.adm.rc.nectar.org.au:1234/v1",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "bcf112ef01156f5224ef593b8d7ab853",
+      "type": "reservation",
+      "name": "blazar"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "06e3207f2dc5c8f6189748a08aae4c92",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://warre.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "1010eb7fc912f172120b32e3d4078e58",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://warre.int.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "2ea8d024ca542450789ede75a7e576c7",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://warre.adm.rc.nectar.org.au",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "c65385c58d65ebdd502777747eb6cda8",
+      "type": "nectar-reservation",
+      "name": "warre"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "5b7add111995a9a9022a3ce18c86b343",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://manuka.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "cc4646c732dbebc56565d284ebf0f935",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://manuka.int.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "4ec44c2ad968bf5bac3c34e69122e037",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://manuka.adm.rc.nectar.org.au",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "ca20728d35f00c3a4c21b1fc8b0086b5",
+      "type": "account",
+      "name": "manuka"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "6872dc0fe436fddc0dc9077534cc34a8",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://status.rc.nectar.org.au/api",
+          "region": "Melbourne"
+        },
+        {
+          "id": "d48b9bf43b5c698ebe9699324c286c69",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://status.int.rc.nectar.org.au/api",
+          "region": "Melbourne"
+        },
+        {
+          "id": "7ebc47b12b434c844d271541d1d6e1da",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://status.adm.rc.nectar.org.au/api",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "ce116bbb70880ffe3b569a7f8b795c59",
+      "type": "nectar-ops",
+      "name": "langstroth"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "3a4d21dd04dc9854238147fb6c8efbf9",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://varroa.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "05aa74a59695ba10c6b67065e927c8e0",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://varroa.int.rc.nectar.org.au",
+          "region": "Melbourne"
+        },
+        {
+          "id": "20ca88a35ced0b985da6d999448313f5",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://varroa.adm.rc.nectar.org.au",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "8eec7bc461808e0b8a28783d0bec1a3a",
+      "type": "security",
+      "name": "varroa"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "b4e9b90a48cf06b0572bf31f0868403e",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://dashboard.rc.nectar.org.au/rest_api",
+          "region": "Melbourne"
+        },
+        {
+          "id": "f8fe53bfafeeb8206b17c51973bb420d",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://dashboard.int.rc.nectar.org.au/rest_api",
+          "region": "Melbourne"
+        },
+        {
+          "id": "dd89d061e6faee7c31008e1cfe56b7a2",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://dashboard.adm.rc.nectar.org.au/rest_api",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "8ea14a80a021ddaab1cc30d8feecf136",
+      "type": "allocations",
+      "name": "allocations"
+    },
+    {
+      "endpoints": [
+        {
+          "id": "a832f49fef02e0bbca2cc5e1c17cb11b",
+          "interface": "public",
+          "region_id": "Melbourne",
+          "url": "https://mistral.rc.nectar.org.au:8989/v2",
+          "region": "Melbourne"
+        },
+        {
+          "id": "7198ca7b896bf595a7c25abe1b12b806",
+          "interface": "internal",
+          "region_id": "Melbourne",
+          "url": "http://mistral.int.rc.nectar.org.au:8989/v2",
+          "region": "Melbourne"
+        },
+        {
+          "id": "5c4ae6f28719489d0950b8c59495b99f",
+          "interface": "admin",
+          "region_id": "Melbourne",
+          "url": "http://mistral.adm.rc.nectar.org.au:8989/v2",
+          "region": "Melbourne"
+        }
+      ],
+      "id": "899531e0f885501b5b8520a9bd95bc83",
+      "type": "workflow",
+      "name": "mistral"
+    }
+  ]
+}

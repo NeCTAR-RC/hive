@@ -4,30 +4,47 @@ Listings use ``format=json``; metadata travels in headers as the Swift
 API defines it. Large objects are static large objects (SLO): segments in
 ``<container>_segments`` and a manifest uploaded with
 ``multipart-manifest=put``. Nothing here applies Nectar policy.
-
-Container names never contain ``/`` and go through ``seg``; object names
-may (pseudo folders), so ``object_path`` keeps the slashes and encodes
-everything else.
 """
 
 from collections.abc import AsyncIterable
+from typing import NamedTuple
 from urllib.parse import quote
 
 import httpx
 
-from hive.clients.base import map_upstream_error, seg, ServiceClient
+from hive.clients.base import DOT_SEGMENTS, path, ServiceClient
+from hive.errors import BadRequest
 
 LISTING_LIMIT = 1000
-MAX_PAGES = 50
+# Swift's default ``max_deletes_per_request``, for a cluster whose ``/info``
+# does not say.
 BULK_DELETE_LIMIT = 1000
 
 
-def container_path(container: str) -> str:
-    return f"/{seg(container)}"
+class Listing(NamedTuple):
+    """A whole listing, or as much of it as the page cap allowed:
+    ``truncated`` says the walk stopped with more to come."""
+
+    items: list[dict]
+    truncated: bool
 
 
 def object_path(container: str, name: str) -> str:
-    return f"{container_path(container)}/{quote(name, safe='/')}"
+    """The URL path of one object.
+
+    Object names keep their ``/`` (pseudo-folders), so ``path()`` cannot
+    encode them whole; a ``.`` or ``..`` part would be collapsed by URL
+    normalisation into another object's path, so it is refused instead.
+    """
+    if not name or any(part in DOT_SEGMENTS for part in name.split("/")):
+        raise BadRequest(f"invalid object name: {name!r}")
+    return path(container) + "/" + quote(name, safe="/")
+
+
+def _present(params: dict) -> dict:
+    """The query parameters that carry a value (Swift reads an empty
+    ``prefix=`` or ``marker=`` as given)."""
+    return {key: value for key, value in params.items() if value}
 
 
 class SwiftClient(ServiceClient):
@@ -41,44 +58,18 @@ class SwiftClient(ServiceClient):
         hdrs["Accept"] = "application/json"
         return hdrs
 
-    # --- account -------------------------------------------------------------
-
     async def account(self) -> dict[str, str]:
-        resp = await self.request("HEAD", "", ok=(200, 204))
+        resp = await self.request("HEAD", "")
         return {k.lower(): v for k, v in resp.headers.items()}
 
     async def update_account(self, metadata: dict[str, str]) -> None:
-        await self.request("POST", "", headers=metadata, ok=(200, 202, 204))
+        await self.request("POST", "", headers=metadata)
 
-    async def _listing(
-        self, path: str, params: dict
-    ) -> tuple[list[dict], bool]:
-        """Every entry of a listing, following markers for at most
-        ``MAX_PAGES`` pages; the flag is ``True`` when it stopped there
-        with more to come."""
-        items: list[dict] = []
-        marker = None
-        for _ in range(MAX_PAGES):
-            page_params = {**params, "format": "json", "limit": LISTING_LIMIT}
-            if marker:
-                page_params["marker"] = marker
-            body = await self.get_json(path, params=page_params) or []
-            items.extend(body)
-            if len(body) < LISTING_LIMIT:
-                return items, False
-            last = body[-1]
-            marker = last.get("name") or last.get("subdir")
-        return items, True
-
-    async def containers(self) -> tuple[list[dict], bool]:
-        """The account's containers and whether the listing was cut
-        short."""
-        return await self._listing("", {})
-
-    # --- containers ----------------------------------------------------------
+    async def containers(self) -> Listing:
+        return await self._listing("")
 
     async def container(self, name: str) -> dict[str, str]:
-        resp = await self.request("HEAD", container_path(name), ok=(200, 204))
+        resp = await self.request("HEAD", path(name))
         return {k.lower(): v for k, v in resp.headers.items()}
 
     async def create_container(
@@ -86,21 +77,19 @@ class SwiftClient(ServiceClient):
     ) -> None:
         await self.request(
             "PUT",
-            container_path(name),
+            path(name),
             headers=metadata,
-            ok=(201, 202, 204),
         )
 
     async def update_container(self, name: str, metadata: dict[str, str]):
         await self.request(
             "POST",
-            container_path(name),
+            path(name),
             headers=metadata,
-            ok=(200, 202, 204),
         )
 
     async def delete_container(self, name: str) -> None:
-        await self.request("DELETE", container_path(name), ok=(200, 202, 204))
+        await self.delete(path(name))
 
     async def objects(
         self,
@@ -111,31 +100,50 @@ class SwiftClient(ServiceClient):
         marker: str | None = None,
         limit: int = LISTING_LIMIT,
     ) -> list[dict]:
-        params: dict = {"format": "json", "limit": limit}
-        if prefix:
-            params["prefix"] = prefix
-        if delimiter:
-            params["delimiter"] = delimiter
-        if marker:
-            params["marker"] = marker
-        body = await self.get_json(container_path(container), params=params)
+        params = _present(
+            {
+                "format": "json",
+                "limit": limit,
+                "prefix": prefix,
+                "delimiter": delimiter,
+                "marker": marker,
+            }
+        )
+        body = await self.get_json(path(container), params=params)
         return body or []
 
     async def all_objects(
         self, container: str, prefix: str | None = None
-    ) -> tuple[list[dict], bool]:
+    ) -> Listing:
         """Every object under a prefix, following markers (for recursive
-        folder deletes), and whether the listing was cut short at
-        ``MAX_PAGES``."""
-        params = {"prefix": prefix} if prefix else {}
-        return await self._listing(container_path(container), params)
+        deletes)."""
+        return await self._listing(path(container), prefix=prefix)
 
-    # --- objects -------------------------------------------------------------
+    async def _listing(self, at: str, **params) -> Listing:
+        """A whole account or container listing. Swift pages by
+        ``marker``: a full page means there may be more after its last
+        name (or ``subdir``)."""
+
+        async def fetch(marker: str | None) -> list[dict]:
+            query = {"format": "json", "limit": LISTING_LIMIT, **params}
+            if marker:
+                query["marker"] = marker
+            return await self.get_json(at, params=_present(query)) or []
+
+        def next_marker(page: list[dict]) -> str | None:
+            if len(page) < LISTING_LIMIT:
+                return None
+            return page[-1].get("name") or page[-1].get("subdir")
+
+        items: list[dict] = []
+        more: str | None = None
+        async for page in self.paginate(fetch, next_marker):
+            items.extend(page)
+            more = next_marker(page)
+        return Listing(items, truncated=more is not None)
 
     async def object_head(self, container: str, name: str) -> dict[str, str]:
-        resp = await self.request(
-            "HEAD", object_path(container, name), ok=(200, 204)
-        )
+        resp = await self.request("HEAD", object_path(container, name))
         return {k.lower(): v for k, v in resp.headers.items()}
 
     async def put_object(
@@ -160,7 +168,6 @@ class SwiftClient(ServiceClient):
             content=content,
             headers=headers,
             timeout=timeout,
-            ok=(201, 202),
         )
         return {k.lower(): v for k, v in resp.headers.items()}
 
@@ -172,14 +179,13 @@ class SwiftClient(ServiceClient):
             object_path(container, name),
             params={"multipart-manifest": "put"},
             json=manifest,
-            ok=(201, 202),
         )
 
     async def update_object(
         self, container: str, name: str, metadata: dict[str, str]
     ) -> None:
         await self.request(
-            "POST", object_path(container, name), headers=metadata, ok=(202,)
+            "POST", object_path(container, name), headers=metadata
         )
 
     async def copy_object(
@@ -192,17 +198,11 @@ class SwiftClient(ServiceClient):
                 "X-Copy-From": object_path(container, name),
                 "Content-Length": "0",
             },
-            ok=(201, 202),
         )
 
     async def delete_object(self, container: str, name: str, slo=False):
         params = {"multipart-manifest": "delete"} if slo else None
-        await self.request(
-            "DELETE",
-            object_path(container, name),
-            params=params,
-            ok=(200, 204),
-        )
+        await self.delete(object_path(container, name), params=params)
 
     async def bulk_delete(self, paths: list[str]) -> dict:
         """``POST ?bulk-delete`` with one percent-encoded
@@ -221,7 +221,6 @@ class SwiftClient(ServiceClient):
                 "Accept": "application/json",
             },
             timeout=120,
-            ok=(200,),
         )
         try:
             return resp.json()
@@ -246,7 +245,7 @@ class SwiftClient(ServiceClient):
                 await resp.aread()
             finally:
                 await resp.aclose()
-            raise map_upstream_error(self.label, resp)
+            raise self.map_error(resp)
         return resp
 
     async def info(self) -> dict:

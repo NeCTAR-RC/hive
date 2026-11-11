@@ -1,0 +1,21 @@
+{
+  "id": "s-1",
+  "stack_name": "web",
+  "stack_status": "CREATE_COMPLETE",
+  "stack_status_reason": "Stack CREATE completed successfully",
+  "creation_time": "2026-10-10T00:00:00Z",
+  "tags": null,
+  "timeout_mins": 60,
+  "disable_rollback": true,
+  "parameters": {
+    "OS::stack_id": "s-1",
+    "count": "1"
+  },
+  "outputs": [
+    {
+      "output_key": "ip",
+      "output_value": "10.0.0.5",
+      "description": "address"
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 """Request bodies for the Identity dashboard panels."""
 
-from typing import Literal
+from pydantic import Field
 
-from pydantic import BaseModel, Field
+from hive.schemas import StrictModel
 
 
-class MemberAdd(BaseModel):
+class MemberAdd(StrictModel):
     """``nectar_dashboard/project_members/forms.py:32-45``: the username
     is the account email, the role one of the two configured ids."""
 
@@ -15,7 +15,7 @@ class MemberAdd(BaseModel):
     role_id: str = Field(min_length=1)
 
 
-class ApplicationCredentialCreate(BaseModel):
+class ApplicationCredentialCreate(StrictModel):
     """``identity/application_credentials/forms.py:42-73``."""
 
     name: str = Field(min_length=1, max_length=255)
@@ -30,11 +30,3 @@ class ApplicationCredentialCreate(BaseModel):
     roles: list[str] = Field(default_factory=list)
     access_rules: str | None = None
     unrestricted: bool = False
-
-
-class CredentialCreate(BaseModel):
-    """``identity/credentials/forms.py:22-70``: type, data and project."""
-
-    type: Literal["totp", "ec2", "cert"]
-    blob: str = Field(min_length=1)
-    project_id: str | None = None

@@ -1,12 +1,25 @@
 @use "mixins" as *;
 
+/// The fault, the panels and the hints under them, 32px apart (library
+/// `content-block-stack`).
+.page {
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/// Panels side by side from 1024px, span 6 each with the grid's 24px gap
+/// (grids spec, 12 columns, 24px gap); the last (snapshots, a table) spans
+/// both.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: 1fr;
+  gap: var(--hive-grid-gap);
+  grid-template-columns: minmax(0, 1fr);
 
   @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 
     > :last-child {
       grid-column: 1 / -1;
@@ -14,23 +27,16 @@
   }
 }
 
-.attachments,
-.metadata {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-}
-
+/// A note in a panel ("Not attached to any instance"): Body/14 Grey-500,
+/// the library field helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
+/// The hints under the panels (mark bootable, launch from the volume):
+/// Body/14 Grey-500, the library field helper style.
 .hint {
-  margin-top: var(--hive-space-4);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }

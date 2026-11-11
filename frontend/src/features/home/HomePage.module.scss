@@ -1,10 +1,18 @@
 @use "mixins" as *;
 
+/// The page's sections 32px apart (library `content-block-stack`, the
+/// content blocks' section gap). The stack is also the container the home
+/// grids count their columns against (`$cq-pair`, `$cq-wide`), since the
+/// docked sidebar makes the window a poor guide to the column's width.
 .home {
-  display: grid;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
+
+  container: home / inline-size;
 }
 
+/// The greeting takes the global h1 (Heading/H1) in Grey-900, the
+/// typography spec's heading colour. It takes focus from script after a
+/// navigation and draws no ring for it.
 .greeting {
   color: var(--hive-color-text-heading);
 
@@ -13,44 +21,29 @@
   }
 }
 
-.stack {
-  display: grid;
-  gap: var(--hive-space-2);
+/// Library `Alert`s 12px apart, the gap the content blocks keep between
+/// cards in a column (`content-block-card-column`).
+.alerts {
+  @include content-block-card-column;
 }
 
-.row {
-  display: grid;
-  gap: var(--hive-space-4);
-  align-items: stretch;
-
-  @include up($bp-lg) {
-    grid-template-columns: 2fr 1fr;
-  }
-}
-
+/// "50-50 Media Left" (content-blocks spec, line 1319): a band (library
+/// `content-block-band`) with no fill of its own on the white page panel.
 .welcome {
-  @include panel;
-
-  position: relative;
-  padding: var(--hive-space-6);
-  border-top: 4px solid var(--hive-color-brand-purple);
+  @include content-block-band;
 }
 
-.welcomeGrid {
-  display: grid;
-  gap: var(--hive-space-6);
-
-  @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
-  }
+/// The band's split (library `content-block-50-50`): the video first, the
+/// copy beside it, stacked when the band is narrower than 768px.
+.welcomeSplit {
+  @include content-block-50-50($media: start);
 }
 
+/// "Frame 1401" (line 1335): the media frame, 560 by 315 (16:9), with no
+/// radius or fill. The player fills it.
 .video {
   position: relative;
   aspect-ratio: 16 / 9;
-  background: var(--hive-color-gray-900);
-  border-radius: var(--hive-radius);
-  overflow: hidden;
 
   iframe {
     position: absolute;
@@ -61,139 +54,188 @@
   }
 }
 
-.welcomeText {
-  display: grid;
-  gap: var(--hive-space-3);
-  align-content: start;
+/// "Frame 274" (line 1340): the copy 32px above its buttons (library
+/// `content-block-stack`).
+.welcomeCopy {
+  @include content-block-stack;
 }
 
-.lead {
-  font-size: var(--hive-font-size-lg);
-}
-
-.welcomeButtons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-2);
-}
-
-.dismiss {
-  position: absolute;
-  top: var(--hive-space-2);
-  right: var(--hive-space-2);
-}
-
-.banner {
-  @include panel;
-
-  display: grid;
-  gap: var(--hive-space-4);
-  padding: var(--hive-space-4);
-
-  @include up($bp-md) {
-    grid-template-columns: minmax(8rem, 16rem) 1fr;
-    align-items: center;
-  }
+/// "Frame 519" (line 1353): Heading/H2 Grey-900 over Body/16 Grey-700,
+/// 12px apart (library `content-block-intro`). Also the quick links intro.
+.intro {
+  @include content-block-intro;
 
   h2 {
-    margin-bottom: var(--hive-space-2);
+    color: var(--hive-color-text-heading);
+  }
+
+  p {
+    color: var(--hive-color-gray-700);
   }
 }
 
-.bannerImage {
-  width: 100%;
-  border-radius: var(--hive-radius);
-}
-
-.quickIntro {
-  font-size: var(--hive-font-size-base);
-  font-weight: var(--hive-font-weight-normal);
-  margin-bottom: var(--hive-space-3);
-}
-
-.quickColumns {
-  display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-
-  @include up($bp-md) {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  h4 {
-    margin-bottom: var(--hive-space-2);
-  }
-
-  ul {
-    list-style: none;
-    padding: 0;
-    display: grid;
-    gap: var(--hive-space-2);
-    font-size: var(--hive-font-size-sm);
-  }
-}
-
-.usageBody {
-  display: grid;
-  gap: var(--hive-space-2);
-  justify-items: center;
-  text-align: center;
-  height: 100%;
-  align-content: center;
-}
-
-.usageLabel {
-  font-size: var(--hive-font-size-lg);
-  font-weight: var(--hive-font-weight-semibold);
-}
-
-.usageValue {
-  font-size: var(--hive-font-size-5xl);
-  font-weight: var(--hive-font-weight-bold);
-  color: var(--hive-color-brand-purple);
-  line-height: 1;
-  padding: var(--hive-space-2) 0;
-}
-
-.announcementList,
-.newsList {
-  list-style: none;
-  padding: 0;
-  display: grid;
+/// "Frame 1400" (line 1385): buttons 12px apart, start-aligned, wrapping on
+/// a narrow column.
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--hive-space-3);
 }
 
-.announcementList li {
+/// The banner's fine print in the CTA's slot after the buttons (gap "CTA
+/// fine print"): Body/14 Grey-700.
+.bannerInfo {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+}
+
+/// The quick links: their intro 24px above the blocks (DERIVED-SPACING,
+/// body paragraph to card grid).
+.quickLinks {
   display: grid;
+  gap: var(--hive-grid-gap);
+}
+
+/// Four blocks on the 12-column grid, span 3 each, 24px apart; two to a row
+/// (span 6) in a narrower column, one on a phone.
+.quickGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+
+  @container home (width >= #{$cq-pair}) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @container home (width >= #{$cq-wide}) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/// "Info - Sidebar" (sidebar-blocks spec, line 120) through Hive's
+/// `info-block` mixin (the library `sidebar-block` with its 20px gap).
+.block {
+  @include info-block;
+}
+
+/// "Frame 246" (line 141): a title 4px above its content.
+.pair {
+  display: flex;
+  flex-direction: column;
   gap: var(--hive-space-1);
 }
 
-.meta {
-  font-size: var(--hive-font-size-xs);
-  color: var(--hive-color-text-muted);
+/// The pair's "Title" (line 154): Body/16/Bold Grey-900.
+.pairTitle {
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-900);
 }
 
-// News reads as a row of cards, as Horizon's carousel does.
-.newsList {
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-  gap: var(--hive-space-4);
+/// The usage figure: Heading/H3 Grey-900 in the pair's content slot (gap
+/// "Stat figure").
+.figure {
+  font: var(--hive-text-h3);
+  color: var(--hive-color-gray-900);
 }
 
-.newsItem {
+/// The block's button keeps its own width, as the CTA - Sidebar block's
+/// "Buttons_Chevron_Light BG" wrapper (line 69) holds it, where the block
+/// stretches its other children.
+.blockAction {
+  display: flex;
+  align-items: flex-start;
+}
+
+/// Usage beside the announcements on the 12-column grid ("Sidebar left"
+/// layout): usage span 4, the announcements span 8, 24px apart; stacked in a
+/// narrow column.
+.usageRow {
   display: grid;
-  gap: var(--hive-space-2);
-  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+  align-items: start;
+
+  @container home (width >= #{$cq-wide}) {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
 }
 
-.newsImage {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: var(--hive-radius);
+/// Span 4: the sidebar block's own 384px on the 1200px grid.
+.usage {
+  @container home (width >= #{$cq-wide}) {
+    grid-column: span 4;
+  }
 }
 
-.newsSummary {
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-body);
-  margin-top: var(--hive-space-1);
+/// Span 8: the main column of the "Sidebar left" layout.
+.announcements {
+  @container home (width >= #{$cq-wide}) {
+    grid-column: span 8;
+  }
+}
+
+/// "Related list - Sidebar" (sidebar-blocks spec, line 876): rows 8px apart
+/// (library `sidebar-block-list`).
+.list {
+  @include sidebar-block-list;
+}
+
+/// One row ("List", line 914): the chevron 4px before its label (library
+/// `sidebar-block-link-row`).
+.row {
+  @include sidebar-block-link-row;
+}
+
+/// The chevron's 16px Purple-500 frame ("Frame 514", line 927), level with
+/// the label's first line (library `sidebar-block-link-icon`).
+.rowIcon {
+  @include sidebar-block-link-icon;
+}
+
+/// The row's label, the library `Link` (or link `Button`) as shipped, with
+/// the library's `sidebar-block-link-label` so a long title wraps beside the
+/// chevron; an announcement's meta line sits 4px under it (the Events -
+/// Sidebar pair gap, "Frame 246", line 2004).
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hive-space-1);
+  min-width: 0;
+
+  > a,
+  > button {
+    @include sidebar-block-link-label;
+  }
+}
+
+/// An announcement's scheduled, status and date line: Body/14 Grey-700.
+.rowMeta {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+}
+
+/// The news cards: three columns (the card spec's Column=3col, line 1137),
+/// two in a narrower column, one on a phone, 24px apart (paddings-and-margins,
+/// line 98, between cards).
+.newsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+  padding: 0;
+  list-style: none;
+
+  @container home (width >= #{$cq-pair}) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @container home (width >= #{$cq-wide}) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/// Each card fills its cell, so the cards in a row share one height.
+.newsCell {
+  display: grid;
 }

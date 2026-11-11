@@ -2,25 +2,86 @@
 // consumes the --hive-* custom properties, so a dark palette can be added
 // under [data-theme="dark"] later without touching a component.
 
-// Caveat: that only re-themes Hive's own styles. The design system's tokens
-// are compile-time and "Consumer overrides are out of scope (no runtime
-// theming)", so DS components inside a Hive page would stay light. A dark
-// mode needs the design system to ship one; do not plan it on this bridge.
+// Caveat: that re-themes Hive's own styles only. The library's tokens are
+// compiled into its components ("no runtime theming"), so library
+// components inside a Hive page would stay light. A dark mode needs the
+// design system to ship one; do not plan it on this bridge.
+@use "sass:list";
+@use "sass:math";
+@use "@ardc-ui/react/styles/functions" as ardc-fn;
 @use "@ardc-ui/react/styles/variables" as ardc;
+
+// The design system's 12-column grid (grids spec: "12 columns, 24px grid
+// gap") over the 1200px content width the library's hero and bands share.
+// One column is 78px; a span of n columns is n columns plus the n - 1 gaps
+// between them.
+$_grid-columns: 12;
+$_grid-gap: ardc.$spacing-6;
+$_grid-column: math.div(
+  ardc.$hero-content-max-width - ($_grid-columns - 1) * $_grid-gap,
+  $_grid-columns
+);
+
+@function _grid-span($columns) {
+  @return $columns * $_grid-column + ($columns - 1) * $_grid-gap;
+}
+
+// Weight, size and line height of each library text style Hive uses, read
+// from the same tokens as the library's own `text-style` map.
+$_text-styles: (
+  h3: (
+    ardc.$font-weight-bold,
+    ardc.$font-size-3xl,
+    ardc.$line-height-h3,
+  ),
+  h4: (
+    ardc.$font-weight-bold,
+    ardc.$font-size-xl,
+    ardc.$line-height-h4,
+  ),
+  h5: (
+    ardc.$font-weight-bold,
+    ardc.$font-size-lg,
+    ardc.$line-height-h5,
+  ),
+  body-18: (
+    ardc.$font-weight-semibold,
+    ardc.$font-size-lg,
+    ardc.$line-height-body-18,
+  ),
+  body-16: (
+    ardc.$font-weight-normal,
+    ardc.$font-size-base,
+    ardc.$line-height-body-16,
+  ),
+  body-16-bold: (
+    ardc.$font-weight-bold,
+    ardc.$font-size-base,
+    ardc.$line-height-body-16,
+  ),
+  body-14: (
+    ardc.$font-weight-normal,
+    ardc.$font-size-sm,
+    ardc.$line-height-body-14,
+  ),
+  body-14-bold: (
+    ardc.$font-weight-bold,
+    ardc.$font-size-sm,
+    ardc.$line-height-body-14,
+  ),
+  body-12: (
+    ardc.$font-weight-normal,
+    ardc.$font-size-xs,
+    ardc.$line-height-body-12,
+  ),
+);
 
 :root,
 :root[data-theme="light"] {
   // Brand
   --hive-color-brand-purple: #{ardc.$brand-purple-500};
-  --hive-color-brand-blue: #{ardc.$brand-blue-500};
-  --hive-color-brand-pink: #{ardc.$brand-pink-500};
-  --hive-color-brand-yellow: #{ardc.$brand-yellow-500};
   --hive-color-purple-50: #{ardc.$secondary-purple-50};
-  --hive-color-purple-700: #{ardc.$secondary-purple-700};
-  --hive-color-indigo: #{ardc.$secondary-indigo-500};
-  --hive-color-green: #{ardc.$secondary-green-500};
   --hive-color-orange: #{ardc.$secondary-orange-500};
-  --hive-color-yellow-700: #{ardc.$secondary-yellow-700};
 
   // Neutrals
   --hive-color-white: #{ardc.$neutral-white};
@@ -37,26 +98,20 @@
   --hive-color-text-muted: #{ardc.$text-color-body-muted};
   --hive-color-link: #{ardc.$text-color-link};
 
-  // Messaging (strong colour on its tint; pairs verified for 4.5:1)
+  // Messaging: the field error red, and the information tint (the
+  // availability chart's label column).
   --hive-color-danger: #{ardc.$semantic-red-500};
-  --hive-color-danger-strong: #{ardc.$semantic-red-700};
-  --hive-color-danger-tint: #{ardc.$semantic-red-50};
-  --hive-color-success-strong: #{ardc.$semantic-green-700};
-  --hive-color-success-tint: #{ardc.$semantic-green-50};
-  --hive-color-warning-strong: #{ardc.$secondary-yellow-700};
-  --hive-color-warning-tint: #{ardc.$semantic-yellow-50};
-  --hive-color-warning-200: #{ardc.$semantic-yellow-200};
-  --hive-color-info: #{ardc.$semantic-blue-600};
   --hive-color-info-tint: #{ardc.$semantic-blue-100};
 
-  // Surfaces
-  --hive-color-page: #{ardc.$neutral-gray-50};
+  // Surfaces. The window and the pages outside the dashboard frame (login,
+  // signed-out pages, a whole-page error) are white, as the library assumes
+  // ("Grey sits on a white page"). The dashboard frame's canvas is Grey-50,
+  // the library's grey surface (`$card-background-grey`, the grey `Card`;
+  // the library has no page canvas token of its own), and the sidebar and
+  // the page are white panels on it.
+  --hive-color-canvas: #{ardc.$card-background-grey};
   --hive-color-surface: #{ardc.$neutral-white};
   --hive-color-rule: #{ardc.$neutral-gray-100};
-  --hive-color-sidebar: #{ardc.$neutral-white};
-  --hive-color-sidebar-active: #{ardc.$secondary-purple-50};
-  // The scrim behind Hive's drawers, the same as the DS Modal's.
-  --hive-color-backdrop: #{ardc.$dialog-overlay-bg};
 
   // Spacing (4px scale)
   --hive-space-1: #{ardc.$spacing-1};
@@ -66,48 +121,203 @@
   --hive-space-5: #{ardc.$spacing-5};
   --hive-space-6: #{ardc.$spacing-6};
   --hive-space-8: #{ardc.$spacing-8};
-  --hive-space-16: #{ardc.$spacing-16};
 
   // Shape and motion
   --hive-radius: #{ardc.$border-radius};
   --hive-radius-sm: #{ardc.$border-radius-sm};
-  --hive-radius-lg: #{ardc.$border-radius-lg};
   --hive-border-width: #{ardc.$border-width};
-  --hive-shadow-sm: #{ardc.$shadow-sm};
-  --hive-transition-fast: #{ardc.$transition-fast};
+  --hive-shadow-menu: #{ardc.$menu-shadow};
   --hive-transition-base: #{ardc.$transition-base};
+  // One cycle of the library's loading motion (its spinner turn); Hive's
+  // skeleton shimmer and refresh spin run at the same pace.
+  --hive-loading-duration: #{ardc.$loading-spin-duration};
+  // The library meter's track and its header row (label and readout at
+  // either end), for Hive drawings that sit beside a `Meter` (the bar list,
+  // the unlimited quota row).
+  --hive-meter-track-height: #{ardc.$progress-track-height};
+  --hive-meter-track-radius: #{ardc.$progress-track-radius};
+  --hive-meter-track-color: #{ardc.$progress-track-color};
+  --hive-meter-header-gap: #{ardc.$progress-header-gap};
+  // The library meter's label to track gap (its field group gap); the
+  // over-quota alert keeps the same distance below the track.
+  --hive-meter-group-gap: #{ardc.$selection-gap-group-label};
+  // Where a checkbox's label starts: past the library's selection indicator
+  // and its gap to the label, so content under an option lines up with it.
+  --hive-selection-label-inset: calc(
+    #{ardc.$selection-indicator-size} + #{ardc.$selection-gap-indicator-label}
+  );
+  // The library dialog's body gap, between the parts of a dialog body.
+  --hive-dialog-body-gap: #{ardc.$dialog-body-gap};
+  // The library tooltip bubble (its overlay-bubble mixin: Grey-900, white
+  // Body/14 text, 8px radius, 12px padding, the tooltip shadow), for the
+  // chart tooltip Recharts positions itself.
+  --hive-tooltip-bg: #{ardc.$tooltip-bg};
+  --hive-tooltip-color: #{ardc.$tooltip-text-color};
+  --hive-tooltip-radius: #{ardc.$tooltip-radius};
+  --hive-tooltip-padding: #{ardc.$tooltip-padding};
+  --hive-tooltip-shadow: #{ardc.$tooltip-box-shadow};
+  --hive-tooltip-max-width: #{ardc.$tooltip-max-width};
+  --hive-text-tooltip: #{ardc.$font-weight-normal} #{ardc.$tooltip-font-size} /
+    #{ardc.$tooltip-line-height} #{ardc.$font-family-base};
+  // The library "Cite this resource" block (cite tokens), which the code
+  // block is drawn to: a Grey-50 block with 16px padding and gap holding a
+  // white panel ruled in Grey-100, and the 24px Grey-500 copy icon control.
+  --hive-cite-bg: #{ardc.$cite-bg-grey};
+  --hive-cite-padding: #{ardc.$cite-padding};
+  --hive-cite-gap: #{ardc.$cite-gap};
+  --hive-cite-radius: #{ardc.$cite-radius};
+  --hive-cite-panel-bg: #{ardc.$cite-citation-bg-on-grey};
+  --hive-cite-panel-padding: #{ardc.$cite-citation-padding};
+  --hive-cite-panel-gap: #{ardc.$cite-citation-gap};
+  --hive-cite-panel-radius: #{ardc.$cite-citation-radius};
+  --hive-cite-panel-border: #{ardc.$cite-citation-border-width} solid
+    #{ardc.$cite-citation-border-color};
+  --hive-cite-copy-size: #{ardc.$cite-copy-size};
+  --hive-cite-copy-radius: #{ardc.$cite-copy-radius};
+  --hive-cite-copy-color: #{ardc.$cite-copy-color};
+  --hive-cite-copy-color-active: #{ardc.$cite-copy-color-active};
+  --hive-cite-copy-color-disabled: #{ardc.$cite-copy-color-disabled};
+  --hive-cite-copy-stroke-width: #{ardc.$cite-copy-stroke-width};
+  // A glyph composed into an extra small button (the button's own icon
+  // size).
+  --hive-button-icon-size-xs: #{ardc.$btn-content-icon-size-xs};
   --hive-focus-ring: #{ardc.$focus-ring-width} solid
     #{ardc.$focus-ring-color-on-light};
+  --hive-focus-ring-width: #{ardc.$focus-ring-width};
+  // The library's ring colour on a dark or filled surface (Yellow-500), for
+  // the sidebar's current Home row on its Purple-500 fill.
+  --hive-focus-ring-color-on-dark: #{ardc.$focus-ring-color-on-dark};
   --hive-focus-ring-offset: #{ardc.$focus-ring-offset};
+  // The ring drawn flush with a small icon control's edge (the library cite
+  // copy control's), where the usual 4px gap would crowd its neighbours.
+  --hive-focus-ring-offset-start: #{ardc.$focus-ring-offset-start};
+  // The wider offset the library Link draws its ring at around a line of
+  // text; Hive's own text rows (the sidebar's link rows) match it.
+  --hive-focus-ring-offset-link: #{ardc.$focus-ring-offset-link};
 
   // Type
   --hive-font-family: #{ardc.$font-family-base};
-  --hive-font-mono:
-    ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono",
-    monospace;
   --hive-font-size-xs: #{ardc.$font-size-xs};
   --hive-font-size-sm: #{ardc.$font-size-sm};
-  --hive-font-size-base: #{ardc.$font-size-base};
-  --hive-font-size-lg: #{ardc.$font-size-lg};
-  --hive-font-size-xl: #{ardc.$font-size-xl};
-  --hive-font-size-3xl: #{ardc.$font-size-3xl};
-  --hive-font-size-5xl: #{ardc.$font-size-5xl};
-  --hive-font-weight-normal: #{ardc.$font-weight-normal};
-  --hive-font-weight-semibold: #{ardc.$font-weight-semibold};
-  --hive-font-weight-bold: #{ardc.$font-weight-bold};
 
-  // Layout (Hive-only)
-  --hive-sidebar-width: 15rem;
-  --hive-sidebar-rail: 3.5rem;
-  --hive-bar-height: 3.5rem;
-  --hive-content-max: 75rem;
-  --hive-gutter: var(--hive-space-4);
+  // The library text styles as `font` shorthands; modules write
+  // `font: var(--hive-text-body-16)` and set the colour separately.
+  @each $name, $style in $_text-styles {
+    --hive-text-#{$name}: #{list.nth($style, 1)}
+      #{list.nth($style, 2)} /
+      #{list.nth($style, 3)}
+      #{ardc.$font-family-base};
+  }
+
+  // Grid. The content width and the column spans of the 12-column grid
+  // (180, 282, 384, 588, 792 and 894px at 1200px). Span 4 is the sidebar
+  // block's own 384px.
+  --hive-content-max: #{ardc.$hero-content-max-width};
+  --hive-grid-gap: #{$_grid-gap};
+  --hive-grid-span-2: #{_grid-span(2)};
+  --hive-grid-span-3: #{_grid-span(3)};
+  --hive-grid-span-4: #{_grid-span(4)};
+  --hive-grid-span-6: #{_grid-span(6)};
+  --hive-grid-span-8: #{_grid-span(8)};
+  --hive-grid-span-9: #{_grid-span(9)};
+  // The page gutter: the grid gap at every width (the grids spec marks its
+  // tablet and mobile frames "to check w dev").
+  --hive-gutter: var(--hive-grid-gap);
+  // The docked navigation column ("Sidebar left" layout): three columns.
+  --hive-sidebar-width: var(--hive-grid-span-3);
+  // The sidebar's small uppercase labels over the project facts (Darcelle's
+  // 15 Oct 2026 mockup; the Figma file has no uppercase label style) are
+  // tracked 0.5px, the one tracking the design system draws (services-headers
+  // spec, the "Explore ARDC" label).
+  --hive-label-tracking: #{ardc-fn.pxToRem(0.5)};
+  // The sidebar's Home glyph takes the accordion's 24px icon size, so it
+  // matches the section icons under it.
+  --hive-sidebar-home-icon: #{ardc.$accordion-icon-size};
+
+  // The agency mega menu's 20px strip (its `--header-height`, 1.25rem),
+  // reserved above the app before the component hydrates.
+  --hive-megamenu-height: #{ardc-fn.pxToRem(20)};
+  // Service header (services-headers spec): the 100px "Main Nav" row under
+  // the mega menu's strip.
+  --hive-header-row-height: #{ardc-fn.pxToRem(100)};
+  // Logo and product name, one link home (Frame 1307 desktop, Frame 1308
+  // mobile): the Nectar logo 47px high (its width follows its proportions),
+  // 24px before a 16/18 name set in a 100px box (14/18 on mobile). The
+  // spec's 146x47 mark, 31px gap and 233px box belong to the ARDC logo.
+  --hive-header-logo-height: #{ardc-fn.pxToRem(47)};
+  --hive-header-brand-gap: #{ardc.$spacing-6};
+  --hive-header-title-width: #{ardc-fn.pxToRem(100)};
+  --hive-text-header-title: #{ardc.$font-weight-normal}
+    #{ardc.$font-size-base} / #{ardc-fn.pxToRem(18)} #{ardc.$font-family-base};
+  // Navigation items ("Nav Service Menu", Breakpoint=Desktop cells): 20px
+  // above and below a 24px label, 8px to the 8x4.98 chevron, a 4px
+  // Purple-500 rule on hover, 32px apart (the 1280 and 1024 sets).
+  --hive-header-item-padding-y: #{ardc.$spacing-5};
+  --hive-header-item-gap: #{ardc.$spacing-2};
+  --hive-header-item-chevron-width: #{ardc-fn.pxToRem(8)};
+  --hive-header-item-underline: #{ardc-fn.pxToRem(4)};
+  --hive-header-nav-gap: #{ardc.$spacing-8};
+  // The call to action after the items ("Buttons_Chevron_Light BG"): its
+  // foot 10px above the header's.
+  --hive-header-cta-offset: #{ardc-fn.pxToRem(10)};
+  // The compact dropdown ("Frame 1336", 335px, 8px padding, 7px below the
+  // header) and its rows ("Mega Menu Nav Links": 16px padding, a 20px
+  // chevron frame holding a 9.38px glyph).
+  --hive-header-menu-width: #{ardc-fn.pxToRem(335)};
+  --hive-header-menu-padding: #{ardc.$spacing-2};
+  --hive-header-menu-row-padding: #{ardc.$spacing-4};
+  --hive-header-menu-chevron-frame: #{ardc-fn.pxToRem(20)};
+  --hive-header-menu-chevron-height: #{ardc-fn.pxToRem(9.38)};
+  // Mobile ("Mobile" frame): a 71px bar ("Frame 1330") holding the 24px
+  // "Icon/List" 16px from its end edge.
+  --hive-header-bar-height-mobile: #{ardc-fn.pxToRem(71)};
+  --hive-header-bar-padding-x-mobile: #{ardc.$spacing-4};
+  --hive-header-list-icon-size: #{ardc-fn.pxToRem(24)};
+
+  // The library's 16px icon frame (the sidebar block's link chevron, the
+  // info and date triggers), for a glyph beside a line of text.
+  --hive-icon-frame: #{ardc.$sidebar-block-link-icon-frame};
+
+  // Fields in a table toolbar and footer (gaps "Table toolbar" and "Table
+  // footer"), on the grid: the search box grows from span 2 to span 4; each
+  // filter (a side label and an option such as "Instance snapshots") and
+  // the "Per page" select take span 3 and span 2.
+  --hive-toolbar-search-min: var(--hive-grid-span-2);
+  --hive-toolbar-search-max: var(--hive-grid-span-4);
+  --hive-toolbar-filter: var(--hive-grid-span-3);
+  --hive-page-size-field: var(--hive-grid-span-2);
+  // A field standing on its own above content (a date range): no wider
+  // than a toolbar's search box at its widest.
+  --hive-field-max: var(--hive-toolbar-search-max);
+
+  // Hive's own sizes where no spec frame gives one. Each is a gap in
+  // DESIGN-NOTES.md, named beside it, and keeps the size Hive drew before
+  // the design-source sweep until a frame replaces it.
+  // A code block scrolls after 384px; one that is the main content of its
+  // view (an instance's console log) after 576px (gap "Code face and
+  // copyable value").
+  --hive-code-max-height: #{ardc-fn.pxToRem(384)};
+  --hive-code-max-height-tall: #{ardc-fn.pxToRem(576)};
+  // A list inside a dialog (the files in an upload, the instances an action
+  // applies to) scrolls after 320px, so the dialog's buttons stay in view
+  // (gap "List cap").
+  --hive-list-max-height: #{ardc-fn.pxToRem(320)};
+  // The launch sources' radio list scrolls after 384px (gap "Option list
+  // with descriptions").
+  --hive-picker-max-height: #{ardc-fn.pxToRem(384)};
+  // The reservation availability chart (gap "Availability chart"): its
+  // sticky label column, 200px (152px below 768px), and the 512px after
+  // which the chart scrolls within itself.
+  --hive-timeline-label: #{ardc-fn.pxToRem(200)};
+  --hive-timeline-label-compact: #{ardc-fn.pxToRem(152)};
+  --hive-timeline-max-height: #{ardc-fn.pxToRem(512)};
 
   // Stacking
-  --hive-z-sticky: 10;
-  --hive-z-drawer: 40;
-  --hive-z-modal: 45;
   --hive-z-toast: 50;
+  // The layer above the app root (which is its own stacking context): the
+  // agency mega menu, and after it the overlays portalled to the end of
+  // body, which so paint above the menu.
+  --hive-z-above-app: 1;
 
   // Charts (categorical slots validated against white; see plan)
   --hive-chart-1: #{ardc.$semantic-blue-600};
@@ -116,10 +326,4 @@
   --hive-chart-4: #{ardc.$secondary-green-500};
   --hive-chart-5: #{ardc.$brand-purple-500};
   --hive-chart-other: #{ardc.$neutral-gray-500};
-}
-
-@media (width >= 1024px) {
-  :root {
-    --hive-gutter: var(--hive-space-6);
-  }
 }

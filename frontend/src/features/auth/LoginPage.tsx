@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 import { Alert, Link } from "@ardc-ui/react";
-import { loginRoute } from "../../app/router";
-import { buildLoginUrl, safeNext } from "../../lib/login";
+import { buildLoginUrl, loginHelpUrl, safeNext } from "../../lib/login";
 import { configQuery } from "../../lib/queries";
-import { useDocumentTitle } from "../../lib/useDocumentTitle";
-import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
-import { RouteLink } from "../../components/RouteLink/RouteLink";
+import { useDocumentTitle } from "../../lib/hooks/useDocumentTitle";
+import { useHiddenFooter } from "../../lib/hooks/useHiddenFooter";
+import { REDUCED_MOTION, useMediaQuery } from "../../lib/hooks/useMediaQuery";
+import { AppLink } from "../../components/AppLink/AppLink";
 import { Skeleton } from "../../components/Skeleton/Skeleton";
 import styles from "./LoginPage.module.scss";
+
+const loginRoute = getRouteApi("/auth/auth/login");
 
 const REASONS: Record<string, { tone: "danger" | "info"; text: string }> = {
   invalid_token: {
@@ -26,69 +29,78 @@ const REASONS: Record<string, { tone: "danger" | "info"; text: string }> = {
   },
 };
 
-const SUPPORT_SITE = "https://support.ehelp.edu.au/";
-const LOGIN_HELP_PATH = "/support/solutions/articles/6000055377";
-
-/** The login help article on the support site `help_url` points at. The
- * configured URL is a page (by default ".../support/home"), so the article
- * path is resolved against its origin rather than appended. */
-function loginHelpUrl(helpUrl: string | undefined): string {
-  try {
-    return new URL(LOGIN_HELP_PATH, helpUrl || SUPPORT_SITE).href;
-  } catch {
-    return new URL(LOGIN_HELP_PATH, SUPPORT_SITE).href;
-  }
-}
-
+/**
+ * The login page as Sam and the designer settled it (review 73411): layout,
+ * copy and artwork reproduce the nectar-dashboard login page
+ * (theme/templates/auth/_login_page.html, _login_form.html, _splash.html
+ * and _description.html). It stands alone under the mega menu, with no
+ * header or footer. One "Log In" goes through manuka, which asks for the
+ * federation itself.
+ */
 export function LoginPage() {
   useDocumentTitle("Log in");
+  useHiddenFooter();
   const { next, reason } = loginRoute.useSearch();
   const { data: config, isPending } = useQuery(configQuery);
   const target = safeNext(next);
   const banner = reason ? REASONS[reason] : undefined;
+  // The honeycomb's animations live in the SVG. An SVG used as an image
+  // does not always see the page's motion setting, so the page itself asks
+  // for the still picture (`#still`) when the visitor prefers reduced motion.
+  const reducedMotion = useMediaQuery(REDUCED_MOTION);
+  const artwork = reducedMotion ? "/login-bg.svg#still" : "/login-bg.svg";
 
   return (
     <div className={styles.page}>
-      <div className={styles.brand} aria-hidden="true" />
-      <div className={styles.card}>
-        <img
-          className={styles.logo}
-          src="/logo-splash.svg"
-          alt="ARDC Nectar Research Cloud"
-        />
-        <h1 className={styles.title}>Welcome to the Dashboard.</h1>
-        <p>Log in to ARDC&apos;s Nectar Research Cloud.</p>
-        {banner && (
-          <Alert tone={banner.tone} role="status">
-            {banner.text}
-          </Alert>
-        )}
-        {next && target !== "/" && (
-          <Alert tone="info" role="status">
-            Log in to continue to <strong>{target}</strong>.
-          </Alert>
-        )}
-        <div className={styles.buttons}>
-          {isPending || !config ? (
-            <Skeleton height="2.75rem" width="14rem" />
-          ) : (
-            <Link variant="primary" href={buildLoginUrl(config, target)}>
-              Log in
-            </Link>
-          )}
+      <img
+        className={styles.background}
+        src={artwork}
+        alt=""
+        aria-hidden="true"
+      />
+      <div className={styles.container}>
+        <div className={styles.column}>
+          <div className={styles.login}>
+            <img
+              className={styles.logo}
+              src="/logo-splash.svg"
+              alt="ARDC Nectar Research Cloud"
+            />
+            <h1>Welcome to the Dashboard.</h1>
+            <p>
+              Log in to ARDC&apos;s Nectar Research Cloud with your
+              institutional account.
+            </p>
+            <p>
+              Australian users can log in with the Australian Access Federation
+              (AAF) and New Zealand users can log in with Tuakiri.
+            </p>
+            {banner && (
+              <Alert tone={banner.tone} role="status">
+                {banner.text}
+              </Alert>
+            )}
+            {next && target !== "/" && (
+              <Alert tone="info" role="status">
+                Log in to continue to <strong>{target}</strong>.
+              </Alert>
+            )}
+            <div className={styles.buttons}>
+              {isPending || !config ? (
+                <Skeleton height="2.75rem" width="14rem" />
+              ) : (
+                <Link variant="primary" href={buildLoginUrl(config, target)}>
+                  Log In
+                </Link>
+              )}
+            </div>
+            <p className={styles.help}>
+              <AppLink href={loginHelpUrl(config?.help_url)} newTab>
+                Having trouble logging in?
+              </AppLink>
+            </p>
+          </div>
         </div>
-        <p className={styles.help}>
-          <ExternalLink href={loginHelpUrl(config?.help_url)}>
-            Having trouble logging in?
-          </ExternalLink>
-        </p>
-        <p className={styles.terms}>
-          By logging in you agree to the{" "}
-          <RouteLink to="/terms">
-            Nectar Research Cloud terms of service
-          </RouteLink>
-          .
-        </p>
       </div>
     </div>
   );

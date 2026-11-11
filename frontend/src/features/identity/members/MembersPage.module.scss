@@ -1,9 +1,13 @@
+/// The page's intro paragraph: Body/16 in Grey-700, the content blocks'
+/// intro paragraph (content-blocks spec, Frame 519), at most span 9 wide
+/// (gap "Reading measure").
 .intro {
-  margin: 0;
-  max-width: 48rem;
-  color: var(--hive-color-text-muted);
+  max-width: var(--hive-grid-span-9);
+  color: var(--hive-color-gray-700);
 }
 
+/// A secondary line in a table cell: the cell's Body/14 in Grey-500, the
+/// text field's helper colour (text-input spec, "Input Field with Labels").
 .muted {
   color: var(--hive-color-text-muted);
 }

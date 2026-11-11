@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { groupRisks, riskName, riskTone } from "./risks";
+import {
+  exposesPort,
+  groupRisks,
+  resourceTitle,
+  riskName,
+  riskTone,
+} from "./risks";
 
 describe("security risks", () => {
   it("groups risks by resource in id order", () => {
@@ -16,6 +22,19 @@ describe("security risks", () => {
     expect(riskTone(0)).toBe("success");
     expect(riskTone(2)).toBe("warning");
     expect(riskTone(3)).toBe("danger");
+  });
+
+  it("names the resource by kind and name, else by id", () => {
+    const group = { resourceId: "i-db-1", resourceType: "instance", risks: [] };
+    expect(resourceTitle(group, "db-1")).toBe("Instance db-1");
+    expect(resourceTitle(group)).toBe("Instance i-db-1");
+  });
+
+  it("knows a risk on a port", () => {
+    const risk = { id: 1, resource_id: "x", resource_type: "instance" };
+    expect(exposesPort({ ...risk, port: 3306 })).toBe(true);
+    expect(exposesPort({ ...risk, port: null })).toBe(false);
+    expect(exposesPort(risk)).toBe(false);
   });
 
   it("prefers the display name", () => {

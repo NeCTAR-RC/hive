@@ -2,13 +2,15 @@
 and the current scoped token, plus the Nectar rule objects built from
 settings."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Any
 
 import httpx
 
-from hive.cache.redis import Cache
-from hive.clients.base import Refresh
+from hive.cache.policy import Policy
+from hive.cache.redis import Cache, CacheResult, Fetch
 from hive.clients.openstack import (
     CinderClient,
     GlanceClient,
@@ -20,6 +22,7 @@ from hive.nectar.flavors import FlavorRules
 from hive.nectar.images import ImageRules
 from hive.nectar.networks import NetworkRules
 from hive.nectar.volumes import VolumeRules
+from hive.services.background import BackgroundWork
 from hive.session.model import ScopedToken
 
 
@@ -29,36 +32,62 @@ class Context:
     settings: Settings
     cache: Cache
     scoped: ScopedToken
-    # Rescopes after an upstream 401; see ``hive.clients.base.Refresh``.
-    refresh: Refresh | None = None
+    background: BackgroundWork
 
     @property
     def project_id(self) -> str:
         return self.scoped.project.id
 
+    def _scope(self, policy: Policy) -> str | None:
+        return self.project_id if policy.scope == "project" else None
+
+    async def cached(
+        self,
+        policy: Policy,
+        fetch: Fetch,
+        *parts: str,
+        should_cache: Callable[[Any], bool] | None = None,
+    ) -> CacheResult:
+        """``fetch()`` through the cache under ``policy``; a project-scoped
+        policy is keyed by the current project."""
+        return await self.cache.get_or_fetch(
+            policy,
+            fetch,
+            *parts,
+            project_id=self._scope(policy),
+            should_cache=should_cache,
+        )
+
+    async def forget(self, policy: Policy, *parts: str) -> None:
+        await self.cache.invalidate(
+            policy, *parts, project_id=self._scope(policy)
+        )
+
+    async def remember(self, policy: Policy, value: Any, *parts: str) -> None:
+        await self.cache.set_json(
+            policy, value, *parts, project_id=self._scope(policy)
+        )
+
+    async def recall(self, policy: Policy, *parts: str) -> Any:
+        return await self.cache.get_json(
+            policy, *parts, project_id=self._scope(policy)
+        )
+
     @cached_property
     def nova(self) -> NovaClient:
-        return NovaClient(
-            self.http, self.settings, self.scoped, refresh=self.refresh
-        )
+        return NovaClient(self.http, self.settings, self.scoped)
 
     @cached_property
     def neutron(self) -> NeutronClient:
-        return NeutronClient(
-            self.http, self.settings, self.scoped, refresh=self.refresh
-        )
+        return NeutronClient(self.http, self.settings, self.scoped)
 
     @cached_property
     def glance(self) -> GlanceClient:
-        return GlanceClient(
-            self.http, self.settings, self.scoped, refresh=self.refresh
-        )
+        return GlanceClient(self.http, self.settings, self.scoped)
 
     @cached_property
     def cinder(self) -> CinderClient:
-        return CinderClient(
-            self.http, self.settings, self.scoped, refresh=self.refresh
-        )
+        return CinderClient(self.http, self.settings, self.scoped)
 
     @cached_property
     def network_rules(self) -> NetworkRules:

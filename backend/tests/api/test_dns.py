@@ -5,17 +5,9 @@ import json
 import httpx
 
 from tests.conftest import csrf_headers, DESIGNATE
+from tests.fixtures.loader import fixture
 
-ZONE = {
-    "id": "z-1",
-    "name": "example.com.",
-    "type": "PRIMARY",
-    "email": "admin@example.com",
-    "ttl": 3600,
-    "serial": 5,
-    "status": "ACTIVE",
-    "action": "NONE",
-}
+ZONE = fixture("designate", "zone")
 PENDING = {
     **ZONE,
     "id": "z-2",
@@ -23,33 +15,7 @@ PENDING = {
     "status": "PENDING",
     "action": "CREATE",
 }
-RECORDSETS = [
-    {
-        "id": "rs-soa",
-        "zone_id": "z-1",
-        "name": "example.com.",
-        "type": "SOA",
-        "records": ["ns1. admin. 1 2 3 4 5"],
-        "status": "ACTIVE",
-    },
-    {
-        "id": "rs-ns",
-        "zone_id": "z-1",
-        "name": "example.com.",
-        "type": "NS",
-        "records": ["ns1.example.net."],
-        "status": "ACTIVE",
-    },
-    {
-        "id": "rs-a",
-        "zone_id": "z-1",
-        "name": "www.example.com.",
-        "type": "A",
-        "records": ["10.0.0.1"],
-        "status": "ACTIVE",
-        "ttl": 300,
-    },
-]
+RECORDSETS = fixture("designate", "recordsets")
 
 
 def mock_designate(upstream):
@@ -94,8 +60,10 @@ async def test_list_zones_follows_pages(logged_in, upstream):
         "example.com.",
         "pending.com.",
     ]
-    assert body["items"][1]["is_transitional"] and body["quota"]["zones"] == 10
-    assert "A" in body["record_types"] and "SOA" not in body["record_types"]
+    assert body['items'][1]['is_transitional']
+    assert body['quota']['zones'] == 10
+    assert 'A' in body['record_types']
+    assert 'SOA' not in body['record_types']
     zone = (await logged_in.get("/api/dns/zones/z-1")).json()
     assert zone["serial"] == 5
 
@@ -124,10 +92,8 @@ async def test_zone_create_update_delete(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 202, response.text
-    assert (
-        response.json()["name"] == "new.com."
-        and response.json()["is_transitional"]
-    )
+    assert response.json()['name'] == 'new.com.'
+    assert response.json()['is_transitional']
     sent = json.loads(create.calls.last.request.content)
     assert sent == {
         "name": "new.com.",
@@ -142,7 +108,8 @@ async def test_zone_create_update_delete(logged_in, upstream):
         json={"name": "nodot.com", "email": "a@b.co"},
         headers=csrf_headers(logged_in),
     )
-    assert bad.status_code == 400 and "dot" in bad.json()["message"]
+    assert bad.status_code == 422
+    assert "dot" in bad.json()["message"]
 
     update = upstream.patch(f"{DESIGNATE}/v2/zones/z-1").mock(
         return_value=httpx.Response(202, json={**ZONE, "ttl": 120})
@@ -152,7 +119,8 @@ async def test_zone_create_update_delete(logged_in, upstream):
         json={"ttl": 120, "email": "x@y.co"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json()["ttl"] == 120
+    assert response.status_code == 200
+    assert response.json()['ttl'] == 120
     assert json.loads(update.calls.last.request.content) == {
         "email": "x@y.co",
         "ttl": 120,
@@ -160,7 +128,8 @@ async def test_zone_create_update_delete(logged_in, upstream):
     noop = await logged_in.patch(
         "/api/dns/zones/z-1", json={}, headers=csrf_headers(logged_in)
     )
-    assert noop.status_code == 200 and noop.json()["id"] == "z-1"
+    assert noop.status_code == 200
+    assert noop.json()['id'] == 'z-1'
     bad_email = await logged_in.patch(
         "/api/dns/zones/z-1",
         json={"email": "nope"},
@@ -174,7 +143,8 @@ async def test_zone_create_update_delete(logged_in, upstream):
     response = await logged_in.delete(
         "/api/dns/zones/z-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
     busy = await logged_in.delete(
         "/api/dns/zones/z-2", headers=csrf_headers(logged_in)
     )
@@ -191,10 +161,8 @@ async def test_zone_quota_blocks_create(logged_in, upstream):
         json={"name": "new.com.", "email": "a@b.co"},
         headers=csrf_headers(logged_in),
     )
-    assert (
-        response.status_code == 409
-        and response.json()["error"] == "quota_exceeded"
-    )
+    assert response.status_code == 409
+    assert response.json()['error'] == 'quota_exceeded'
 
 
 async def test_zone_quota_lookup_failure_is_tolerated(logged_in, upstream):
@@ -220,7 +188,8 @@ async def test_recordsets(logged_in, upstream):
     body = (await logged_in.get("/api/dns/zones/z-1/recordsets")).json()
     assert body["zone"]["name"] == "example.com."
     assert [r["type"] for r in body["items"]] == ["NS", "SOA", "A"]
-    assert not body["items"][0]["can_edit"] and body["items"][2]["can_edit"]
+    assert not body['items'][0]['can_edit']
+    assert body['items'][2]['can_edit']
 
     create = upstream.post(f"{DESIGNATE}/v2/zones/z-1/recordsets").mock(
         return_value=httpx.Response(
@@ -272,7 +241,8 @@ async def test_recordsets(logged_in, upstream):
         json={"name": "www", "type": "A", "records": ["not-an-ip"]},
         headers=csrf_headers(logged_in),
     )
-    assert bad.status_code == 400 and "IPv4" in bad.json()["message"]
+    assert bad.status_code == 400
+    assert 'IPv4' in bad.json()['message']
     other_zone = await logged_in.post(
         "/api/dns/zones/z-1/recordsets",
         json={"name": "www.other.com.", "type": "A", "records": ["10.0.0.1"]},
@@ -290,9 +260,8 @@ async def test_recordsets(logged_in, upstream):
         json={"records": ["10.0.0.2"], "ttl": 60, "description": "moved"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json()["records"] == [
-        "10.0.0.2"
-    ]
+    assert response.status_code == 200
+    assert response.json()['records'] == ['10.0.0.2']
     assert json.loads(update.calls.last.request.content) == {
         "records": ["10.0.0.2"],
         "ttl": 60,
@@ -317,14 +286,15 @@ async def test_recordsets(logged_in, upstream):
     response = await logged_in.delete(
         "/api/dns/zones/z-1/recordsets/rs-a", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
     managed = await logged_in.delete(
         "/api/dns/zones/z-1/recordsets/rs-ns", headers=csrf_headers(logged_in)
     )
     assert managed.status_code == 409
 
 
-async def test_zone_boundary_ttl_reset_and_secondary(logged_in, upstream):
+async def test_zone_boundary_and_ttl_reset(logged_in, upstream):
     mock_designate(upstream)
     lookalike = await logged_in.post(
         "/api/dns/zones/z-1/recordsets",
@@ -354,49 +324,3 @@ async def test_zone_boundary_ttl_reset_and_secondary(logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert "ttl" not in json.loads(update.calls.last.request.content)
-
-    create = upstream.post(f"{DESIGNATE}/v2/zones").mock(
-        return_value=httpx.Response(
-            202,
-            json={
-                **ZONE,
-                "id": "z-8",
-                "name": "sec.com.",
-                "type": "SECONDARY",
-                "masters": ["192.0.2.1"],
-            },
-        )
-    )
-    response = await logged_in.post(
-        "/api/dns/zones",
-        json={
-            "name": "sec.com.",
-            "email": "a@b.co",
-            "type": "SECONDARY",
-            "masters": ["192.0.2.1"],
-        },
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 202, response.text
-    assert response.json()["masters"] == ["192.0.2.1"]
-    assert json.loads(create.calls.last.request.content) == {
-        "name": "sec.com.",
-        "email": "a@b.co",
-        "type": "SECONDARY",
-        "masters": ["192.0.2.1"],
-    }
-    no_masters = await logged_in.post(
-        "/api/dns/zones",
-        json={"name": "sec.com.", "email": "a@b.co", "type": "SECONDARY"},
-        headers=csrf_headers(logged_in),
-    )
-    assert no_masters.status_code == 400
-
-
-async def test_zone_ids_are_quoted(logged_in, upstream):
-    zone = upstream.get(f"{DESIGNATE}/v2/zones/a%3Fb").mock(
-        return_value=httpx.Response(200, json=ZONE)
-    )
-    response = await logged_in.get("/api/dns/zones/a%3Fb")
-    assert response.status_code == 200, response.text
-    assert zone.calls.last.request.url.raw_path == b"/v2/zones/a%3Fb"

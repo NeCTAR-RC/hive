@@ -1,38 +1,53 @@
-@use "mixins" as *;
-
+/// The cite-this-resource block on grey (cite spec "Background=Grey", line
+/// 55; library cite tokens): Grey-50 at the 4px radius, 16px padding, its
+/// label and panel 16px apart.
 .block {
-  @include panel;
-
-  overflow: hidden;
-  min-width: 0;
-}
-
-.bar {
+  box-sizing: border-box;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-2) var(--hive-space-3);
-  border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
-  background: var(--hive-color-gray-50);
+  flex-direction: column;
+  gap: var(--hive-cite-gap);
+  min-width: 0;
+  padding: var(--hive-cite-padding);
+  border-radius: var(--hive-cite-radius);
+  background: var(--hive-cite-bg);
 }
 
+/// In the place of the block's style chooser, its label's style (cite spec
+/// "Style", line 86): Body/16/Bold in Grey-700.
 .label {
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
 }
 
-.pre,
-.wrap {
+/// The citation panel (cite spec "Frame 3", line 147): white, ruled in
+/// Grey-100 at the 4px radius, 16px padding, the copy control 8px after the
+/// text and level with its last line.
+.panel {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hive-cite-panel-gap);
+  min-width: 0;
+  padding: var(--hive-cite-panel-padding);
+  border: var(--hive-cite-panel-border);
+  border-radius: var(--hive-cite-panel-radius);
+  background: var(--hive-cite-panel-bg);
+}
+
+/// The citation text (cite spec line 173): Body/14 in Grey-700, in the body
+/// face. Scrolls after the shared code height; `wrap` breaks long lines
+/// instead, a word too long for the line where it must.
+.text {
+  flex: 1;
+  min-width: 0;
+  max-height: var(--hive-code-max-height);
   margin: 0;
-  padding: var(--hive-space-3);
-  font-size: var(--hive-font-size-sm);
-  line-height: 1.5;
   overflow: auto;
-  max-height: 24rem;
-}
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-body);
 
-.wrap {
-  white-space: pre-wrap;
-  word-break: break-all;
+  &[data-wrap] {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
 }

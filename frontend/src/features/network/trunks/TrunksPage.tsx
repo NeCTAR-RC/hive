@@ -1,17 +1,20 @@
+// The Trunks list, with Create trunk.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import type { Trunk } from "../../../lib/api/types";
-import { useProjectId } from "../../../lib/useProject";
+import { toRowActions } from "../../../lib/actions";
+import type { Trunk } from "../../../lib/api/types/network";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { trunksRoute } from "../../../app/router";
 import { trunksQuery } from "../api";
 import {
   adminStateLabel,
@@ -20,37 +23,24 @@ import {
   statusTone,
 } from "../status";
 import { useTrunkActions } from "./TrunkActions";
-import { CreateTrunkDialog } from "./TrunkDialogs";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { CreateTrunkDialog } from "./dialogs/CreateTrunkDialog";
+
+const trunksRoute = getRouteApi("/app/network/trunks");
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
+/** The Trunks list page with its row and batch actions. */
 export function TrunksPage() {
   const projectId = useProjectId();
-  const search = trunksRoute.useSearch();
-  const navigate = useNavigate({ from: trunksRoute.fullPath });
+  const search = useListSearch(trunksRoute);
   const trunks = useQuery(trunksQuery(projectId));
-  const { run, runDelete, dialogs } = useTrunkActions(projectId);
-
-  const q = search.q ?? "";
-  const setSearch = (patch: { q?: string }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        return next;
-      },
-      replace: true,
-    });
-  const setCreating = (open: boolean) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous };
-        delete next.create;
-        return open ? { ...next, create: true } : next;
-      },
-      replace: true,
-    });
+  const table = useQueryTable(trunks, {
+    noun: "trunks",
+    search,
+    placeholder: "Search by name or parent port",
+  });
+  const actions = useTrunkActions();
+  const setCreating = (create: boolean) => search.patch({ create });
 
   const columns = useMemo<ColumnDef<Trunk>[]>(
     () => [
@@ -59,9 +49,13 @@ export function TrunksPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouteLink to="/network/trunks/$trunkId" params={{ trunkId: row.id }}>
+          <AppLink
+            size="sm"
+            to="/network/trunks/$trunkId"
+            params={{ trunkId: row.id }}
+          >
             {row.name || row.id}
-          </RouteLink>
+          </AppLink>
         ),
         sortValue: (row) => row.name || row.id,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -71,12 +65,13 @@ export function TrunksPage() {
         label: "Parent port",
         cell: (row) =>
           row.port_id ? (
-            <RouteLink
+            <AppLink
+              size="sm"
               to="/network/ports/$portId"
               params={{ portId: row.port_id }}
             >
               {row.port_name || row.port_id}
-            </RouteLink>
+            </AppLink>
           ) : (
             ""
           ),
@@ -108,10 +103,6 @@ export function TrunksPage() {
     ],
     [],
   );
-  const rows = useMemo(
-    () => filterRows(trunks.data?.items ?? [], q, columns),
-    [trunks.data, q, columns],
-  );
   return (
     <>
       <PageHeader
@@ -127,57 +118,33 @@ export function TrunksPage() {
         id="trunks"
         label="Trunks"
         columns={columns}
-        rows={rows}
         getRowId={(row) => row.id}
-        isLoading={trunks.isPending}
-        isFetching={trunks.isFetching}
-        error={trunks.error}
-        onRetry={() => void trunks.refetch()}
-        onRefresh={() => void trunks.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder: "Search by name or parent port",
-        }}
-        resetKey={q}
-        emptyTitle={
-          trunks.data && trunks.data.items.length > 0
-            ? "No trunks match"
-            : "No trunks yet"
-        }
+        {...table}
+        {...actions.tableProps}
         emptyBody={
-          trunks.data && trunks.data.items.length === 0 ? (
-            <p>
-              A trunk lets one instance port carry several VLANs, each on its
-              own subport.
-            </p>
-          ) : null
+          <p>
+            A trunk lets one instance port carry several VLANs, each on its own
+            subport.
+          </p>
         }
         rowActions={(row) =>
-          availableTrunkActions(row).map((action) => ({
-            id: action.id,
-            label: action.label,
-            onAction: () => run(row, action.id),
-            isDisabled: action.isDisabled,
-            ...(action.tone ? { tone: action.tone } : {}),
-          }))
+          toRowActions(availableTrunkActions(row), (id) =>
+            actions.run(id, [row]),
+          )
         }
         batchActions={[
           {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (selected) => runDelete(selected),
+            onAction: (selected) => actions.run("delete", selected),
           },
         ]}
       />
-      {dialogs}
-      <CreateTrunkDialog
-        key={search.create ? "open" : "closed"}
-        projectId={projectId}
-        isOpen={Boolean(search.create)}
-        onOpenChange={setCreating}
-      />
+      {actions.dialogs}
+      {search.params.create && (
+        <CreateTrunkDialog onClose={() => setCreating(false)} />
+      )}
     </>
   );
 }

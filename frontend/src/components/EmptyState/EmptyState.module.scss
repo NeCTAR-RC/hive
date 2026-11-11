@@ -1,21 +1,39 @@
+@use "mixins" as *;
+
+/// The CTA - Sidebar block's content (sidebar-blocks spec, line 3), without
+/// its chrome: the text and the action 24px apart (line 12), start-aligned.
+/// The block's border is left out because an empty state usually sits
+/// inside a panel already (own decision).
 .empty {
-  display: grid;
-  justify-items: center;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-8) var(--hive-space-4);
-  text-align: center;
-  color: var(--hive-color-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hive-space-6);
 }
 
+/// The title over its text, 8px apart (Frame 246, line 24).
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+}
+
+/// Heading/H4 in Grey-900 (line 42).
 .title {
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-h4);
   color: var(--hive-color-text-heading);
 }
 
+/// Body/16/Regular in Grey-700 (line 58).
 .body {
-  max-width: 40rem;
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
 }
 
+/// The block's action row (library `sidebar-block-actions` mixin), for one
+/// button or several 8px apart.
 .action {
-  margin-top: var(--hive-space-2);
+  @include sidebar-block-actions;
+
+  flex-wrap: wrap;
 }

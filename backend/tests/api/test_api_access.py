@@ -1,4 +1,6 @@
-from hive.api import api_access
+import yaml
+
+from hive.services import api_access
 
 
 async def test_endpoints_flatten_the_public_catalog(logged_in):
@@ -51,7 +53,8 @@ async def test_openrc_download(logged_in):
     assert response.headers["content-type"].startswith("text/x-shellscript")
     assert (
         response.headers["content-disposition"]
-        == 'attachment; filename="pt-50-openrc.sh"'
+        == "attachment; filename=\"pt-50-openrc.sh\";"
+        " filename*=UTF-8''pt-50-openrc.sh"
     )
     body = response.text
     assert "export OS_AUTH_URL=https://keystone.test/v3" in body
@@ -67,12 +70,34 @@ async def test_clouds_yaml_download(logged_in):
     response = await logged_in.get("/api/api-access/clouds.yaml")
     assert response.status_code == 200
     assert response.headers["content-disposition"] == (
-        'attachment; filename="clouds.yaml"'
+        "attachment; filename=\"clouds.yaml\"; filename*=UTF-8''clouds.yaml"
     )
     body = response.text
-    assert 'auth_url: "https://keystone.test/v3"' in body
-    assert 'project_name: "pt-50"' in body
-    assert "identity_api_version: 3" in body
+    assert body.startswith("# This is a clouds.yaml file")
+    cloud = yaml.safe_load(body)["clouds"]["openstack"]
+    assert cloud["auth"]["auth_url"] == "https://keystone.test/v3"
+    assert cloud["auth"]["project_name"] == "pt-50"
+    assert cloud["auth"]["project_id"] == "p1"
+    assert cloud["identity_api_version"] == 3
+
+
+def test_clouds_yaml_keeps_awkward_names_intact():
+    awkward = 'it\'s: "a" # project\nyes'
+    text = api_access.clouds_yaml_text(
+        {
+            "auth_url": "https://k/v3",
+            "project_id": "123",
+            "project_name": awkward,
+            "user_domain_id": "default",
+            "project_domain_id": "default",
+            "username": "a: b",
+            "region": "Melbourne",
+        }
+    )
+    auth = yaml.safe_load(text)["clouds"]["openstack"]["auth"]
+    assert auth["project_name"] == awkward
+    assert auth["username"] == "a: b"
+    assert auth["project_id"] == "123"
 
 
 def test_openrc_quotes_awkward_names():

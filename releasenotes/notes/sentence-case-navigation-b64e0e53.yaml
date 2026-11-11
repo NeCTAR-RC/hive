@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    Navigation labels, page titles, breadcrumbs and links that name a page
+    now use sentence case throughout (for example "Key pairs" instead of
+    "Key Pairs"), following the Australian Government Style Manual, so the
+    sidebar, the page heading and the browser tab agree.

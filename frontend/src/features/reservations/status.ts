@@ -1,46 +1,91 @@
 // Reservation status wording and tones (warre-dashboard tables.py:200-240
-// and the detail template's status boxes).
-import type { KeyValue } from "../../components/KeyValueList/KeyValueList";
-import type { StatusTone } from "../../components/StatusPill/StatusPill";
-import type { Reservation, ReservationFlavor } from "../../lib/api/types";
+// and the detail template's status boxes), and the row action rules.
+import { offerActions, type ActionTable } from "../../lib/actions";
+import type {
+  Reservation,
+  ReservationAction,
+  ReservationFlavor,
+} from "../../lib/api/types/reservations";
 import { formatMb, formatNumber } from "../../lib/format";
+import { defineStatus } from "../../lib/status";
 
-export function statusLabel(status: string): string {
-  switch (status) {
-    case "PENDING_CREATE":
-      return "Pending";
-    case "ALLOCATED":
-      return "Allocated";
-    case "ACTIVE":
-      return "Active";
-    case "COMPLETE":
-      return "Complete";
-    case "ERROR":
-      return "Error";
-    default:
-      return status || "Unknown";
-  }
-}
+const readers = defineStatus({
+  transitional: ["PENDING_CREATE"],
+  success: ["ACTIVE"],
+  info: ["ALLOCATED"],
+  danger: ["ERROR"],
+  labels: {
+    PENDING_CREATE: "Pending",
+    ALLOCATED: "Allocated",
+    ACTIVE: "Active",
+    COMPLETE: "Complete",
+    ERROR: "Error",
+  },
+  unlisted: "as-is",
+});
 
-export function statusTone(status: string): StatusTone {
-  switch (status) {
-    case "PENDING_CREATE":
-      return "progress";
-    case "ALLOCATED":
-      return "info";
-    case "ACTIVE":
-      return "success";
-    case "COMPLETE":
-      return "neutral";
-    case "ERROR":
-      return "danger";
-    default:
-      return "neutral";
-  }
-}
+export const statusLabel = readers.label;
+export const statusTone = readers.tone;
 
+/** Whether Blazar is still creating the reservation, so it polls. */
 export function isPending(reservation: Reservation): boolean {
-  return reservation.status === "PENDING_CREATE";
+  return readers.isTransitional(reservation.status);
+}
+
+/** A check on the actions the backend allows the reservation now. */
+function backendAllows(action: ReservationAction, reason: string) {
+  return (reservation: Reservation) =>
+    !reservation.actions.includes(action) && reason;
+}
+
+/**
+ * The reservation menu (warre-dashboard tables.py row actions); the
+ * backend works out from the status which of them the reservation allows.
+ */
+const RESERVATION_ACTIONS: ActionTable<ReservationAction, Reservation> = {
+  rules: [
+    {
+      id: "launch",
+      label: "Launch instance",
+      checks: [backendAllows("launch", "The reservation is not active yet")],
+    },
+    {
+      id: "extend",
+      label: "Extend reservation",
+      checks: [
+        backendAllows(
+          "extend",
+          "Only active reservations with days left can be extended",
+        ),
+      ],
+    },
+    {
+      id: "calendar",
+      label: "Add to calendar (.ics)",
+      checks: [
+        backendAllows(
+          "calendar",
+          "Only allocated or active reservations have a calendar entry",
+        ),
+      ],
+    },
+    {
+      id: "delete",
+      label: "Delete reservation",
+      tone: "danger",
+      checks: [
+        backendAllows(
+          "delete",
+          "A reservation still being created cannot be deleted",
+        ),
+      ],
+    },
+  ],
+};
+
+/** The reservation's menu, every action with its availability. */
+export function availableReservationActions(reservation: Reservation) {
+  return offerActions(RESERVATION_ACTIONS, reservation);
 }
 
 /** "64 VCPUs, 48 GB RAM" as the flavour popover shows it. */
@@ -68,23 +113,6 @@ export function flavorDisk(flavor: ReservationFlavor): string {
 export function flavorRate(flavor: ReservationFlavor): string {
   if (!flavor.rate) return "Free";
   return `${formatNumber(flavor.rate)} SU/hour`;
-}
-
-/** The flavour facts the chart row and the reserve dialog list
- * (nectar_reservations.js buildFlavorDetails). */
-export function flavorFacts(flavor: ReservationFlavor): KeyValue[] {
-  return [
-    { label: "Class", value: flavor.category },
-    { label: "Description", value: flavor.description },
-    { label: "Availability zone", value: flavor.availability_zone },
-    { label: "Size", value: flavorSize(flavor) },
-    { label: "Disk", value: flavorDisk(flavor) },
-    {
-      label: "Max duration",
-      value: `${flavor.max_days} ${flavor.max_days === 1 ? "day" : "days"}`,
-    },
-    { label: "Usage rate", value: flavorRate(flavor) },
-  ];
 }
 
 /** The last day a maintenance window covers: a window ending at midnight
@@ -132,7 +160,7 @@ export function eligibility(
   }
   let suEstimate: number | null = null;
   if (flavor.rate) {
-    suEstimate = Math.round(flavor.rate * 24 * Math.max(days, 0) * 100) / 100;
+    suEstimate = estimateSu(flavor.rate, days);
     if (
       suBudget !== null &&
       suBudget !== -1 &&
@@ -154,3 +182,11 @@ export const FEEDBACK_FORM =
   "https://docs.google.com/forms/d/e/1FAIpQLSddgKesBdril36Xk-VkVF4ejazbUM5i82DelJDQbNCt1d9IWg/viewform";
 export const LAUNCH_HELP =
   "https://support.ehelp.edu.au/support/solutions/articles/6000259638";
+
+/**
+ * The service units a reservation of `days` whole days costs at `rate` SU
+ * per hour, to two decimal places. Negative day counts cost nothing.
+ */
+export function estimateSu(rate: number, days: number): number {
+  return Math.round(rate * 24 * Math.max(days, 0) * 100) / 100;
+}

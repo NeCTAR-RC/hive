@@ -1,30 +1,33 @@
-.box {
-  display: grid;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-3);
-  background: var(--hive-color-page);
-  border-radius: var(--hive-radius);
-  font-size: var(--hive-font-size-sm);
+@use "mixins" as *;
+
+/// The labelled pairs stack at the Info - Sidebar block's 20px gap
+/// (sidebar-blocks spec, line 124).
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-5);
 }
 
-.small {
-  font-size: var(--hive-font-size-xs);
+/// One pair (spec "Frame 246", line 133): title 4px above its value.
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
 }
 
-.heading {
+/// The pair's title as the small uppercase label of Darcelle's 15 Oct 2026
+/// mockup ("RESOURCE BUNDLE"; gap "Small uppercase label"), with the library
+/// InfoButton 4px after it, centred on the line it shares.
+.term {
   display: flex;
   align-items: center;
   gap: var(--hive-space-1);
-  font-size: var(--hive-font-size-xs);
-  font-weight: var(--hive-font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--hive-color-text-muted);
-  margin-top: var(--hive-space-2);
+
+  @include small-label;
 }
 
+/// The pair's value (line 160): Body/16/Regular Grey-700.
 .value {
-  font-size: var(--hive-font-size-base);
-  font-weight: var(--hive-font-weight-semibold);
-  color: var(--hive-color-text-heading);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
 }

@@ -9,13 +9,14 @@ Hive adds.
 
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
+from pydantic import SecretStr
 import structlog
 
-from hive.auth.login import AuthService, NoProjects
+from hive.auth.login import NoProjects
 from hive.config import Settings
-from hive.deps import get_auth, get_settings
+from hive.deps import AuthDep, SettingsDep
 from hive.errors import BadRequest, NotAuthenticated, UpstreamError
 from hive.observability import metrics
 
@@ -43,8 +44,8 @@ def safe_next(value: str | None, default: str = "/") -> str:
 
 
 def _origin_allowed(request: Request, settings: Settings) -> bool:
-    if not settings.websso_allowed_origins:
-        return True
+    """Fail closed: an empty allow-list accepts no origin, so a forgotten
+    setting cannot open the receiver to login CSRF from any website."""
     origin = request.headers.get("origin")
     if not origin:
         # Older browsers omit Origin on form posts; fall back to Referer.
@@ -95,21 +96,20 @@ def clear_session_cookies(response, settings: Settings) -> None:
 
 
 @router.get("/auth/start", include_in_schema=False)
-async def start(
-    next: str = "",
-    settings: Settings = Depends(get_settings),
-):
+async def start(settings: SettingsDep, next: str = ""):
     """Send the browser to manuka, coming back to ``next``."""
     url = settings.login_start_url(safe_next(next, default=""))
     return RedirectResponse(url, status_code=302)
 
 
-async def _read_form(request: Request) -> tuple[str, str]:
+async def _read_form(request: Request) -> tuple[SecretStr, str]:
     """Parse manuka's form by hand so the checks run before parsing."""
     content_type = request.headers.get("content-type", "")
     if not content_type.startswith(FORM_CONTENT_TYPE):
         raise BadRequest("form-encoded body required")
     length = request.headers.get("content-length")
+    if length and not length.isdigit():
+        raise BadRequest("invalid Content-Length")
     if length and int(length) > MAX_FORM_BYTES:
         raise BadRequest("form body too large")
     body = await request.body()
@@ -120,15 +120,12 @@ async def _read_form(request: Request) -> tuple[str, str]:
     tenant_id = (fields.get("tenant_id") or [""])[0]
     if not token:
         raise BadRequest("token is required")
-    return token, tenant_id
+    return SecretStr(token), tenant_id
 
 
 @router.post("/auth/websso/", include_in_schema=False)
 async def websso(
-    request: Request,
-    next: str = "",
-    settings: Settings = Depends(get_settings),
-    auth: AuthService = Depends(get_auth),
+    request: Request, settings: SettingsDep, auth: AuthDep, next: str = ""
 ):
     token, tenant_id = await _read_form(request)
     if not _origin_allowed(request, settings):
@@ -141,7 +138,7 @@ async def websso(
 
     recent = request.cookies.get(RECENT_PROJECT_COOKIE)
     try:
-        sid, cookie_value, data = await auth.login_with_unscoped_token(
+        _sid, cookie_value, data = await auth.login_with_unscoped_token(
             token, recent_project=recent
         )
     except NotAuthenticated:

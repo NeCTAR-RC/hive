@@ -1,0 +1,10 @@
+{
+  "name": "error",
+  "type": "SYS",
+  "status": "Disabled",
+  "published": 0,
+  "pending": 0,
+  "container": "None",
+  "prefix": "None",
+  "metafile": "db-1/mysql-error_metafile"
+}

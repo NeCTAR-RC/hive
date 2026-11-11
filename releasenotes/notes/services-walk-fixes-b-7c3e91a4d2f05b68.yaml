@@ -1,0 +1,46 @@
+---
+features:
+  - |
+    A database user can be edited: a new name, password or allowed host
+    (``PATCH /api/databases/instances/{id}/users/{name}``).
+  - |
+    A container that holds objects can be deleted with them from the
+    containers list ("Delete container and its 3 objects"); the backend
+    empties it with its bulk delete first (``DELETE
+    /api/object-store/containers/{name}?with_objects=true``). It keeps
+    the container when any object cannot be deleted, and deletes nothing
+    when the object listing is too long to read in full.
+upgrade:
+  - |
+    ``HIVE_MANILA_SHARE_PROTOCOLS`` now defaults to ``CephFS``, and the
+    create share form hides the protocol picker when only one protocol
+    is offered.
+  - |
+    The new ``HIVE_MANILA_PUBLIC_SHARES_ALLOWED`` setting (default
+    ``false``) says whether members may make a share visible to all
+    projects. Create share hides the switch unless the setting is on,
+    while Edit share still shows it for a share that is already public,
+    and the backend refuses ``is_public`` true without the setting.
+  - |
+    Database user passwords need at least eight characters.
+  - |
+    The database launch options no longer carry ``default_cidr``:
+    Allowed CIDRs start empty, so opening an instance to every address
+    is typed.
+fixes:
+  - |
+    A DNS record set whose name and type the zone already has is caught
+    in the dialog with a way to edit the existing record set, and a zone
+    name without its final dot gets one added.
+  - |
+    Create share shows the share storage left by the size and refuses a
+    size above it. Access rules offer only the access types the share's
+    protocol takes, with a hint for each type.
+  - |
+    Database launch shows the quota used of its limit and refuses a
+    launch that does not fit, and a restore starts at the source
+    volume's size. The root password dialog has only Done.
+  - |
+    Object store: a copy starts at a free name beside the object, making
+    an existing container public asks first, and an upload marks a file
+    that replaces an existing object.

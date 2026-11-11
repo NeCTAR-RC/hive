@@ -1,11 +1,33 @@
-.page {
+/// The signed-out frame (signed out, terms, and the login page without its
+/// header): the service header over one column, filling the app root under
+/// the mega menu exactly, as the signed-in frame does, so the header stays
+/// put and the window never scrolls. Layout only.
+.frame {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: 0;
 }
 
-.main {
+/// The column under the header: no sidebar, scrolling on its own. Two grid
+/// rows, as the signed-in content column: the page takes at least the room
+/// the footer leaves, so the footer sits at the foot of a short page.
+/// Positioned, so text hidden for screen readers inside it scrolls and clips
+/// with it. Layout only; the pages draw the rest.
+.page {
+  position: relative;
+  display: grid;
   flex: 1;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/// The page's `main`, filling its row so a page can fill the frame. It
+/// takes focus from script after a navigation (`tabindex="-1"`) and shows
+/// no ring for it, as the global focus rule leaves such targets.
+.main {
   display: flex;
   flex-direction: column;
 

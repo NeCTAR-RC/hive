@@ -1,23 +1,30 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Dialog, Link, Modal } from "@ardc-ui/react";
+import { AppLink } from "../../components/AppLink/AppLink";
 import { CopyButton } from "../../components/CopyButton/CopyButton";
 import {
   DataTable,
   type ColumnDef,
 } from "../../components/DataTable/DataTable";
+import { useQueryTable } from "../../components/DataTable/useQueryTable";
 import { KeyValueList } from "../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import { useProjectId } from "../../lib/useProject";
+import type { ServiceEndpoint } from "../../lib/api/types/apiaccess";
+import { useProjectId } from "../../lib/hooks/useProjectId";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
-import { credentialsQuery, endpointsQuery, type ServiceEndpoint } from "./api";
+import { apiAccessCredentialsQuery, endpointsQuery } from "./api";
 import styles from "./ApiAccessPage.module.scss";
-import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function ApiAccessPage() {
   const projectId = useProjectId();
   const endpoints = useQuery(endpointsQuery(projectId));
+  const endpointsTable = useQueryTable(endpoints, {
+    noun: "endpoints",
+    emptyTitle: "No endpoints",
+    refresh: false,
+  });
   const [showCredentials, setShowCredentials] = useState(false);
 
   const columns = useMemo<ColumnDef<ServiceEndpoint>[]>(
@@ -53,7 +60,7 @@ export function ApiAccessPage() {
   return (
     <>
       <PageHeader
-        title="API Access"
+        title="API access"
         crumbs={[{ label: "Project" }]}
         actions={
           <>
@@ -89,13 +96,12 @@ export function ApiAccessPage() {
             The OpenStack RC file and clouds.yaml configure the OpenStack
             command line tools and SDKs for this project. They use your Nectar
             username with the password set under{" "}
-            <RouteLink to="/account/reset-password">Reset Password</RouteLink>.
-            EC2 credentials for S3-compatible tools and application credentials
-            are under{" "}
-            <RouteLink to="/identity/credentials">Credentials</RouteLink> and{" "}
-            <RouteLink to="/identity/application-credentials">
-              Application Credentials
-            </RouteLink>
+            <AppLink to="/account/reset-password">Reset password</AppLink>. EC2
+            credentials for S3-compatible tools and application credentials are
+            under <AppLink to="/identity/credentials">Credentials</AppLink> and{" "}
+            <AppLink to="/identity/application-credentials">
+              Application credentials
+            </AppLink>
             .
           </p>
         </Panel>
@@ -103,41 +109,30 @@ export function ApiAccessPage() {
           id="api-endpoints"
           label="Service endpoints"
           columns={columns}
-          rows={endpoints.data?.items}
           getRowId={(row) => `${row.type}:${row.url}`}
-          isLoading={endpoints.isPending}
-          isFetching={endpoints.isFetching}
-          error={endpoints.error}
-          onRetry={() => void endpoints.refetch()}
-          emptyTitle="No endpoints"
+          {...endpointsTable}
           defaultSort={{ column: "name", direction: "ascending" }}
           pageSizes={[50, 100]}
         />
       </div>
-      <CredentialsDialog
-        projectId={projectId}
-        isOpen={showCredentials}
-        onOpenChange={setShowCredentials}
-      />
+      {showCredentials && (
+        <CredentialsDialog onClose={() => setShowCredentials(false)} />
+      )}
     </>
   );
 }
 
-function CredentialsDialog({
-  projectId,
-  isOpen,
-  onOpenChange,
-}: {
-  projectId: string;
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const credentials = useQuery({
-    ...credentialsQuery(projectId),
-    enabled: isOpen,
-  });
+/** The user's credentials for this project, fetched when the dialog opens. */
+function CredentialsDialog({ onClose }: { onClose: () => void }) {
+  const projectId = useProjectId();
+  const credentials = useQuery(apiAccessCredentialsQuery(projectId));
   return (
-    <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="lg" isDismissable>
+    <Modal
+      isOpen
+      onOpenChange={(open) => !open && onClose()}
+      size="lg"
+      isDismissable
+    >
       <Dialog
         title="User credentials"
         closeLabel="Close"

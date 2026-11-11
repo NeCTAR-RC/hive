@@ -1,5 +1,7 @@
+/// The parts of the question (the consequences, a note on skipped items)
+/// at the library dialog's body gap (12px).
 .body {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-4);
+  gap: var(--hive-dialog-body-gap);
 }

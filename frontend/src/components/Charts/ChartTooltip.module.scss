@@ -1,0 +1,15 @@
+/// The library tooltip bubble (tooltip spec "Tooltip / Simple", line 631;
+/// library tooltip tokens): Grey-900 with white Body/14 text, 12px padding,
+/// 8px radius and the tooltip shadow, at most 200px wide. Recharts places
+/// it, so it has no beak. The day is its first line, in the same text: the
+/// spec's tooltip holds paragraphs only.
+.tooltip {
+  box-sizing: border-box;
+  max-width: var(--hive-tooltip-max-width);
+  padding: var(--hive-tooltip-padding);
+  border-radius: var(--hive-tooltip-radius);
+  background: var(--hive-tooltip-bg);
+  box-shadow: var(--hive-tooltip-shadow);
+  font: var(--hive-text-tooltip);
+  color: var(--hive-tooltip-color);
+}

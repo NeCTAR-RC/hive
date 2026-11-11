@@ -3,9 +3,30 @@ share groups and share group snapshots."""
 
 import asyncio
 
+from hive.cache import policy
 from hive.clients.manila import ManilaClient
 from hive.errors import BadRequest, Conflict, QuotaExceeded
 from hive.nectar import shares as rules
+from hive.schemas.responses.shares import (
+    SecurityService,
+    SecurityServicesResponse,
+    Share,
+    ShareAccessResponse,
+    ShareAccessRule,
+    ShareDetail,
+    ShareGroup,
+    ShareGroupDetail,
+    ShareGroupSnapshot,
+    ShareMetadataSaved,
+    ShareOptions,
+    ShareResized,
+    ShareReverted,
+    SharesResponse,
+    ShareSnapshot,
+    ShareSnapshotAccessRule,
+    ShareSnapshotDetail,
+    ShareSnapshotsResponse,
+)
 from hive.schemas.shares import (
     AccessRuleCreate,
     SecurityServiceCreate,
@@ -17,19 +38,20 @@ from hive.schemas.shares import (
     ShareMetadata,
     ShareResize,
     ShareRevert,
+    ShareSnapshotCreate,
+    ShareSnapshotUpdate,
     ShareUpdate,
     SnapshotAccessCreate,
-    SnapshotCreate,
-    SnapshotUpdate,
 )
 from hive.services.context import Context
-
-STATIC_TTL = 600
-STATIC_STALE = 3600
 
 
 def _manila(ctx: Context) -> ManilaClient:
     return ManilaClient(ctx.http, ctx.settings, ctx.scoped)
+
+
+async def limits(ctx: Context) -> dict:
+    return await _manila(ctx).limits()
 
 
 async def _share_types(ctx: Context) -> list[dict]:
@@ -39,32 +61,20 @@ async def _share_types(ctx: Context) -> list[dict]:
             for t in await _manila(ctx).share_types()
         ]
 
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.project_key(ctx.project_id, "share-types"),
-        fetch,
-        ttl=STATIC_TTL,
-        stale_ttl=STATIC_STALE,
-        name="share-types",
-    )
+    result = await ctx.cached(policy.SHARE_TYPES, fetch)
     return result.value
 
 
 async def _zones(ctx: Context) -> list[str]:
     async def fetch():
         zones = await _manila(ctx).availability_zones()
-        return sorted(z.get("name") for z in zones if z.get("name"))
+        return sorted(str(z["name"]) for z in zones if z.get("name"))
 
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("manila-azs"),
-        fetch,
-        ttl=STATIC_TTL,
-        stale_ttl=STATIC_STALE,
-        name="manila-azs",
-    )
+    result = await ctx.cached(policy.MANILA_AZS, fetch)
     return result.value
 
 
-async def options(ctx: Context) -> dict:
+async def options(ctx: Context) -> ShareOptions:
     """Pickers for the create forms plus the quota state behind the create
     and snapshot buttons."""
     manila = _manila(ctx)
@@ -79,7 +89,7 @@ async def options(ctx: Context) -> dict:
     protocols = list(ctx.settings.manila_share_protocols)
     can_create, create_reason = rules.can_create(quota)
     can_snapshot, snapshot_reason = rules.can_snapshot(quota)
-    return {
+    reply = {
         "protocols": protocols,
         "share_types": [
             t for t in types if not t["driver_handles_share_servers"]
@@ -113,22 +123,20 @@ async def options(ctx: Context) -> dict:
             }
             for t in group_types
         ],
-        "newest_snapshot_ids": rules.newest_snapshot_ids(snapshots),
         "quota": quota,
         "can_create": can_create,
         "create_reason": create_reason,
         "can_snapshot": can_snapshot,
         "snapshot_reason": snapshot_reason,
+        "public_shares_allowed": ctx.settings.manila_public_shares_allowed,
         "access_types": list(rules.ACCESS_TYPES),
         "access_levels": list(rules.ACCESS_LEVELS),
         "security_service_types": list(rules.SECURITY_SERVICE_TYPES),
     }
+    return ShareOptions.model_validate(reply)
 
 
-# --- shares --------------------------------------------------------------------
-
-
-async def list_shares(ctx: Context) -> dict:
+async def list_shares(ctx: Context) -> SharesResponse:
     manila = _manila(ctx)
     shares, snapshots, quota = await asyncio.gather(
         manila.shares(), manila.snapshots(), manila.limits()
@@ -139,15 +147,17 @@ async def list_shares(ctx: Context) -> dict:
     ]
     items.sort(key=lambda s: (s["name"] or "").lower())
     can_create, reason = rules.can_create(quota)
-    return {
-        "items": items,
-        "quota": quota,
-        "can_create": can_create,
-        "create_reason": reason,
-    }
+    return SharesResponse.model_validate(
+        {
+            "items": items,
+            "quota": quota,
+            "can_create": can_create,
+            "create_reason": reason,
+        }
+    )
 
 
-async def get_share(ctx: Context, share_id: str) -> dict:
+async def get_share(ctx: Context, share_id: str) -> ShareDetail:
     manila = _manila(ctx)
     share, access, locations, snapshots = await asyncio.gather(
         manila.share(share_id),
@@ -155,10 +165,12 @@ async def get_share(ctx: Context, share_id: str) -> dict:
         manila.export_locations(share_id),
         manila.snapshots(share_id=share_id),
     )
-    return rules.share_detail(share, access, locations, snapshots)
+    return ShareDetail.model_validate(
+        rules.share_detail(share, access, locations, bool(snapshots))
+    )
 
 
-async def create_share(ctx: Context, data: ShareCreate) -> dict:
+async def create_share(ctx: Context, data: ShareCreate) -> Share:
     manila = _manila(ctx)
     quota = await manila.limits()
     allowed, reason = rules.can_create(quota)
@@ -167,19 +179,17 @@ async def create_share(ctx: Context, data: ShareCreate) -> dict:
     snapshot = (
         await manila.snapshot(data.snapshot_id) if data.snapshot_id else None
     )
-    problem = rules.validate_create(
+    rules.validate_create(
         protocol=data.protocol,
         protocols=ctx.settings.manila_share_protocols,
         size=data.size,
         share_type=data.share_type,
         snapshot=snapshot,
     )
-    if problem:
-        raise BadRequest(problem)
-    try:
-        metadata = rules.parse_metadata(data.metadata)
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
+    rules.validate_public(
+        data.is_public, ctx.settings.manila_public_shares_allowed
+    )
+    metadata = rules.parse_metadata(data.metadata)
     body = rules.create_body(
         name=data.name,
         description=data.description,
@@ -193,10 +203,12 @@ async def create_share(ctx: Context, data: ShareCreate) -> dict:
         is_public=data.is_public,
     )
     created = await manila.create_share(body)
-    return rules.share_summary(created)
+    return Share.model_validate(rules.share_summary(created))
 
 
-async def update_share(ctx: Context, share_id: str, data: ShareUpdate) -> dict:
+async def update_share(
+    ctx: Context, share_id: str, data: ShareUpdate
+) -> Share:
     manila = _manila(ctx)
     share = await manila.share(share_id)
     if (share.get("status") or "").lower() not in rules.SHARE_EDITABLE:
@@ -207,14 +219,17 @@ async def update_share(ctx: Context, share_id: str, data: ShareUpdate) -> dict:
     if data.description is not None:
         fields["display_description"] = data.description
     if data.is_public is not None:
+        rules.validate_public(
+            data.is_public, ctx.settings.manila_public_shares_allowed
+        )
         fields["is_public"] = data.is_public
     updated = await manila.update_share(share_id, fields) if fields else share
-    return rules.share_summary(updated or share)
+    return Share.model_validate(rules.share_summary(updated or share))
 
 
 async def set_metadata(
     ctx: Context, share_id: str, data: ShareMetadata
-) -> dict:
+) -> ShareMetadataSaved:
     """The edit metadata form (``forms.py:292-322``): ``key=value`` lines
     are set; keys left out are removed.
 
@@ -222,19 +237,18 @@ async def set_metadata(
     left out; a later ``DELETE`` of one of them would be a 404. Only an
     empty map needs the per-key deletes."""
     manila = _manila(ctx)
-    try:
-        wanted = rules.parse_metadata(data.metadata)
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
+    wanted = rules.parse_metadata(data.metadata)
     if wanted:
         await manila.set_share_metadata(share_id, wanted)
     else:
         for key in await manila.share_metadata(share_id):
             await manila.delete_share_metadata(share_id, key)
-    return {"metadata": wanted}
+    return ShareMetadataSaved(metadata=wanted)
 
 
-async def resize_share(ctx: Context, share_id: str, data: ShareResize) -> dict:
+async def resize_share(
+    ctx: Context, share_id: str, data: ShareResize
+) -> ShareResized:
     manila = _manila(ctx)
     share, quota = await asyncio.gather(
         manila.share(share_id), manila.limits()
@@ -242,17 +256,17 @@ async def resize_share(ctx: Context, share_id: str, data: ShareResize) -> dict:
     if (share.get("status") or "").lower() != "available":
         raise Conflict("The share can only be resized while it is available.")
     current = int(share.get("size") or 0)
-    problem = rules.validate_resize(current, data.size, quota)
-    if problem:
-        raise BadRequest(problem)
+    rules.validate_resize(current, data.size, quota)
     if data.size > current:
         await manila.extend_share(share_id, data.size)
     else:
         await manila.shrink_share(share_id, data.size)
-    return {"id": share_id, "size": data.size}
+    return ShareResized(id=share_id, size=data.size)
 
 
-async def revert_share(ctx: Context, share_id: str, data: ShareRevert) -> dict:
+async def revert_share(
+    ctx: Context, share_id: str, data: ShareRevert
+) -> ShareReverted:
     manila = _manila(ctx)
     share, snapshots = await asyncio.gather(
         manila.share(share_id), manila.snapshots(share_id=share_id)
@@ -266,7 +280,7 @@ async def revert_share(ctx: Context, share_id: str, data: ShareRevert) -> dict:
     if not newest or newest.get("id") != data.snapshot_id:
         raise BadRequest("Only the newest snapshot can be reverted to.")
     await manila.revert_share(share_id, data.snapshot_id)
-    return {"id": share_id, "snapshot_id": data.snapshot_id}
+    return ShareReverted(id=share_id, snapshot_id=data.snapshot_id)
 
 
 async def delete_share(ctx: Context, share_id: str) -> None:
@@ -281,27 +295,25 @@ async def delete_share(ctx: Context, share_id: str) -> None:
     await manila.delete_share(share_id)
 
 
-async def list_access(ctx: Context, share_id: str) -> dict:
+async def list_access(ctx: Context, share_id: str) -> ShareAccessResponse:
     manila = _manila(ctx)
     share, access = await asyncio.gather(
         manila.share(share_id), manila.access_rules(share_id)
     )
-    return {
-        "share": rules.share_summary(share),
-        "items": [rules.access_summary(r) for r in access],
-        "can_add": (share.get("status") or "").lower() in rules.SHARE_EDITABLE,
-    }
+    return ShareAccessResponse.model_validate(
+        {
+            "share": rules.share_summary(share),
+            "items": [rules.access_summary(r) for r in access],
+            "can_add": (share.get("status") or "").lower()
+            in rules.SHARE_EDITABLE,
+        }
+    )
 
 
 async def allow_access(
     ctx: Context, share_id: str, data: AccessRuleCreate
-) -> dict:
+) -> ShareAccessRule:
     manila = _manila(ctx)
-    problem = rules.validate_access(
-        data.access_type, data.access_to, data.access_level
-    )
-    if problem:
-        raise BadRequest(problem)
     share = await manila.share(share_id)
     if (share.get("status") or "").lower() not in rules.SHARE_EDITABLE:
         raise Conflict(
@@ -315,17 +327,14 @@ async def allow_access(
             "access_level": data.access_level,
         },
     )
-    return rules.access_summary(rule)
+    return ShareAccessRule.model_validate(rules.access_summary(rule))
 
 
 async def deny_access(ctx: Context, share_id: str, access_id: str) -> None:
     await _manila(ctx).deny_access(share_id, access_id)
 
 
-# --- snapshots -----------------------------------------------------------------
-
-
-async def list_snapshots(ctx: Context) -> dict:
+async def list_snapshots(ctx: Context) -> ShareSnapshotsResponse:
     manila = _manila(ctx)
     snapshots, shares, quota = await asyncio.gather(
         manila.snapshots(), manila.shares(), manila.limits()
@@ -336,17 +345,28 @@ async def list_snapshots(ctx: Context) -> dict:
         for s in snapshots
     ]
     items.sort(key=lambda s: (s["name"] or "").lower())
-    return {"items": items, "quota": quota}
+    return ShareSnapshotsResponse.model_validate(
+        {"items": items, "quota": quota}
+    )
 
 
-async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
-    manila = _manila(ctx)
+async def _snapshot_and_share(
+    manila: ManilaClient, snapshot_id: str
+) -> tuple[dict, dict | None]:
+    """A snapshot and its parent share, which names it and decides its
+    actions."""
     snapshot = await manila.snapshot(snapshot_id)
     share = (
         await manila.share(snapshot["share_id"])
         if snapshot.get("share_id")
         else None
     )
+    return snapshot, share
+
+
+async def get_snapshot(ctx: Context, snapshot_id: str) -> ShareSnapshotDetail:
+    manila = _manila(ctx)
+    snapshot, share = await _snapshot_and_share(manila, snapshot_id)
     detail = rules.snapshot_summary(snapshot, share)
     detail["mount_snapshot_support"] = bool(
         (share or {}).get("mount_snapshot_support")
@@ -358,10 +378,12 @@ async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
         )
         detail["export_locations"] = locations
         detail["access_rules"] = access
-    return detail
+    return ShareSnapshotDetail.model_validate(detail)
 
 
-async def create_snapshot(ctx: Context, data: SnapshotCreate) -> dict:
+async def create_snapshot(
+    ctx: Context, data: ShareSnapshotCreate
+) -> ShareSnapshot:
     manila = _manila(ctx)
     share, quota = await asyncio.gather(
         manila.share(data.share_id), manila.limits()
@@ -380,21 +402,25 @@ async def create_snapshot(ctx: Context, data: SnapshotCreate) -> dict:
             "metadata": {},
         }
     )
-    return rules.snapshot_summary(created, share)
+    return ShareSnapshot.model_validate(rules.snapshot_summary(created, share))
 
 
 async def update_snapshot(
-    ctx: Context, snapshot_id: str, data: SnapshotUpdate
-) -> dict:
+    ctx: Context, snapshot_id: str, data: ShareSnapshotUpdate
+) -> ShareSnapshot:
     fields: dict = {}
     if data.name is not None:
         fields["display_name"] = data.name
     if data.description is not None:
         fields["display_description"] = data.description
+    manila = _manila(ctx)
     if fields:
-        await _manila(ctx).update_snapshot(snapshot_id, fields)
-    # The same shape as GET, so the share name and Rules action survive.
-    return await get_snapshot(ctx, snapshot_id)
+        await manila.update_snapshot(snapshot_id, fields)
+    # Read back with the parent share, so its name and actions survive.
+    snapshot, share = await _snapshot_and_share(manila, snapshot_id)
+    return ShareSnapshot.model_validate(
+        rules.snapshot_summary(snapshot, share)
+    )
 
 
 async def delete_snapshot(ctx: Context, snapshot_id: str) -> None:
@@ -407,16 +433,13 @@ async def delete_snapshot(ctx: Context, snapshot_id: str) -> None:
 
 async def snapshot_allow_access(
     ctx: Context, snapshot_id: str, data: SnapshotAccessCreate
-) -> dict:
-    problem = rules.validate_access(data.access_type, data.access_to, "rw")
-    if problem:
-        raise BadRequest(problem)
-    return await _manila(ctx).snapshot_allow_access(
+) -> ShareSnapshotAccessRule:
+    reply = await _manila(ctx).snapshot_allow_access(
         snapshot_id,
-        {
-            "access_type": data.access_type,
-            "access_to": data.access_to.strip(),
-        },
+        {"access_type": data.access_type, "access_to": data.access_to.strip()},
+    )
+    return ShareSnapshotAccessRule.model_validate(
+        reply.get("snapshot_access", reply)
     )
 
 
@@ -426,37 +449,42 @@ async def snapshot_deny_access(
     await _manila(ctx).snapshot_deny_access(snapshot_id, access_id)
 
 
-# --- security services ---------------------------------------------------------
-
-
-async def list_security_services(ctx: Context) -> dict:
+async def list_security_services(ctx: Context) -> SecurityServicesResponse:
     services = await _manila(ctx).security_services()
     items = [rules.security_service_summary(s) for s in services]
     items.sort(key=lambda s: (s["name"] or "").lower())
-    return {"items": items, "types": list(rules.SECURITY_SERVICE_TYPES)}
+    return SecurityServicesResponse.model_validate(
+        {"items": items, "types": list(rules.SECURITY_SERVICE_TYPES)}
+    )
 
 
-async def get_security_service(ctx: Context, service_id: str) -> dict:
-    return rules.security_service_summary(
-        await _manila(ctx).security_service(service_id)
+async def get_security_service(
+    ctx: Context, service_id: str
+) -> SecurityService:
+    return SecurityService.model_validate(
+        rules.security_service_summary(
+            await _manila(ctx).security_service(service_id)
+        )
     )
 
 
 async def create_security_service(
     ctx: Context, data: SecurityServiceCreate
-) -> dict:
+) -> SecurityService:
     created = await _manila(ctx).create_security_service(
         rules.security_service_body(data.model_dump())
     )
-    return rules.security_service_summary(created)
+    return SecurityService.model_validate(
+        rules.security_service_summary(created)
+    )
 
 
 async def update_security_service(
     ctx: Context, service_id: str, data: SecurityServiceUpdate
-) -> dict:
-    # Only the keys the client sent: an explicit null clears the OU, user
-    # or description, an omitted key leaves it alone (as the load balancer
-    # updates do).
+) -> SecurityService:
+    """Send only the fields the request set, empty or null included, so a
+    field can be cleared (manila-ui sends ``""`` for an emptied field and
+    manilaclient passes it on; an omitted field stays as it is)."""
     fields = data.model_dump(exclude_unset=True)
     manila = _manila(ctx)
     updated = (
@@ -464,8 +492,10 @@ async def update_security_service(
         if fields
         else None
     )
-    return rules.security_service_summary(
-        updated or await manila.security_service(service_id)
+    return SecurityService.model_validate(
+        rules.security_service_summary(
+            updated or await manila.security_service(service_id)
+        )
     )
 
 
@@ -473,17 +503,14 @@ async def delete_security_service(ctx: Context, service_id: str) -> None:
     await _manila(ctx).delete_security_service(service_id)
 
 
-# --- share groups --------------------------------------------------------------
-
-
-async def list_share_groups(ctx: Context) -> dict:
+async def list_share_groups(ctx: Context) -> list[ShareGroup]:
     groups = await _manila(ctx).share_groups()
     items = [rules.group_summary(g) for g in groups]
     items.sort(key=lambda g: (g["name"] or "").lower())
-    return {"items": items}
+    return [ShareGroup.model_validate(g) for g in items]
 
 
-async def get_share_group(ctx: Context, group_id: str) -> dict:
+async def get_share_group(ctx: Context, group_id: str) -> ShareGroupDetail:
     manila = _manila(ctx)
     group, members, types = await asyncio.gather(
         manila.share_group(group_id),
@@ -496,10 +523,12 @@ async def get_share_group(ctx: Context, group_id: str) -> dict:
         by_id.get(t, {"id": t, "name": t}) for t in detail["share_types"]
     ]
     detail["members"] = [rules.share_summary(s) for s in members]
-    return detail
+    return ShareGroupDetail.model_validate(detail)
 
 
-async def create_share_group(ctx: Context, data: ShareGroupCreate) -> dict:
+async def create_share_group(
+    ctx: Context, data: ShareGroupCreate
+) -> ShareGroup:
     manila = _manila(ctx)
     if not data.snapshot_id and not data.share_group_type_id:
         raise BadRequest("Select a share group type.")
@@ -511,23 +540,26 @@ async def create_share_group(ctx: Context, data: ShareGroupCreate) -> dict:
         availability_zone=data.availability_zone,
         snapshot_id=data.snapshot_id,
     )
-    return rules.group_summary(await manila.create_share_group(body))
+    return ShareGroup.model_validate(
+        rules.group_summary(await manila.create_share_group(body))
+    )
 
 
 async def update_share_group(
     ctx: Context, group_id: str, data: ShareGroupUpdate
-) -> dict:
+) -> ShareGroup:
     manila = _manila(ctx)
     group = await manila.share_group(group_id)
     if "edit" not in rules.group_actions(group):
         raise Conflict(
             "The share group can only be edited while it is available."
         )
-    fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Sent fields only, an explicit null included: null clears a field.
+    fields = data.model_dump(exclude_unset=True)
     updated = (
         await manila.update_share_group(group_id, fields) if fields else group
     )
-    return rules.group_summary(updated or group)
+    return ShareGroup.model_validate(rules.group_summary(updated or group))
 
 
 async def delete_share_group(ctx: Context, group_id: str) -> None:
@@ -538,7 +570,9 @@ async def delete_share_group(ctx: Context, group_id: str) -> None:
     await manila.delete_share_group(group_id)
 
 
-async def list_share_group_snapshots(ctx: Context) -> dict:
+async def list_share_group_snapshots(
+    ctx: Context,
+) -> list[ShareGroupSnapshot]:
     manila = _manila(ctx)
     snapshots, groups = await asyncio.gather(
         manila.share_group_snapshots(), manila.share_groups()
@@ -549,10 +583,12 @@ async def list_share_group_snapshots(ctx: Context) -> dict:
         for s in snapshots
     ]
     items.sort(key=lambda s: (s["name"] or "").lower())
-    return {"items": items}
+    return [ShareGroupSnapshot.model_validate(s) for s in items]
 
 
-async def get_share_group_snapshot(ctx: Context, snapshot_id: str) -> dict:
+async def get_share_group_snapshot(
+    ctx: Context, snapshot_id: str
+) -> ShareGroupSnapshot:
     manila = _manila(ctx)
     snapshot = await manila.share_group_snapshot(snapshot_id)
     group = (
@@ -560,12 +596,14 @@ async def get_share_group_snapshot(ctx: Context, snapshot_id: str) -> dict:
         if snapshot.get("share_group_id")
         else None
     )
-    return rules.group_snapshot_summary(snapshot, group)
+    return ShareGroupSnapshot.model_validate(
+        rules.group_snapshot_summary(snapshot, group)
+    )
 
 
 async def create_share_group_snapshot(
     ctx: Context, data: ShareGroupSnapshotCreate
-) -> dict:
+) -> ShareGroupSnapshot:
     manila = _manila(ctx)
     group = await manila.share_group(data.share_group_id)
     if "snapshot" not in rules.group_actions(group):
@@ -574,15 +612,19 @@ async def create_share_group_snapshot(
     if data.description:
         fields["description"] = data.description
     created = await manila.create_share_group_snapshot(fields)
-    return rules.group_snapshot_summary(created, group)
+    return ShareGroupSnapshot.model_validate(
+        rules.group_snapshot_summary(created, group)
+    )
 
 
 async def update_share_group_snapshot(
     ctx: Context, snapshot_id: str, data: ShareGroupUpdate
-) -> dict:
-    fields = {k: v for k, v in data.model_dump().items() if v is not None}
+) -> ShareGroupSnapshot:
+    # Sent fields only, an explicit null included: null clears a field.
+    fields = data.model_dump(exclude_unset=True)
     if fields:
         await _manila(ctx).update_share_group_snapshot(snapshot_id, fields)
+    # Read back with the parent group, so its name and actions survive.
     return await get_share_group_snapshot(ctx, snapshot_id)
 
 

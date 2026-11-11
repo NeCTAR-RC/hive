@@ -2,37 +2,63 @@
 default_language_version:
   # force all unspecified python hooks to run python3
   python: python3
-exclude: '^(frontend/|backend/tests/fixtures/)'
+exclude: '^backend/tests/fixtures/'
 repos:
+  # The frontend has its own linters (the frontend-lint hook below), so the
+  # generic hooks skip frontend/.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: &frontend '^frontend/'
       - id: mixed-line-ending
         args: ['--fix', 'lf']
-        exclude: '.*\.(svg)$'
+        exclude: '^frontend/|.*\.(svg)$'
       - id: fix-byte-order-marker
+        exclude: *frontend
       - id: check-executables-have-shebangs
+        exclude: *frontend
       - id: check-merge-conflict
+        exclude: *frontend
       - id: debug-statements
+        exclude: *frontend
       - id: check-json
+        exclude: *frontend
       - id: check-toml
+        exclude: *frontend
       - id: check-yaml
         files: .*\.(yaml|yml)$
+        exclude: *frontend
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.9
     hooks:
       - id: ruff
         args: ['--fix', '--unsafe-fixes']
+        exclude: *frontend
       - id: ruff-format
+        exclude: *frontend
   - repo: https://opendev.org/openstack/hacking
     rev: 7.0.0
     hooks:
       - id: hacking
         additional_dependencies:
           - flake8-import-order~=0.19.2
-        exclude: '^(releasenotes|scripts)/.*$'
+        exclude: '^(frontend|releasenotes|scripts)/.*$'
   - repo: https://github.com/crate-ci/typos
     rev: v1.50.3
     hooks:
       - id: typos
+        exclude: *frontend
+  # The frontend's own lint (eslint, stylelint, prettier, design tokens) on
+  # any commit that touches frontend/. It needs the frontend's dependencies
+  # installed (`pnpm install` in frontend/, with a global pnpm at the
+  # packageManager pin). `tox -e pep8` skips it; `tox -e frontend` runs the
+  # same lint for CI.
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend lint
+        language: system
+        entry: pnpm --dir frontend lint
+        files: '^frontend/'
+        pass_filenames: false

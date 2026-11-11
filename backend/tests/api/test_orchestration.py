@@ -4,27 +4,13 @@ template versions."""
 import json
 
 import httpx
+import pytest
 
+from hive.services import orchestration as orchestration_service
 from tests.conftest import csrf_headers, HEAT
+from tests.fixtures.loader import fixture
 
-STACK = {
-    "id": "s-1",
-    "stack_name": "web",
-    "stack_status": "CREATE_COMPLETE",
-    "stack_status_reason": "Stack CREATE completed successfully",
-    "creation_time": "2026-10-10T00:00:00Z",
-    "tags": None,
-    "timeout_mins": 60,
-    "disable_rollback": True,
-    "parameters": {"OS::stack_id": "s-1", "count": "1"},
-    "outputs": [
-        {
-            "output_key": "ip",
-            "output_value": "10.0.0.5",
-            "description": "address",
-        }
-    ],
-}
+STACK = fixture("heat", "stack")
 BUSY = {
     **STACK,
     "id": "s-2",
@@ -40,13 +26,7 @@ parameters:
     type: string
 resources: {}
 """
-VALIDATED = {
-    "Description": "demo",
-    "Parameters": {
-        "count": {"Type": "Number", "Default": 1, "Label": "Count"},
-        "name": {"Type": "String", "Label": "Name", "NoEcho": "false"},
-    },
-}
+VALIDATED = fixture("heat", "validated")
 
 
 def mock_heat(upstream, stack=None):
@@ -134,7 +114,8 @@ async def test_list_show_resources_events_template(logged_in, upstream):
     assert body["items"][1]["is_transitional"]
 
     detail = (await logged_in.get("/api/orchestration/stacks/s-1")).json()
-    assert detail["name"] == "web" and detail["outputs"][0]["key"] == "ip"
+    assert detail['name'] == 'web'
+    assert detail['outputs'][0]['key'] == 'ip'
     assert detail["parameters"]["count"] == "1"
 
     resources = (
@@ -154,6 +135,8 @@ async def test_list_show_resources_events_template(logged_in, upstream):
     ).json()
     assert "heat_template_version" in template["template_yaml"]
     assert template["environment"] == {"parameters": {"count": "1"}}
+    # The parameters travel in the change itself, so nothing else is left.
+    assert template["editable_environment_yaml"] == ""
 
 
 async def test_validate_and_create(logged_in, upstream):
@@ -207,15 +190,12 @@ async def test_validate_and_create(logged_in, upstream):
     assert response.status_code == 202, response.text
     assert response.json() == {"id": "s-9", "name": "new"}
     sent = json.loads(upstream.calls.last.request.content)
-    assert sent["stack_name"] == "new" and sent["parameters"] == {
-        "count": 3,
-        "name": "x",
-    }
-    assert sent["disable_rollback"] is False and sent["timeout_mins"] == 30
-    assert (
-        sent["environment"] == "parameters:\n  count: 2\n"
-        and sent["tags"] == "demo"
-    )
+    assert sent['stack_name'] == 'new'
+    assert sent['parameters'] == {'count': 3, 'name': 'x'}
+    assert sent['disable_rollback'] is False
+    assert sent['timeout_mins'] == 30
+    assert sent['environment'] == 'parameters:\n  count: 2\n'
+    assert sent['tags'] == 'demo'
     assert sent["template"] == TEMPLATE_TEXT
 
     bad_name = await logged_in.post(
@@ -223,7 +203,7 @@ async def test_validate_and_create(logged_in, upstream):
         json={"name": "9bad", "template": TEMPLATE_TEXT},
         headers=csrf_headers(logged_in),
     )
-    assert bad_name.status_code == 400
+    assert bad_name.status_code == 422
     missing = await logged_in.post(
         "/api/orchestration/stacks",
         json={
@@ -233,9 +213,8 @@ async def test_validate_and_create(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert (
-        missing.status_code == 400 and "required" in missing.json()["message"]
-    )
+    assert missing.status_code == 400
+    assert 'required' in missing.json()['message']
     by_url = await logged_in.post(
         "/api/orchestration/stacks",
         json={
@@ -280,17 +259,16 @@ async def test_update_actions_delete(logged_in, upstream):
     assert response.status_code == 202, response.text
     assert put.called
     sent = json.loads(put.calls.last.request.content)
-    assert (
-        sent["parameters"] == {"count": 2, "name": "y"}
-        and sent["disable_rollback"] is True
-    )
+    assert sent['parameters'] == {'count': 2, 'name': 'y'}
+    assert sent['disable_rollback'] is True
 
     existing = await logged_in.patch(
         "/api/orchestration/stacks/s-1",
         json={"existing": True, "parameters": {"count": "5"}},
         headers=csrf_headers(logged_in),
     )
-    assert existing.status_code == 202 and patch.called
+    assert existing.status_code == 202
+    assert patch.called
     assert json.loads(patch.calls.last.request.content)["parameters"] == {
         "count": "5"
     }
@@ -302,24 +280,22 @@ async def test_update_actions_delete(logged_in, upstream):
     assert nothing.status_code == 400
 
     suspend = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/suspend",
+        "/api/orchestration/stacks/s-1/actions",
+        json={"action": "suspend"},
         headers=csrf_headers(logged_in),
     )
-    assert suspend.status_code == 202 and json.loads(
-        actions.calls.last.request.content
-    ) == {"suspend": None}
+    assert suspend.status_code == 202
+    assert suspend.json() == {"id": "s-1", "action": "suspend"}
+    assert json.loads(actions.calls.last.request.content) == {'suspend': None}
     resume = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/resume",
+        "/api/orchestration/stacks/s-1/actions",
+        json={"action": "resume"},
         headers=csrf_headers(logged_in),
     )
     assert resume.status_code == 409
-    unknown = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/explode",
-        headers=csrf_headers(logged_in),
-    )
-    assert unknown.status_code == 404
     busy = await logged_in.post(
-        "/api/orchestration/stacks/s-2/actions/check",
+        "/api/orchestration/stacks/s-2/actions",
+        json={"action": "check"},
         headers=csrf_headers(logged_in),
     )
     assert busy.status_code == 409
@@ -327,7 +303,92 @@ async def test_update_actions_delete(logged_in, upstream):
     response = await logged_in.delete(
         "/api/orchestration/stacks/s-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
+
+
+@pytest.mark.parametrize(
+    ("status", "action"),
+    [
+        ("CREATE_COMPLETE", "suspend"),
+        ("CREATE_COMPLETE", "check"),
+        ("SUSPEND_COMPLETE", "resume"),
+    ],
+)
+async def test_stack_action_reaches_heat(logged_in, upstream, status, action):
+    mock_heat(upstream, {**STACK, "stack_status": status})
+    actions = upstream.post(f"{HEAT}/stacks/web/s-1/actions").mock(
+        return_value=httpx.Response(200)
+    )
+    response = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions",
+        json={"action": action},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    assert response.json() == {"id": "s-1", "action": action}
+    assert json.loads(actions.calls.last.request.content) == {action: None}
+
+
+async def test_cancel_update_runs_while_an_update_does(logged_in, upstream):
+    mock_heat(upstream, {**STACK, "stack_status": "UPDATE_IN_PROGRESS"})
+    actions = upstream.post(f"{HEAT}/stacks/web/s-1/actions").mock(
+        return_value=httpx.Response(200)
+    )
+    detail = (await logged_in.get("/api/orchestration/stacks/s-1")).json()
+    assert detail["actions"] == ["cancel_update", "delete"]
+    response = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions",
+        json={"action": "cancel_update"},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 202, response.text
+    assert json.loads(actions.calls.last.request.content) == {
+        "cancel_update": None
+    }
+    refused = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions",
+        json={"action": "suspend"},
+        headers=csrf_headers(logged_in),
+    )
+    assert refused.status_code == 409
+    assert refused.json()["message"] == (
+        "The stack cannot be suspended while it is UPDATE_IN_PROGRESS."
+    )
+
+
+async def test_find_stack_follows_the_location_path_only(logged_in, upstream):
+    """The redirect's host is ignored: the path is requested through the
+    client's own endpoint."""
+    upstream.get(f"{HEAT}/stacks/web").mock(
+        return_value=httpx.Response(
+            302,
+            headers={
+                "Location": "https://elsewhere.test/v1/p1/stacks/web/s-1"
+            },
+        )
+    )
+    stack = upstream.get(f"{HEAT}/stacks/web/s-1").mock(
+        return_value=httpx.Response(200, json={"stack": STACK})
+    )
+    elsewhere = upstream.get(url__startswith="https://elsewhere.test")
+    detail = await logged_in.get("/api/orchestration/stacks/web")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["name"] == "web"
+    assert stack.called
+    assert not elsewhere.called
+
+
+@pytest.mark.parametrize("body", [{"action": "explode"}, {}])
+async def test_stack_action_unknown_or_missing_is_422(logged_in, body):
+    response = await logged_in.post(
+        "/api/orchestration/stacks/s-1/actions",
+        json=body,
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 422
+    (detail,) = response.json()["detail"]
+    assert detail["loc"] == ["body", "action"]
 
 
 async def test_resource_types_and_template_versions(logged_in, upstream):
@@ -408,10 +469,8 @@ async def test_resource_types_and_template_versions(logged_in, upstream):
             "/api/orchestration/resource-types/OS::Nova::Server"
         )
     ).json()
-    assert (
-        detail["properties"]["flavor"]["type"] == "string"
-        and "2016-10-14" in detail["template_yaml"]
-    )
+    assert detail['properties']['flavor']['type'] == 'string'
+    assert '2016-10-14' in detail['template_yaml']
     versions = (
         await logged_in.get("/api/orchestration/template-versions")
     ).json()
@@ -439,91 +498,30 @@ async def test_plain_resource_type_names(logged_in, upstream):
     ]
 
 
-async def test_cancel_update_files_and_template_url(logged_in, upstream):
-    updating = {**STACK, "stack_status": "UPDATE_IN_PROGRESS"}
-    mock_heat(upstream, updating)
-    actions = upstream.post(f"{HEAT}/stacks/web/s-1/actions").mock(
-        return_value=httpx.Response(200)
+async def test_create_parses_each_document_once(
+    logged_in, upstream, monkeypatch
+):
+    mock_heat(upstream)
+    upstream.post(f"{HEAT}/stacks").mock(
+        return_value=httpx.Response(201, json={"stack": {"id": "s-9"}})
     )
-    detail = (await logged_in.get("/api/orchestration/stacks/s-1")).json()
-    assert detail["actions"] == ["cancel_update", "delete"]
-    response = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/cancel_update",
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 202, response.text
-    assert json.loads(actions.calls.last.request.content) == {
-        "cancel_update": None
-    }
-    refused = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/suspend",
-        headers=csrf_headers(logged_in),
-    )
-    assert refused.status_code == 409
-    assert refused.json()["message"] == (
-        "The stack cannot be suspended while it is UPDATE_IN_PROGRESS."
-    )
-    unknown = await logged_in.post(
-        "/api/orchestration/stacks/s-1/actions/explode",
-        headers=csrf_headers(logged_in),
-    )
-    assert unknown.status_code == 404
-    assert unknown.json()["error"] == "not_found"
+    parsed = []
+    parse = orchestration_service.parse_document
 
-    validate = upstream.post(f"{HEAT}/validate").mock(
-        return_value=httpx.Response(200, json=VALIDATED)
-    )
+    def counting(text, what):
+        parsed.append(what)
+        return parse(text, what)
+
+    monkeypatch.setattr(orchestration_service, "parse_document", counting)
     response = await logged_in.post(
-        "/api/orchestration/validate",
+        "/api/orchestration/stacks",
         json={
+            "name": "new",
             "template": TEMPLATE_TEXT,
-            "files": {"file:///lib.yaml": "resources: {}\n"},
-        },
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 200, response.text
-    assert json.loads(validate.calls.last.request.content)["files"] == {
-        "file:///lib.yaml": "resources: {}\n"
-    }
-
-    put = upstream.put(f"{HEAT}/stacks/web/s-1").mock(
-        return_value=httpx.Response(202)
-    )
-    response = await logged_in.patch(
-        "/api/orchestration/stacks/s-1",
-        json={
-            "template_url": "https://x/t.yaml",
-            "parameters": {"count": "4", "name": "z"},
+            "environment": "parameters:\n  count: 2\n",
+            "parameters": {"name": "web"},
         },
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 202, response.text
-    sent = json.loads(put.calls.last.request.content)
-    assert sent["template_url"] == "https://x/t.yaml"
-    assert "template" not in sent and sent["parameters"]["count"] == 4
-    assert (
-        json.loads(validate.calls.last.request.content)["template_url"]
-        == "https://x/t.yaml"
-    )
-
-
-async def test_find_stack_follows_the_location_path_only(logged_in, upstream):
-    """The redirect's host is ignored: the path is requested through the
-    client's own endpoint, and every id is quoted."""
-    upstream.get(f"{HEAT}/stacks/a%3Fb").mock(
-        return_value=httpx.Response(
-            302,
-            headers={
-                "Location": "https://elsewhere.test/v1/p1/stacks/web/s-1"
-            },
-        )
-    )
-    stack = upstream.get(f"{HEAT}/stacks/web/s-1").mock(
-        return_value=httpx.Response(200, json={"stack": STACK})
-    )
-    elsewhere = upstream.get(url__startswith="https://elsewhere.test")
-    detail = await logged_in.get("/api/orchestration/stacks/a%3Fb")
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["name"] == "web"
-    assert stack.called and not elsewhere.called
-    assert upstream.calls[-2].request.url.raw_path == b"/v1/p1/stacks/a%3Fb"
+    assert sorted(parsed) == ["environment", "template"]

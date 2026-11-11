@@ -2,7 +2,7 @@
 dist
 dist-mock
 coverage
-public/mockServiceWorker.js
+mock-public/mockServiceWorker.js
 test-results
 playwright-report
 storybook-static
@@ -10,4 +10,4 @@ storybook-static
 # Generated files
 pnpm-lock.yaml
 pnpm-workspace.yaml
-src/lib/api/schema.d.ts
+src/lib/api/generated

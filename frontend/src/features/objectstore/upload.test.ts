@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { objectName, runPool, sliceSegments, uploadError } from "./upload";
+import { ApiError } from "../../lib/api/client";
+import {
+  objectName,
+  runPool,
+  sliceSegments,
+  uploadErrorMessage,
+} from "./upload";
 import { encodePath, objectPath } from "./api";
 
 describe("object store uploads", () => {
@@ -48,58 +54,57 @@ describe("object store uploads", () => {
 });
 
 describe("runPool", () => {
-  it("keeps order and never runs more than the limit at once", async () => {
+  it("runs at most the limit at once and keeps the order", async () => {
     let running = 0;
-    let peak = 0;
+    let most = 0;
     const tasks = [30, 10, 20, 5, 15].map((ms, index) => async () => {
       running += 1;
-      peak = Math.max(peak, running);
+      most = Math.max(most, running);
       await new Promise((resolve) => setTimeout(resolve, ms));
       running -= 1;
       return index;
     });
-    expect(await runPool(tasks, 2)).toEqual([0, 1, 2, 3, 4]);
-    expect(peak).toBe(2);
+    await expect(runPool(tasks, 3)).resolves.toEqual([0, 1, 2, 3, 4]);
+    expect(most).toBe(3);
   });
 
-  it("stops starting tasks after a failure", async () => {
+  it("stops starting tasks after the first failure", async () => {
     const started: number[] = [];
     const tasks = [0, 1, 2, 3].map((index) => async () => {
       started.push(index);
-      if (index === 0) throw new Error("boom");
+      if (index === 0) throw new Error("refused");
+      await new Promise((resolve) => setTimeout(resolve, 5));
       return index;
     });
-    await expect(runPool(tasks, 1)).rejects.toThrow("boom");
+    await expect(runPool(tasks, 1)).rejects.toThrow("refused");
     expect(started).toEqual([0]);
   });
 });
 
-describe("uploadError", () => {
-  it("uses the backend's message and validation details", () => {
+describe("uploadErrorMessage", () => {
+  it("adds each field message of a refused request", () => {
+    const error = new ApiError(422, {
+      error: "validation_error",
+      message: "Request validation failed",
+      detail: [
+        { loc: ["query", "filename"], msg: "String too long" },
+        { loc: ["path"], msg: "Invalid name" },
+      ],
+    });
+    expect(uploadErrorMessage(error)).toBe(
+      "Request validation failed: String too long; Invalid name",
+    );
+  });
+
+  it("keeps any other message as it is", () => {
     expect(
-      uploadError(
-        411,
-        JSON.stringify({
+      uploadErrorMessage(
+        new ApiError(411, {
           error: "length_required",
           message: "The upload needs a Content-Length header.",
         }),
-      ).message,
+      ),
     ).toBe("The upload needs a Content-Length header.");
-    expect(
-      uploadError(
-        422,
-        JSON.stringify({
-          error: "validation_error",
-          message: "invalid request",
-          detail: [{ type: "x", loc: ["query"], msg: "bad name" }],
-        }),
-      ).message,
-    ).toBe("invalid request: bad name");
-  });
-
-  it("falls back to the status for a body that is not the envelope", () => {
-    expect(uploadError(502, "<html>").message).toBe(
-      "upload failed with status 502",
-    );
+    expect(uploadErrorMessage(new Error("cancelled"))).toBe("cancelled");
   });
 });

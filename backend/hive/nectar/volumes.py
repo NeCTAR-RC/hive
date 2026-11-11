@@ -16,11 +16,23 @@
 * Size floors follow upstream CreateForm.handle: not below the snapshot,
   the source volume, the image rounded up to whole gigabytes, or the
   image's min_disk.
+* Changing a volume's type needs a type other than the current one
+  (upstream ``volumes/forms.py`` RetypeForm.clean_volume_type). Hive also
+  applies the zone rule above, which RetypeForm does not: a type limited
+  to other zones cannot hold the volume, so Cinder's scheduler would fail
+  the retype after accepting it.
+* A volume transfer needs a name that is not blank (upstream
+  ``volumes/forms.py`` CreateTransferForm.clean_name).
+* Launching onto a new volume made from an image needs a specific zone:
+  the fork's launch wizard offers "Create New Volume" only once a zone is
+  chosen (commit 216995ea1), and the volume is never smaller than the
+  image or its min_disk (upstream ``source.controller.js``
+  checkVolumeForImage).
 """
 
 import math
 
-from hive.errors import BadRequest
+from hive.nectar.violation import RuleViolation
 
 AZ_SPEC = "RESKEY:availability_zones"
 
@@ -37,6 +49,14 @@ BACKUP_DELETABLE_STATES = ("available", "error")
 ATTACH_READY_STATES = ("ACTIVE", "SHUTOFF")
 
 GIB = 1024**3
+
+
+def validate_transfer_name(name: str) -> str:
+    """A transfer name must hold more than spaces (Horizon
+    ``volumes/forms.py`` CreateTransferForm.clean_name)."""
+    if not name.strip():
+        raise RuleViolation("Enter a transfer name")
+    return name
 
 
 class VolumeRules:
@@ -92,7 +112,7 @@ class VolumeRules:
         if kind == "snapshot":
             floor = int(source.get("size") or 0)
             if req.size < floor:
-                raise BadRequest(
+                raise RuleViolation(
                     "The volume size cannot be less than the snapshot "
                     f"size ({floor} GB)"
                 )
@@ -101,14 +121,14 @@ class VolumeRules:
         if kind == "volume":
             floor = int(source.get("size") or 0)
             if req.size < floor:
-                raise BadRequest(
+                raise RuleViolation(
                     "The volume size cannot be less than the source "
                     f"volume size ({floor} GB)"
                 )
             body["source_volid"] = req.source.id
             return body
         if not req.availability_zone:
-            raise BadRequest("Choose an availability zone")
+            raise RuleViolation("Choose an availability zone")
         body["availability_zone"] = req.availability_zone
         if req.volume_type:
             body["volume_type"] = req.volume_type
@@ -116,23 +136,72 @@ class VolumeRules:
             image_gb = math.ceil(float(source.get("size") or 0) / GIB)
             min_disk = int(source.get("min_disk") or 0)
             if req.size < image_gb:
-                raise BadRequest(
+                raise RuleViolation(
                     "The volume size cannot be less than the image size "
                     f"({image_gb} GB)"
                 )
-            if 0 < min_disk and req.size < min_disk:
-                raise BadRequest(
+            if min_disk > 0 and req.size < min_disk:
+                raise RuleViolation(
                     "The volume size cannot be less than the image's "
                     f"minimum disk size ({min_disk} GB)"
                 )
             body["imageRef"] = req.source.id
         return body
 
+    def retype_body(self, volume: dict, types: list[dict], req) -> dict:
+        """The Cinder ``os-retype`` action for a retype request.
+
+        ``types`` are the volume types the project sees; a type missing
+        from them is left for Cinder to refuse.
+        """
+        new_type = req.volume_type
+        if new_type == volume.get("volume_type"):
+            raise RuleViolation(
+                "The new type must be different from the current volume type"
+            )
+        zone = volume.get("availability_zone")
+        chosen = next((t for t in types if t.get("name") == new_type), None)
+        if zone and chosen is not None:
+            zones = self.type_zones(chosen)
+            if zones is not None and zone not in zones:
+                raise RuleViolation(
+                    f"The {new_type} volume type is not available in "
+                    f"{zone}, the volume's availability zone"
+                )
+        return {
+            "os-retype": {
+                "new_type": new_type,
+                "migration_policy": req.migration_policy,
+            }
+        }
+
+    def boot_volume_floor(self, image: dict) -> int:
+        """The smallest new volume an image boots from, in GB: its size
+        rounded up, or its min_disk when larger (``source.controller.js``
+        checkVolumeForImage)."""
+        image_gb = math.ceil(float(image.get("size") or 0) / GIB)
+        return max(image_gb, int(image.get("min_disk") or 0), 1)
+
+    def check_boot_volume(
+        self, availability_zone: str | None, size_gb: int, image: dict
+    ) -> None:
+        """Refuse a launch onto a new volume without a zone (commit
+        216995ea1) or smaller than the image needs."""
+        if not availability_zone:
+            raise RuleViolation(
+                "Choose an availability zone to boot from a new volume"
+            )
+        floor = self.boot_volume_floor(image)
+        if size_gb < floor:
+            raise RuleViolation(
+                f"The volume must be at least {floor} GB for this image"
+            )
+
     def restore_body(self, backup: dict, req) -> dict:
         """The Cinder ``volume`` body that restores a backup to a new
         volume."""
         if not req.availability_zone:
-            raise BadRequest("Choose an availability zone")
+            raise RuleViolation("Choose an availability zone")
         body = {
             "size": backup.get("size"),
             "name": req.name or f"restore_backup_{backup.get('id')}",

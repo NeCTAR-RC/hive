@@ -1,9 +1,15 @@
+@use "mixins" as *;
+
+/// The explanation panel above the endpoints table, 32px apart (library
+/// `content-block-stack`, the content blocks' section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
 }
 
+/// A URL or identifier with its copy button, 8px apart, wrapping under it
+/// when narrow (gap "Code face and copyable value"). The value takes the
+/// text around it (Body/14 in a table cell, Body/16 in a key and value
+/// list) and breaks anywhere rather than widening its column.
 .endpoint {
   display: inline-flex;
   flex-wrap: wrap;
@@ -12,6 +18,5 @@
 
   code {
     word-break: break-all;
-    font-size: var(--hive-font-size-sm);
   }
 }

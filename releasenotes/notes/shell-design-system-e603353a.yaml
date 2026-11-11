@@ -1,0 +1,13 @@
+---
+features:
+  - |
+    The dashboard header follows the design system's service header, and
+    below 1024px the header's links move into a dialog opened by its
+    menu button.
+  - |
+    The header stays in place while the navigation and the page each
+    scroll on their own.
+  - |
+    Headings take the design system's heading ramp: a page title is the
+    H1 style and a section heading the H2 style, each a step larger than
+    before.

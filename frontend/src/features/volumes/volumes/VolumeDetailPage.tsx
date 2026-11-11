@@ -1,40 +1,26 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { Button } from "@ardc-ui/react";
-import {
-  DataTable,
-  RowActionsMenu,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
-import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
+import { getRouteApi } from "@tanstack/react-router";
+import { Alert, Button } from "@ardc-ui/react";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { ApiError } from "../../../lib/api/client";
-import type { VolumeSnapshot } from "../../../lib/api/types";
-import { formatDateTime, formatGb } from "../../../lib/format";
-import { useProjectId } from "../../../lib/useProject";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { volumeRoute } from "../../../app/router";
-import {
-  attachableInstancesQuery,
-  snapshotsQuery,
-  volumeLimitsQuery,
-  volumeQuery,
-} from "../api";
+import { allows, toRowActions } from "../../../lib/actions";
+import { formatDateTime } from "../../../lib/format";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
+import { snapshotsQuery, volumeLimitsQuery, volumeQuery } from "../api";
+import { instancesQuery } from "../../compute/api";
 import { useSnapshotActions } from "../snapshots/SnapshotActions";
-import {
-  attachmentLabel,
-  availableSnapshotActions,
-  availableVolumeActions,
-  statusLabel,
-  statusTone,
-} from "../status";
+import { availableSnapshotActions, availableVolumeActions } from "../status";
+import { StatusMeta } from "../StatusMeta";
 import { useVolumeActions } from "./VolumeActions";
+import { VolumeAttachments } from "./VolumeAttachments";
 import styles from "./VolumeDetailPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { VolumeOverview } from "./VolumeOverview";
+import { volumeSnapshotColumns } from "./volumeSnapshotColumns";
+
+const volumeRoute = getRouteApi("/app/storage/volumes/$volumeId");
 
 const CRUMBS = [
   { label: "Project" },
@@ -42,16 +28,20 @@ const CRUMBS = [
   { label: "Volumes", href: "/storage/volumes" },
 ];
 
+/**
+ * One volume: its status under the title, why it failed when Cinder says,
+ * its overview, attachments and snapshots, with every volume action in the
+ * header menu and hints to boot from it.
+ */
 export function VolumeDetailPage() {
   const projectId = useProjectId();
   const { volumeId } = volumeRoute.useParams();
-  const navigate = useNavigate();
   const volume = useQuery(volumeQuery(projectId, volumeId));
-  const instances = useQuery(attachableInstancesQuery(projectId));
+  const instances = useQuery(instancesQuery(projectId));
   const snapshots = useQuery(snapshotsQuery(projectId));
   const limits = useQuery(volumeLimitsQuery(projectId));
-  const { run, dialogs } = useVolumeActions(projectId);
-  const snapshotActions = useSnapshotActions(projectId);
+  const { run, dialogs } = useVolumeActions();
+  const snapshotActions = useSnapshotActions();
 
   const instanceNames = useMemo(
     () =>
@@ -64,301 +54,115 @@ export function VolumeDetailPage() {
     () => (snapshots.data?.items ?? []).filter((s) => s.volume_id === volumeId),
     [snapshots.data, volumeId],
   );
-  const snapshotColumns = useMemo<ColumnDef<VolumeSnapshot>[]>(
-    () => [
-      {
-        id: "name",
-        label: "Name",
-        isRowHeader: true,
-        cell: (row) => (
-          <RouteLink
-            to="/storage/snapshots/$snapshotId"
-            params={{ snapshotId: row.id }}
-          >
-            {row.name || row.id}
-          </RouteLink>
-        ),
-        sortValue: (row) => row.name || row.id,
-      },
-      {
-        id: "size",
-        label: "Size",
-        cell: (row) => formatGb(row.size_gb),
-        sortValue: (row) => row.size_gb ?? 0,
-      },
-      {
-        id: "status",
-        label: "Status",
-        cell: (row) => (
-          <StatusPill tone={statusTone(row.status)}>
-            {statusLabel(row.status)}
-          </StatusPill>
-        ),
-      },
-      {
-        id: "created",
-        label: "Created",
-        cell: (row) => formatDateTime(row.created_at),
-        sortValue: (row) => row.created_at ?? "",
-        hideBelow: "md",
-      },
-    ],
-    [],
-  );
 
-  if (volume.isError) {
-    const notFound =
-      volume.error instanceof ApiError && volume.error.status === 404;
-    return (
-      <>
-        <PageHeader
-          title={notFound ? "Volume not found" : "Volume"}
-          crumbs={CRUMBS}
-        />
-        {notFound ? (
-          <p>
-            There is no volume <code>{volumeId}</code> in this project.{" "}
-            <RouteLink to="/storage/volumes" search={{}}>
-              Back to volumes
-            </RouteLink>
-          </p>
-        ) : (
-          <ErrorState
-            error={volume.error}
-            onRetry={() => void volume.refetch()}
-          />
-        )}
-      </>
-    );
-  }
-
-  const data = volume.data;
-  const title = data ? data.name || data.id : "Volume";
   return (
     <>
-      <PageHeader
-        title={title}
+      <DetailPage
+        query={volume}
+        noun="volume"
+        id={volumeId}
         crumbs={CRUMBS}
-        actions={
-          data && (
-            <RowActionsMenu
-              actions={availableVolumeActions(data, limits.data).map(
-                (action) => ({
-                  id: action.id,
-                  label: action.label,
-                  onAction: () => run(data, action.id),
-                  isDisabled: action.isDisabled,
-                  ...(action.disabledReason
-                    ? { disabledReason: action.disabledReason }
-                    : {}),
-                  ...(action.tone ? { tone: action.tone } : {}),
-                }),
-              )}
-            />
-          )
-        }
-      />
-      <div className={styles.grid}>
-        <Panel title="Overview">
-          {!data ? (
-            <SkeletonLines lines={8} />
-          ) : (
-            <KeyValueList
-              items={[
-                { label: "Name", value: data.name },
-                { label: "ID", value: <code>{data.id}</code> },
-                { label: "Description", value: data.description },
-                {
-                  label: "Status",
-                  value: (
-                    <StatusPill tone={statusTone(data.status)}>
-                      {statusLabel(data.status)}
-                    </StatusPill>
-                  ),
-                },
-                { label: "Size", value: formatGb(data.size_gb) },
-                { label: "Type", value: data.volume_type },
-                { label: "Bootable", value: data.bootable ? "Yes" : "No" },
-                { label: "Encrypted", value: data.encrypted ? "Yes" : "No" },
-                {
-                  label: "Availability zone",
-                  value: data.availability_zone,
-                },
-                {
-                  label: "Source",
-                  value: data.image ? (
-                    <>
-                      Image{" "}
-                      <RouteLink
-                        to="/compute/images/$imageId"
-                        params={{ imageId: data.image.id }}
-                      >
-                        {data.image.name ?? data.image.id}
-                      </RouteLink>
-                    </>
-                  ) : data.snapshot_id ? (
-                    <>
-                      Snapshot{" "}
-                      <RouteLink
-                        to="/storage/snapshots/$snapshotId"
-                        params={{ snapshotId: data.snapshot_id }}
-                      >
-                        {data.snapshot_id}
-                      </RouteLink>
-                    </>
-                  ) : data.source_volume_id ? (
-                    <>
-                      Volume{" "}
-                      <RouteLink
-                        to="/storage/volumes/$volumeId"
-                        params={{ volumeId: data.source_volume_id }}
-                      >
-                        {data.source_volume_id}
-                      </RouteLink>
-                    </>
-                  ) : (
-                    "Empty volume"
-                  ),
-                },
-                { label: "Created", value: formatDateTime(data.created_at) },
-                {
-                  label: "Metadata",
-                  value:
-                    Object.keys(data.metadata).length === 0 ? null : (
-                      <ul className={styles.metadata}>
-                        {Object.entries(data.metadata).map(([key, value]) => (
-                          <li key={key}>
-                            <code>{key}</code> = <code>{value}</code>
-                          </li>
-                        ))}
-                      </ul>
-                    ),
-                },
-              ]}
-            />
-          )}
-        </Panel>
-        <Panel
-          title="Attachments"
-          actions={
-            data && (
-              <Button
-                variant="secondary"
-                size="xs"
-                onPress={() => run(data, "attachments")}
-                isDisabled={!["available", "in-use"].includes(data.status)}
-              >
-                Manage attachments
-              </Button>
-            )
-          }
-        >
-          {!data ? (
-            <SkeletonLines lines={2} />
-          ) : data.attachments.length === 0 ? (
-            <p className={styles.muted}>Not attached to any instance.</p>
-          ) : (
-            <ul className={styles.attachments}>
-              {data.attachments.map((attachment) => (
-                <li key={attachment.id ?? attachment.server_id ?? ""}>
-                  {attachment.server_id ? (
-                    <RouteLink
-                      to="/compute/instances/$instanceId"
-                      params={{ instanceId: attachment.server_id }}
-                    >
-                      {attachmentLabel(
-                        attachment,
-                        instanceNames.get(attachment.server_id),
-                      )}
-                    </RouteLink>
-                  ) : (
-                    attachmentLabel(attachment, undefined)
-                  )}
-                  {attachment.attached_at && (
-                    <span className={styles.muted}>
-                      {" "}
-                      since {formatDateTime(attachment.attached_at)}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-        <Panel
-          title="Snapshots"
-          actions={
-            data && (
-              <Button
-                variant="secondary"
-                size="xs"
-                onPress={() => run(data, "snapshot")}
-                isDisabled={!["available", "in-use"].includes(data.status)}
-              >
-                Create snapshot
-              </Button>
-            )
-          }
-        >
-          <DataTable
-            id="volume-detail-snapshots"
-            label="Snapshots of this volume"
-            columns={snapshotColumns}
-            rows={snapshots.data ? ownSnapshots : undefined}
-            getRowId={(row) => row.id}
-            isLoading={snapshots.isPending}
-            isFetching={snapshots.isFetching}
-            error={snapshots.error}
-            onRetry={() => void snapshots.refetch()}
-            emptyTitle="No snapshots"
-            emptyBody={
-              <p>
-                A snapshot is a point-in-time copy you can create new volumes
-                from.
-              </p>
-            }
-            rowActions={(row) =>
-              availableSnapshotActions(row).map((action) => ({
-                id: action.id,
-                label: action.label,
-                onAction: () => snapshotActions.run(row, action.id),
-                isDisabled: action.isDisabled,
-                ...(action.disabledReason
-                  ? { disabledReason: action.disabledReason }
-                  : {}),
-                ...(action.tone ? { tone: action.tone } : {}),
-              }))
-            }
+        backTo={{ label: "volumes", href: "/storage/volumes" }}
+        title={(data) => data.name || data.id}
+        actions={(data) => (
+          <RowActionsMenu
+            actions={toRowActions(
+              availableVolumeActions(data, limits.data),
+              (id) => run(id, [data]),
+            )}
           />
-        </Panel>
-      </div>
+        )}
+        meta={(data) => <StatusMeta status={data.status} />}
+      >
+        {(data) => {
+          const offers = availableVolumeActions(data, limits.data);
+          return (
+            <div className={styles.page}>
+              {data.fault && (
+                <Alert tone="danger" role="alert">
+                  <strong>Fault:</strong> {data.fault.message}
+                  {data.fault.created
+                    ? ` (${formatDateTime(data.fault.created)})`
+                    : ""}
+                </Alert>
+              )}
+              <div className={styles.grid}>
+                <VolumeOverview volume={data} />
+                <VolumeAttachments
+                  volume={data}
+                  instanceNames={instanceNames}
+                  canManage={allows(offers, "attachments")}
+                  onManage={() => run("attachments", [data])}
+                />
+                <Panel
+                  title="Snapshots"
+                  actions={
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      onPress={() => run("snapshot", [data])}
+                      isDisabled={!allows(offers, "snapshot")}
+                    >
+                      Create snapshot
+                    </Button>
+                  }
+                >
+                  <DataTable
+                    id="volume-detail-snapshots"
+                    label="Snapshots of this volume"
+                    columns={volumeSnapshotColumns}
+                    rows={snapshots.data ? ownSnapshots : undefined}
+                    getRowId={(row) => row.id}
+                    isLoading={snapshots.isPending}
+                    isFetching={snapshots.isFetching}
+                    error={snapshots.error}
+                    onRetry={() => void snapshots.refetch()}
+                    {...snapshotActions.tableProps}
+                    emptyTitle="No snapshots"
+                    emptyBody={
+                      <p>
+                        A snapshot is a point-in-time copy you can create new
+                        volumes from.
+                      </p>
+                    }
+                    rowActions={(row) =>
+                      toRowActions(availableSnapshotActions(row), (id) =>
+                        snapshotActions.run(id, [row]),
+                      )
+                    }
+                  />
+                </Panel>
+              </div>
+              {!data.bootable && data.status === "available" && (
+                <p className={styles.hint}>
+                  Want to boot from this volume?{" "}
+                  <Button
+                    variant="link"
+                    size="xs"
+                    onPress={() => run("edit", [data])}
+                  >
+                    Mark it bootable
+                  </Button>{" "}
+                  first, then launch it as an instance.
+                </p>
+              )}
+              {data.bootable && data.status === "available" && (
+                <p className={styles.hint}>
+                  <Button
+                    variant="link"
+                    size="xs"
+                    onPress={() => run("launch", [data])}
+                  >
+                    Launch an instance from this volume
+                  </Button>
+                </p>
+              )}
+            </div>
+          );
+        }}
+      </DetailPage>
       {dialogs}
       {snapshotActions.dialogs}
-      {data && !data.bootable && data.status === "available" && (
-        <p className={styles.hint}>
-          Want to boot from this volume?{" "}
-          <Button variant="link" size="sm" onPress={() => run(data, "edit")}>
-            Mark it bootable
-          </Button>{" "}
-          first, then launch it as an instance.
-        </p>
-      )}
-      {data && data.bootable && data.status === "available" && (
-        <p className={styles.hint}>
-          <Button
-            variant="link"
-            size="sm"
-            onPress={() =>
-              void navigate({
-                to: "/compute/instances/launch",
-                search: { source: `volume:${data.id}` },
-              })
-            }
-          >
-            Launch an instance from this volume
-          </Button>
-        </p>
-      )}
     </>
   );
 }

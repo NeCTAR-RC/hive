@@ -1,0 +1,8 @@
+{
+  "absolute": {
+    "maxHours": 480,
+    "maxReservations": 4,
+    "totalHoursUsed": 24,
+    "totalReservationsUsed": 1
+  }
+}

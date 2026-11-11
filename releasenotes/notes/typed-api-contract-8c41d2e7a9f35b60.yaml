@@ -1,0 +1,32 @@
+---
+features:
+  - |
+    Every JSON ``/api`` reply now has a declared response model, and the
+    API serves its OpenAPI document at ``/api/openapi.json`` without a
+    session and whatever ``HIVE_DOCS_ENABLED`` says (the document holds
+    no data; the ``/api/docs`` page stays a development aid). The
+    document is the contract the SPA's TypeScript types are generated
+    from.
+upgrade:
+  - |
+    Instance actions moved from ``POST /api/compute/instances/{id}/actions/{action}``
+    to ``POST /api/compute/instances/{id}/actions`` with the action named in
+    the body, for example ``{"action": "resize", "flavor_id": "..."}``. Each
+    action accepts only its own fields: an unknown action, a missing field
+    or a field another action uses is a 422. Attaching an interface takes
+    exactly one of ``network_id`` or ``port_id``.
+  - |
+    Stack actions moved from ``POST /api/orchestration/stacks/{id}/actions/{action}``
+    to ``POST /api/orchestration/stacks/{id}/actions`` with a body
+    ``{"action": "suspend" | "resume" | "check" | "cancel_update"}``, and
+    database log actions from ``.../logs/{name}/actions/{action}`` to
+    ``.../logs/{name}/actions`` with ``{"action": "enable" | "disable" |
+    "publish" | "discard"}``. An unknown action is a 422 instead of a 404
+    or 400.
+  - |
+    A few replies now send ``null`` for a field they used to leave out
+    (for example a reservation's ``min_end`` when it cannot be extended,
+    a share snapshot's ``export_locations`` and ``access_rules``, and the
+    optional fields of usage rows and Varroa security risks), and every
+    instance action reply carries ``image_id`` (``null`` except for a
+    snapshot).

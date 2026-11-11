@@ -1,0 +1,16 @@
+[
+  {
+    "id": null,
+    "str_id": "db3.small",
+    "name": "db3.small",
+    "ram": 2048,
+    "vcpus": 1
+  },
+  {
+    "id": null,
+    "str_id": "db3.medium",
+    "name": "db3.medium",
+    "ram": 4096,
+    "vcpus": 2
+  }
+]

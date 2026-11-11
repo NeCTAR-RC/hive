@@ -2,27 +2,45 @@
 // name, three characters or more (nectar_dashboard/user_info/lookup).
 import { useMemo, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button, SearchField } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
-import type { UserSearchResult } from "../../../lib/api/types";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import type { UserSearchResult } from "../../../lib/api/types/identity";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { userLookupRoute } from "../../../app/router";
 import { userSearchQuery } from "../api";
+import { UserLookupGate } from "./UserLookupGate";
 import styles from "./UserLookupPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+
+const userLookupRoute = getRouteApi("/app/identity/user-lookup");
 
 const MIN = 3;
 
+/** The helpdesk's user search, for users allowed to look users up. */
 export function UserLookupPage() {
+  return (
+    <UserLookupGate>
+      <UserLookup />
+    </UserLookupGate>
+  );
+}
+
+/** The helpdesk's user search by email or name, linking to each record. */
+function UserLookup() {
   const search = userLookupRoute.useSearch();
-  const navigate = useNavigate({ from: userLookupRoute.fullPath });
+  const navigate = userLookupRoute.useNavigate();
   const q = search.q ?? "";
   const [draft, setDraft] = useState(q);
   const results = useQuery(userSearchQuery(q));
+  const resultsTable = useQueryTable(results, {
+    noun: "registered users",
+    emptyTitle: `No registered users match "${q}"`,
+    refresh: false,
+  });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -40,9 +58,13 @@ export function UserLookupPage() {
         label: "User ID",
         isRowHeader: true,
         cell: (row) => (
-          <RouteLink to="/identity/users/$userId" params={{ userId: row.id }}>
+          <AppLink
+            size="sm"
+            to="/identity/users/$userId"
+            params={{ userId: String(row.id) }}
+          >
             <code>{row.id}</code>
-          </RouteLink>
+          </AppLink>
         ),
         sortValue: (row) => row.id,
       },
@@ -66,20 +88,17 @@ export function UserLookupPage() {
 
   return (
     <>
-      <PageHeader title="User Details" crumbs={[{ label: "Identity" }]}>
-        <form onSubmit={submit} className={styles.form} role="search">
-          <SearchField
-            aria-label="Search Nectar users"
-            value={draft}
-            onChange={setDraft}
-            placeholder="Email or name (at least 3 characters)"
-            className={styles.field}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            isDisabled={draft.trim().length < MIN}
-          >
+      <PageHeader title="User details" crumbs={[{ label: "Identity" }]}>
+        <form onSubmit={submit} className={styles.search} role="search">
+          <div className={styles.field}>
+            <SearchField
+              aria-label="Search Nectar users"
+              value={draft}
+              onChange={setDraft}
+              placeholder="Email or name (at least 3 characters)"
+            />
+          </div>
+          <Button type="submit" isDisabled={draft.trim().length < MIN}>
             Search
           </Button>
         </form>
@@ -94,17 +113,12 @@ export function UserLookupPage() {
           id="user-lookup"
           label="Matching Nectar users"
           columns={columns}
-          rows={results.data?.items}
-          getRowId={(row) => row.id}
-          isLoading={results.isPending}
-          isFetching={results.isFetching}
-          error={results.error}
-          onRetry={() => void results.refetch()}
-          emptyTitle={`No registered users match "${q}"`}
+          getRowId={(row) => String(row.id)}
+          {...resultsTable}
           defaultSort={{ column: "name", direction: "ascending" }}
         />
       ) : (
-        <p className={styles.hint}>
+        <p className={styles.intro}>
           Search registered Nectar users by email address or name.
         </p>
       )}

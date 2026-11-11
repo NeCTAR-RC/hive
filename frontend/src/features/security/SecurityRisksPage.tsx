@@ -5,17 +5,15 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { Alert } from "@ardc-ui/react";
+import { AppLink } from "../../components/AppLink/AppLink";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
-import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
-import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
-import { formatDateTime } from "../../lib/format";
+import { useProjectId } from "../../lib/hooks/useProjectId";
 import { risksQuery } from "../../lib/queries";
-import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
-import { groupRisks, riskName, riskTone, SECURITY_HELP } from "./risks";
+import { RiskGroupPanel } from "./RiskGroupPanel";
+import { groupRisks, riskTone, SECURITY_HELP } from "./risks";
 import styles from "./SecurityRisksPage.module.scss";
-import { RouteLink } from "../../components/RouteLink/RouteLink";
 
 export function SecurityRisksPage() {
   const projectId = useProjectId();
@@ -35,15 +33,15 @@ export function SecurityRisksPage() {
 
   return (
     <>
-      <PageHeader title="Security Risks" crumbs={[{ label: "Project" }]}>
+      <PageHeader title="Security risks" crumbs={[{ label: "Project" }]}>
         <p className={styles.intro}>
           The Nectar Cloud infrastructure is regularly scanned for
           vulnerabilities. Users must ensure all detected security risks are
           actioned. For more about security risks and how to resolve them, read
           the{" "}
-          <ExternalLink href={SECURITY_HELP}>
+          <AppLink href={SECURITY_HELP} newTab>
             Nectar Support article on security risks
-          </ExternalLink>
+          </AppLink>
           .
         </p>
       </PageHeader>
@@ -72,10 +70,11 @@ export function SecurityRisksPage() {
               )}
             </Alert>
             {groups.length > 0 && (
-              <section aria-labelledby="risks-heading" className={styles.stack}>
-                <h2 id="risks-heading" className={styles.heading}>
-                  Risks detected
-                </h2>
+              <section
+                aria-labelledby="risks-heading"
+                className={styles.section}
+              >
+                <h2 id="risks-heading">Risks detected</h2>
                 {groups.map((group) => (
                   <div
                     key={group.resourceId}
@@ -84,54 +83,7 @@ export function SecurityRisksPage() {
                       hash === group.resourceId ? styles.highlight : undefined
                     }
                   >
-                    <Panel
-                      title={`${group.resourceType} ${group.resourceId}`}
-                      headingLevel={3}
-                      actions={
-                        group.resourceType === "instance" ? (
-                          <RouteLink
-                            to="/compute/instances/$instanceId"
-                            params={{ instanceId: group.resourceId }}
-                          >
-                            View instance
-                          </RouteLink>
-                        ) : null
-                      }
-                    >
-                      <p className={styles.muted}>
-                        Please review the following{" "}
-                        {group.risks.length === 1 ? "risk" : "risks"} for this{" "}
-                        {group.resourceType}.
-                      </p>
-                      <ul className={styles.risks}>
-                        {group.risks.map((risk) => (
-                          <li key={risk.id} className={styles.risk}>
-                            <p className={styles.riskName}>{riskName(risk)}</p>
-                            {risk.type?.description && (
-                              <p>{risk.type.description}</p>
-                            )}
-                            <p className={styles.muted}>
-                              {risk.ipaddress && (
-                                <>
-                                  Address: <code>{risk.ipaddress}</code>
-                                  {risk.port ? `:${risk.port}` : ""}
-                                  {" | "}
-                                </>
-                              )}
-                              Last detected: {formatDateTime(risk.last_seen)}
-                              {risk.type?.help_url && (
-                                <>
-                                  {" | "}
-                                  <ExternalLink href={risk.type.help_url}>
-                                    Learn more
-                                  </ExternalLink>
-                                </>
-                              )}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    </Panel>
+                    <RiskGroupPanel group={group} />
                   </div>
                 ))}
               </section>

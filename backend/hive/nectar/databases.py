@@ -20,7 +20,12 @@ overrides in ``nectar-dashboard`` (``enabled/_9000_disable_trove_clusters.py``,
   ``allowed_cidrs`` required (``4d5dd91``) with the 0.0.0.0/0 warning
   (``a61ce1a``), ``is_public`` hidden (``b274b9c``), initial databases and
   user, configuration group, restore from a COMPLETED or RESTORED backup,
-  no replicas or locality (``4e93143``).
+  no replicas or locality (``4e93143``). Hive starts ``allowed_cidrs``
+  empty rather than at 0.0.0.0/0, so opening the instance to every address
+  is a choice the user types.
+- Users (``databases/forms.py`` ``EditUserForm``, ``tables.py:310-327``):
+  edit changes the name, password or host of a user on an active
+  instance. Passwords need at least eight characters (Hive's minimum).
 - Resize volume (``forms.py:54-92``): the new size must be greater than
   the current size. Resize instance (``forms.py:95-130``): any other
   flavour. Update (``forms.py:286-322``): name and allowed CIDRs.
@@ -36,8 +41,9 @@ overrides in ``nectar-dashboard`` (``enabled/_9000_disable_trove_clusters.py``,
   configuration from ``GET /instances/{id}/configuration``, sorted by
   name.
 - Logs tab (``logs/tables.py``, ``logs/views.py``): guest logs from
-  ``GET /instances/{id}/log``; publish, enable, discard are always
-  offered, disable only for non-SYS logs, view only once bytes are
+  ``GET /instances/{id}/log``; publish and discard are always offered,
+  enable only on a disabled user log and disable only on an enabled one
+  (Hive's narrowing; SYS logs are always on), view only once bytes are
   published. Contents come from the Swift container Trove publishes to,
   reading the newest parts first until their ``x-object-meta-lines``
   counts cover the requested tail (troveclient ``instances.log_generator``).
@@ -51,6 +57,10 @@ overrides in ``nectar-dashboard`` (``enabled/_9000_disable_trove_clusters.py``,
 """
 
 import ipaddress
+from typing import Literal
+
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
 
 ACTIVE_STATES = ("ACTIVE", "HEALTHY")
 INSTANCE_OK = ("ACTIVE", "HEALTHY", "BLOCKED")
@@ -69,7 +79,9 @@ BACKUP_TRANSITIONAL = ("BUILDING", "NEW", "SAVING")
 RESTORABLE = BACKUP_OK
 DEFAULT_CIDR = "0.0.0.0/0"
 PORTS = {"mysql": 3306, "mariadb": 3306, "percona": 3306, "postgresql": 5432}
-LOG_ACTIONS = ("enable", "disable", "publish", "discard")
+# The guest log actions troveclient ``instances.log_action`` sends; the
+# request model of the log action route validates against it.
+LogAction = Literal["enable", "disable", "publish", "discard"]
 # trove/guestagent/guest_log.py LogStatus names
 LOG_OK = ("Enabled", "Ready", "Published", "Partial", "Restart_Completed")
 LOG_ERROR = ("Unavailable", "Failed")
@@ -77,6 +89,7 @@ LOG_WARNING = ("Restart_Required",)
 
 
 def instance_status_kind(status: str | None) -> str:
+    """OK, error or transitional (``tables.py:697-734``)."""
     if status in INSTANCE_TRANSITIONAL:
         return "transitional"
     if status in INSTANCE_ERROR:
@@ -87,6 +100,7 @@ def instance_status_kind(status: str | None) -> str:
 
 
 def instance_actions(instance: dict) -> list[str]:
+    """The row actions a status allows (``tables.py:767-779``)."""
     status = instance.get("status")
     actions = []
     active = status in ACTIVE_STATES
@@ -105,6 +119,7 @@ def instance_actions(instance: dict) -> list[str]:
 
 
 def backup_status_kind(status: str | None) -> str:
+    """OK, error or transitional (backups ``tables.py:28-52``)."""
     if status in BACKUP_TRANSITIONAL:
         return "transitional"
     if status in BACKUP_ERROR:
@@ -114,21 +129,24 @@ def backup_status_kind(status: str | None) -> str:
     return "unknown"
 
 
-def validate_cidrs(cidrs: list[str]) -> tuple[list[str], str | None]:
+def validate_cidrs(cidrs: list[str]) -> list[str]:
     """``allowed_cidrs`` is required at Nectar (``4d5dd91``); each entry
     must be an IPv4 or IPv6 network."""
     clean = [c.strip() for c in cidrs if c and c.strip()]
     if not clean:
-        return [], "Enter at least one allowed CIDR, such as 0.0.0.0/0."
+        raise RuleViolation(
+            "Enter at least one allowed CIDR, such as 0.0.0.0/0."
+        )
     for cidr in clean:
         try:
             ipaddress.ip_network(cidr, strict=False)
         except ValueError:
-            return [], f'"{cidr}" is not a valid CIDR.'
-    return clean, None
+            raise RuleViolation(f'"{cidr}" is not a valid CIDR.') from None
+    return clean
 
 
 def cidr_warning(cidrs: list[str]) -> str | None:
+    """The 0.0.0.0/0 exposure warning (commit ``a61ce1a``)."""
     if any(c in ("0.0.0.0/0", "::/0") for c in cidrs):
         return (
             "Allowing 0.0.0.0/0 may expose the database instance to the"
@@ -145,18 +163,18 @@ def validate_launch(
     version: str | None,
     flavor: str | None,
     network: str | None,
-) -> str | None:
+) -> None:
+    """The launch form checks (``workflows/create_instance.py``)."""
     if not name or len(name) > 80:
-        return "Enter a name of up to 80 characters."
+        raise RuleViolation("Enter a name of up to 80 characters.")
     if volume < 1:
-        return "The volume size must be at least 1 GB."
+        raise RuleViolation("The volume size must be at least 1 GB.")
     if not datastore or not version:
-        return "You must select a datastore type and version."
+        raise RuleViolation("You must select a datastore type and version.")
     if not flavor:
-        return "You must select a flavor."
+        raise RuleViolation("You must select a flavor.")
     if not network:
-        return "At least one network must be specified."
-    return None
+        raise RuleViolation("At least one network must be specified.")
 
 
 def launch_body(
@@ -209,21 +227,34 @@ def split_databases(text: str | None) -> list[str]:
     return [d.strip() for d in (text or "").split(",") if d.strip()]
 
 
+# Hive's own minimum: trove-dashboard's password field takes Horizon's
+# ``password_validator``, which accepts any text by default.
+PASSWORD_MIN_LENGTH = 8
+
+
 def validate_initial_user(
     user: str | None, password: str | None, databases: list[str]
-) -> str | None:
+) -> None:
+    """A user needs a password and a database (``create_instance.py``)."""
     if user:
         if not password:
-            return "A password is required for the initial user."
+            raise RuleViolation("A password is required for the initial user.")
+        if len(password) < PASSWORD_MIN_LENGTH:
+            raise RuleViolation(
+                f"The password needs at least {PASSWORD_MIN_LENGTH} characters."
+            )
         if not databases:
-            return "At least one database is required when creating an initial user."
-    return None
+            raise RuleViolation(
+                "At least one database is required when creating an initial user."
+            )
 
 
-def validate_resize_volume(current: int, new_size: int) -> str | None:
+def validate_resize_volume(current: int, new_size: int) -> None:
+    """Volumes only grow (``forms.py:54-92``)."""
     if new_size <= current:
-        return f"The new volume size must be greater than the current size ({current} GB)."
-    return None
+        raise RuleViolation(
+            f"The new volume size must be greater than the current size ({current} GB)."
+        )
 
 
 def resize_candidates(
@@ -260,10 +291,8 @@ def configuration_defaults(values: dict) -> list[dict]:
     ]
 
 
-# --- guest logs ---------------------------------------------------------------
-
-
 def log_status_kind(status: str | None) -> str:
+    """A guest log's status kind (``logs/tables.py``)."""
     if status in LOG_OK:
         return "ok"
     if status in LOG_ERROR:
@@ -274,13 +303,20 @@ def log_status_kind(status: str | None) -> str:
 
 
 def log_actions(log: dict) -> list[str]:
-    """``logs/tables.py``: ViewLog needs published bytes, DisableLog is
-    hidden for SYS logs, the rest are always offered."""
+    """``logs/tables.py``: ViewLog needs published bytes and DisableLog a
+    non-SYS log. trove-dashboard offers EnableLog and DisableLog whatever
+    the log's state; Hive matches them to it: a SYS log is always on
+    (``trove/guestagent/guest_log.py``, ``_enabled``), so enable needs a
+    disabled user log and disable an enabled one."""
+    is_user = log.get("type") != "SYS"
+    is_disabled = log.get("status") == "Disabled"
     actions = []
     if int(log.get("published") or 0) > 0:
         actions.append("view")
-    actions.extend(["publish", "enable"])
-    if log.get("type") != "SYS":
+    actions.append("publish")
+    if is_user and is_disabled:
+        actions.append("enable")
+    if is_user and not is_disabled:
         actions.append("disable")
     actions.append("discard")
     return actions
@@ -295,6 +331,7 @@ def _none(value) -> str | None:
 
 
 def log_summary(log: dict) -> dict:
+    """A guest log row and its actions (``logs/tables.py``)."""
     status = log.get("status")
     return {
         "name": log.get("name"),
@@ -310,11 +347,9 @@ def log_summary(log: dict) -> dict:
     }
 
 
-def log_action_body(name: str, action: str) -> dict:
+def log_action_body(name: str, action: LogAction) -> dict:
     """``POST /instances/{id}/log`` as troveclient ``instances.log_action``
     builds it: the log name plus the action flag set to 1."""
-    if action not in LOG_ACTIONS:
-        raise ValueError(f"Unknown log action {action!r}.")
     return {"name": name, action: 1}
 
 
@@ -374,6 +409,7 @@ def flavor_summary(flavor: dict) -> dict:
 def instance_summary(
     instance: dict, flavors: dict[str, dict] | None = None
 ) -> dict:
+    """An instance row (``databases/tables.py``)."""
     status = instance.get("status")
     flavor = instance.get("flavor") or {}
     flavor_id = str(flavor.get("id")) if flavor.get("id") is not None else None
@@ -396,8 +432,8 @@ def instance_summary(
         "volume_size": (instance.get("volume") or {}).get("size"),
         "volume_used": (instance.get("volume") or {}).get("used"),
         "region": instance.get("region"),
-        "created": instance.get("created"),
-        "updated": instance.get("updated"),
+        "created": to_utc_iso(instance.get("created")),
+        "updated": to_utc_iso(instance.get("updated")),
         "configuration": instance.get("configuration"),
         "replica_of": instance.get("replica_of"),
         "replicas": instance.get("replicas") or [],
@@ -409,6 +445,7 @@ def instance_summary(
 def instance_detail(
     instance: dict, flavors: dict[str, dict] | None = None
 ) -> dict:
+    """The instance overview (``databases/tabs.py``)."""
     summary = instance_summary(instance, flavors)
     access = instance.get("access") or {}
     cidrs = access.get("allowed_cidrs") or []
@@ -420,7 +457,9 @@ def instance_detail(
             "addresses_detail": instance.get("addresses") or [],
             "availability_zone": instance.get("availability_zone"),
             "fault": instance.get("fault"),
-            "service_status_updated": instance.get("service_status_updated"),
+            "service_status_updated": to_utc_iso(
+                instance.get("service_status_updated")
+            ),
             "port": PORTS.get(dtype),
             "cidr_warning": cidr_warning(cidrs),
         }
@@ -431,6 +470,7 @@ def instance_detail(
 def backup_summary(
     backup: dict, instance_names: dict[str, str] | None = None
 ) -> dict:
+    """A backup row (``database_backups/tables.py``)."""
     status = backup.get("status")
     instance_id = backup.get("instance_id")
     return {
@@ -447,8 +487,8 @@ def backup_summary(
         "incremental": bool(backup.get("parent_id")),
         "size": backup.get("size"),
         "location": backup.get("locationRef"),
-        "created": backup.get("created"),
-        "updated": backup.get("updated"),
+        "created": to_utc_iso(backup.get("created")),
+        "updated": to_utc_iso(backup.get("updated")),
         "is_transitional": status in BACKUP_TRANSITIONAL,
         "can_restore": status in RESTORABLE,
     }
@@ -457,6 +497,7 @@ def backup_summary(
 def backup_body(
     name: str, instance_id: str, description: str | None, parent_id: str | None
 ) -> dict:
+    """The create-backup body (``database_backups/workflows``)."""
     body: dict = {
         "name": name,
         "instance": instance_id,
@@ -470,6 +511,7 @@ def backup_body(
 
 
 def configuration_summary(configuration: dict) -> dict:
+    """A configuration group (``database_configurations``)."""
     return {
         "id": configuration.get("id"),
         "name": configuration.get("name"),
@@ -478,14 +520,15 @@ def configuration_summary(configuration: dict) -> dict:
         "datastore_version": configuration.get("datastore_version_name"),
         "datastore_version_id": configuration.get("datastore_version_id"),
         "values": configuration.get("values") or {},
-        "created": configuration.get("created"),
-        "updated": configuration.get("updated"),
+        "created": to_utc_iso(configuration.get("created")),
+        "updated": to_utc_iso(configuration.get("updated")),
     }
 
 
 def configuration_body(
     name: str, description: str | None, datastore: str, version: str
 ) -> dict:
+    """The create body (``database_configurations/forms.py``)."""
     body: dict = {
         "name": name,
         "values": {},
@@ -503,24 +546,27 @@ def coerce_parameter(spec: dict, value: str):
     raw = str(value).strip()
     if ptype == "boolean":
         if raw.lower() not in ("true", "false"):
-            raise ValueError(f"{spec.get('name')} must be true or false.")
+            raise RuleViolation(f"{spec.get('name')} must be true or false.")
         return raw.lower() == "true"
     if ptype in ("integer", "long", "float"):
         try:
             number = float(raw) if ptype == "float" else int(raw)
         except ValueError as exc:
-            raise ValueError(f"{spec.get('name')} must be a number.") from exc
+            raise RuleViolation(
+                f"{spec.get('name')} must be a number."
+            ) from exc
         low = spec.get("min")
         high = spec.get("max")
         if low is not None and number < low:
-            raise ValueError(f"{spec.get('name')} must be at least {low}.")
+            raise RuleViolation(f"{spec.get('name')} must be at least {low}.")
         if high is not None and number > high:
-            raise ValueError(f"{spec.get('name')} must be at most {high}.")
+            raise RuleViolation(f"{spec.get('name')} must be at most {high}.")
         return number
     return raw
 
 
 def user_summary(user: dict) -> dict:
+    """A database user row (``databases/tables.py``)."""
     return {
         "name": user.get("name"),
         "host": user.get("host") or "%",
@@ -528,8 +574,30 @@ def user_summary(user: dict) -> dict:
     }
 
 
-def user_path(name: str, host: str | None) -> str:
-    """``user@host``, or the bare name for the any-host ``%``, as
-    troveclient ``utils.quote_user_host`` joins them. The Trove client
-    percent-encodes it and then encodes the dots, as troveclient does."""
+def user_update_fields(
+    name: str | None, password: str | None, host: str | None
+) -> dict:
+    """The attributes an edit changes (``forms.py`` ``EditUserForm``,
+    ``api/trove.py`` ``user_update_attributes``): only those given; an
+    edit must change at least one."""
+    fields = {
+        key: value
+        for key, value in (
+            ("name", name),
+            ("password", password),
+            ("host", host),
+        )
+        if value
+    }
+    if not fields:
+        raise RuleViolation(
+            "A new name or new password or new host must be specified."
+        )
+    return fields
+
+
+def user_ident(name: str, host: str | None) -> str:
+    """``user@host`` as Trove names a user, or just ``user`` for the any
+    host ``%`` (troveclient ``common.quote_user_host``); the Trove client
+    encodes it for the URL."""
     return f"{name}@{host}" if host and host != "%" else name

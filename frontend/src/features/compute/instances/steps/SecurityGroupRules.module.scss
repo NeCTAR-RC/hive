@@ -1,0 +1,20 @@
+@use "mixins" as *;
+
+/// The "Rules (n)" trigger (mixin `disclosure-toggle`, as the reservation
+/// chart's flavour rows draw theirs): Body/14/Bold Grey-900 with the
+/// accordion's plus or minus 8px after it.
+.toggle {
+  @include disclosure-toggle;
+}
+
+/// The plus and minus glyphs (mixin `disclosure-icon`).
+.icon {
+  @include disclosure-icon;
+}
+
+/// The rules 8px under the trigger, as a flavour's details sit under its
+/// name (DERIVED-SPACING, 8px).
+.panel {
+  margin-top: var(--hive-space-2);
+  min-width: 0;
+}

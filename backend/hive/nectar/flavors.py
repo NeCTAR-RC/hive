@@ -27,7 +27,6 @@ PREEMPTIBLE_NOTICE = (
     "Preemptible instances have a maximum lifetime of 24 hours and may be "
     "stopped at any time."
 )
-
 RESERVATION_SPEC = "aggregate_instance_extra_specs:reservation"
 RESERVATION_NAME_PREFIX = "reservation:"
 
@@ -78,10 +77,10 @@ class FlavorRules:
         reservation_spec: str = RESERVATION_SPEC,
     ):
         self.su_rate_spec = su_rate_spec
+        self.reservation_spec = reservation_spec
         self.preemptible_class = preemptible_class
         self.hidden_resize_classes = set(hidden_resize_classes or [])
         self.hidden_resize_prefixes = tuple(hidden_resize_prefixes or [])
-        self.reservation_spec = reservation_spec
 
     def su_rate(self, flavor: dict) -> float | None:
         specs = flavor.get("extra_specs") or {}

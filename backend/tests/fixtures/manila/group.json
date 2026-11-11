@@ -1,0 +1,9 @@
+{
+  "id": "g-1",
+  "name": "group",
+  "status": "available",
+  "share_group_type_id": "gt-1",
+  "share_types": [
+    "st-1"
+  ]
+}

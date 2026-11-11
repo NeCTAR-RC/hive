@@ -7,6 +7,8 @@ within 14 days; ended within the last day) and merged by id.
 
 from datetime import datetime, timedelta
 
+from hive.times import to_utc_iso
+
 UPCOMING_DAYS = 14
 RECENT_DAYS = 1
 
@@ -23,6 +25,7 @@ FIELDS = (
     "planned_end",
     "cancelled",
 )
+TIME_FIELDS = ("start", "end", "planned_end")
 
 
 def query_window(now: datetime) -> tuple[str, str]:
@@ -33,6 +36,7 @@ def query_window(now: datetime) -> tuple[str, str]:
 
 
 def queries(now: datetime) -> list[dict]:
+    """The three outage queries (``api/rest/langstroth.py``)."""
     window_start, window_end = query_window(now)
     return [
         {"activity": "active"},
@@ -51,6 +55,9 @@ def merge(*groups: list[dict]) -> list[dict]:
 
 
 def serialise(outage: dict, base_url: str) -> dict:
+    """An outage for the SPA (``api/rest/langstroth.py``)."""
     item = {field: outage.get(field) for field in FIELDS}
+    for field in TIME_FIELDS:
+        item[field] = to_utc_iso(item[field])
     item["url"] = f"{base_url.rstrip('/')}/{outage.get('id')}/"
     return item

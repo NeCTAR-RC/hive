@@ -23,6 +23,9 @@ upstream heat-dashboard ones).
 import json
 import re
 
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
+
 STACK_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]*$")
 DEFAULT_TIMEOUT = 60
 TRANSITIONAL = "_IN_PROGRESS"
@@ -43,6 +46,7 @@ PARAMETER_TYPES = (
 
 
 def is_transitional(status: str | None) -> bool:
+    """An ``*_IN_PROGRESS`` status (heat-dashboard)."""
     return bool(status) and status.endswith(TRANSITIONAL)
 
 
@@ -51,6 +55,7 @@ def _completed(status: str | None) -> bool:
 
 
 def stack_actions(status: str | None) -> list[str]:
+    """The row actions a status allows (heat-dashboard)."""
     actions = []
     if _completed(status) and status != "DELETE_COMPLETE":
         if status == "SUSPEND_COMPLETE":
@@ -69,13 +74,13 @@ def stack_actions(status: str | None) -> list[str]:
     return actions
 
 
-def validate_stack_name(name: str) -> str | None:
+def validate_stack_name(name: str) -> None:
+    """The stack name pattern (heat-dashboard launch)."""
     if not STACK_NAME.match(name or ""):
-        return (
+        raise RuleViolation(
             "Stack names start with a letter and contain only letters,"
             " numbers, dots, dashes and underscores."
         )
-    return None
 
 
 API_TYPES = {
@@ -139,7 +144,9 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
         ptype = (spec or {}).get("type", "string")
         if value is None or value == "":
             if spec and spec.get("required"):
-                raise ValueError(f"{spec.get('label') or name} is required.")
+                raise RuleViolation(
+                    f"{spec.get('label') or name} is required."
+                )
             continue
         if ptype == "number":
             try:
@@ -149,7 +156,7 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
                     else float(value)
                 )
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"{name} must be a number.") from exc
+                raise RuleViolation(f"{name} must be a number.") from exc
         elif ptype == "boolean":
             if isinstance(value, bool):
                 out[name] = value
@@ -173,7 +180,7 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
                 try:
                     out[name] = json.loads(str(value))
                 except ValueError as exc:
-                    raise ValueError(f"{name} must be valid JSON.") from exc
+                    raise RuleViolation(f"{name} must be valid JSON.") from exc
         else:
             out[name] = value
     return out
@@ -182,35 +189,28 @@ def coerce_parameters(values: dict, specs: list[dict]) -> dict:
 def stack_body(
     *,
     name: str,
-    template: str | dict | None,
-    template_url: str | None,
-    environment: str | dict | None,
-    files: dict | None,
+    source: dict,
     parameters: dict,
     timeout_mins: int,
     rollback: bool,
     tags: list[str] | None = None,
 ) -> dict:
+    """The create-stack body (``stacks/forms.py CreateStackForm.handle``):
+    ``source`` holds the template (or its URL), environment and files."""
     body: dict = {
+        **source,
         "stack_name": name,
         "parameters": parameters,
         "timeout_mins": timeout_mins,
         "disable_rollback": not rollback,
     }
-    if template is not None and template != "":
-        body["template"] = template
-    elif template_url:
-        body["template_url"] = template_url
-    if environment:
-        body["environment"] = environment
-    if files:
-        body["files"] = files
     if tags:
         body["tags"] = ",".join(tags)
     return body
 
 
 def stack_summary(stack: dict) -> dict:
+    """A stack row (heat-dashboard stacks table)."""
     status = stack.get("stack_status")
     return {
         "id": stack.get("id"),
@@ -218,9 +218,9 @@ def stack_summary(stack: dict) -> dict:
         "description": stack.get("description"),
         "status": status,
         "status_reason": stack.get("stack_status_reason"),
-        "creation_time": stack.get("creation_time"),
-        "updated_time": stack.get("updated_time"),
-        "deletion_time": stack.get("deletion_time"),
+        "creation_time": to_utc_iso(stack.get("creation_time")),
+        "updated_time": to_utc_iso(stack.get("updated_time")),
+        "deletion_time": to_utc_iso(stack.get("deletion_time")),
         "timeout_mins": stack.get("timeout_mins"),
         "disable_rollback": stack.get("disable_rollback"),
         "tags": stack.get("tags") or [],
@@ -232,6 +232,7 @@ def stack_summary(stack: dict) -> dict:
 
 
 def stack_detail(stack: dict) -> dict:
+    """The stack overview (heat-dashboard stack detail)."""
     summary = stack_summary(stack)
     summary.update(
         {
@@ -254,6 +255,7 @@ def stack_detail(stack: dict) -> dict:
 
 
 def resource_summary(resource: dict) -> dict:
+    """A resource row (heat-dashboard resources tab)."""
     status = resource.get("resource_status")
     return {
         "name": resource.get("resource_name"),
@@ -262,8 +264,8 @@ def resource_summary(resource: dict) -> dict:
         "type": resource.get("resource_type"),
         "status": status,
         "status_reason": resource.get("resource_status_reason"),
-        "updated_time": resource.get("updated_time"),
-        "creation_time": resource.get("creation_time"),
+        "updated_time": to_utc_iso(resource.get("updated_time")),
+        "creation_time": to_utc_iso(resource.get("creation_time")),
         "required_by": resource.get("required_by") or [],
         "is_transitional": is_transitional(status),
         "attributes": resource.get("attributes"),
@@ -272,6 +274,7 @@ def resource_summary(resource: dict) -> dict:
 
 
 def event_summary(event: dict) -> dict:
+    """An event row (heat-dashboard events tab)."""
     return {
         "id": event.get("id"),
         "resource_name": event.get("resource_name"),
@@ -279,5 +282,5 @@ def event_summary(event: dict) -> dict:
         "physical_id": event.get("physical_resource_id"),
         "status": event.get("resource_status"),
         "status_reason": event.get("resource_status_reason"),
-        "event_time": event.get("event_time"),
+        "event_time": to_utc_iso(event.get("event_time")),
     }

@@ -1,0 +1,15 @@
+{
+  "uuid": "c-1",
+  "name": "samtest1",
+  "cluster_template_id": "t-133",
+  "status": "CREATE_COMPLETE",
+  "health_status": "HEALTHY",
+  "master_count": 1,
+  "node_count": 2,
+  "coe_version": "v1.33.4",
+  "api_address": "https://10.0.0.5:6443",
+  "labels": {
+    "availability_zone": "ardctest-artm",
+    "upgrade_targets": "t-134"
+  }
+}

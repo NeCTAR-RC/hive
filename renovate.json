@@ -1,5 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "pip_requirements": {
+    "managerFilePatterns": ["/(^|/)requirements\\.lock$/"]
+  },
   "packageRules": [
     {
       "matchFileNames": ["frontend/package.json"],
@@ -8,6 +11,11 @@
     {
       "matchPackageNames": ["@ardc-ui/react", "react-aria-components"],
       "groupName": "ARDC design system"
+    },
+    {
+      "description": "requirements.lock is the hashed runtime lock the image installs: `tox -e lock` rewrites it and `tox -e deps` fails when it no longer matches pyproject.toml.",
+      "matchManagers": ["pep621", "pip_requirements"],
+      "groupName": "python dependencies"
     },
     {
       "description": "Dockerfile and compose base images. Major bumps of node and python are deliberate upgrades, so they stay separate PRs; set pinDigests here once operators move the FROM lines to digests.",

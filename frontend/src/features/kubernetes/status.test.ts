@@ -1,125 +1,247 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ClusterOptions,
-  ClusterTemplate,
-  TemplateCombination,
-} from "../../lib/api/types";
+import type { ActionOffer } from "../../lib/actions";
+import type { Cluster, NodeGroup } from "../../lib/api/types/kubernetes";
 import {
-  driversFor,
+  availableClusterActions,
+  availableNodeGroupActions,
   formatLabels,
   formatTaints,
   healthLabel,
+  healthReason,
   healthTone,
   isTransitional,
   LABELS_PATTERN,
   statusLabel,
   statusTone,
   TAINTS_PATTERN,
-  templateFor,
-  zonesFor,
 } from "./status";
 
 describe("cluster status", () => {
-  it("maps Heat-style states to tones", () => {
-    expect(statusTone("CREATE_IN_PROGRESS")).toBe("progress");
-    expect(statusTone("UPDATE_FAILED")).toBe("danger");
-    expect(statusTone("CREATE_COMPLETE")).toBe("success");
-    expect(statusTone("DELETE_COMPLETE")).toBe("neutral");
-    expect(statusTone(null)).toBe("neutral");
-    expect(isTransitional("DELETE_IN_PROGRESS")).toBe(true);
-    expect(isTransitional("CREATE_COMPLETE")).toBe(false);
+  it.each([
+    {
+      status: "CREATE_IN_PROGRESS",
+      tone: "progress",
+      label: "Create in progress",
+      busy: true,
+    },
+    {
+      status: "UPDATE_COMPLETE",
+      tone: "success",
+      label: "Update complete",
+      busy: false,
+    },
+    {
+      status: "DELETE_FAILED",
+      tone: "danger",
+      label: "Delete failed",
+      busy: false,
+    },
+    {
+      status: "DELETE_COMPLETE",
+      tone: "neutral",
+      label: "Delete complete",
+      busy: false,
+    },
+    {
+      status: "ROLLBACK_COMPLETE",
+      tone: "success",
+      label: "Rollback complete",
+      busy: false,
+    },
+    { status: null, tone: "neutral", label: "Unknown", busy: false },
+    { status: undefined, tone: "neutral", label: "Unknown", busy: false },
+  ])("$status is $label ($tone)", ({ status, tone, label, busy }) => {
+    expect(statusTone(status)).toBe(tone);
+    expect(statusLabel(status)).toBe(label);
+    expect(isTransitional(status)).toBe(busy);
+  });
+});
+
+describe("cluster health", () => {
+  it.each([
+    { health: "HEALTHY", tone: "success", label: "Healthy" },
+    { health: "UNHEALTHY", tone: "danger", label: "Unhealthy" },
+    { health: "UNKNOWN", tone: "neutral", label: "Unknown" },
+    { health: null, tone: "neutral", label: "Unknown" },
+  ])("$health is $label ($tone)", ({ health, tone, label }) => {
+    expect(healthTone(health)).toBe(tone);
+    expect(healthLabel(health)).toBe(label);
   });
 
-  it("labels states as magnum-ui shows them", () => {
-    expect(statusLabel("CREATE_COMPLETE")).toBe("Create complete");
-    expect(statusLabel("UPDATE_IN_PROGRESS")).toBe("Update in progress");
-    expect(statusLabel("ROLLBACK_FAILED")).toBe("Rollback failed");
-    expect(statusLabel(undefined)).toBe("Unknown");
-  });
-
-  it("maps health", () => {
-    expect(healthTone("HEALTHY")).toBe("success");
-    expect(healthTone("UNHEALTHY")).toBe("danger");
-    expect(healthTone("UNKNOWN")).toBe("neutral");
-    expect(healthLabel("UNHEALTHY")).toBe("Unhealthy");
-    expect(healthLabel(null)).toBe("Unknown");
+  it.each([
+    { reason: null, expected: "" },
+    { reason: "api unreachable", expected: "api unreachable" },
+    {
+      reason: { "node-0.Ready": "False", api: "ok" },
+      expected: "node-0.Ready: False, api: ok",
+    },
+  ])("explains $reason", ({ reason, expected }) => {
+    expect(healthReason({ health_status_reason: reason })).toBe(expected);
   });
 });
 
 describe("node labels and taints", () => {
-  it("accepts comma separated key=value labels", () => {
-    expect(LABELS_PATTERN.test("role=gpu")).toBe(true);
-    expect(LABELS_PATTERN.test("role=gpu, tier=")).toBe(true);
-    expect(LABELS_PATTERN.test("role")).toBe(false);
-    expect(LABELS_PATTERN.test("role=gpu,")).toBe(false);
-    expect(LABELS_PATTERN.test("a=b=c")).toBe(false);
-    expect(LABELS_PATTERN.test("role=g pu")).toBe(false);
-  });
-
-  it("accepts key[=value]:Effect taints", () => {
-    expect(TAINTS_PATTERN.test("gpu=true:NoSchedule")).toBe(true);
+  it("writes labels and taints as magnum takes them", () => {
+    expect(formatLabels({ role: "gpu", zone: "a" })).toBe("role=gpu,zone=a");
+    expect(formatLabels({})).toBe("");
     expect(
-      TAINTS_PATTERN.test("dedicated:NoExecute, x=y:PreferNoSchedule"),
-    ).toBe(true);
-    expect(TAINTS_PATTERN.test("gpu=true")).toBe(false);
-    expect(TAINTS_PATTERN.test("gpu:Sometimes")).toBe(false);
+      formatTaints([
+        { key: "gpu", value: "true", effect: "NoSchedule" },
+        { key: "spot", value: "", effect: "NoExecute" },
+        { key: "dedicated", value: null, effect: "PreferNoSchedule" },
+      ]),
+    ).toBe("gpu=true:NoSchedule,spot:NoExecute,dedicated:PreferNoSchedule");
   });
 
-  it("formats what it parses", () => {
-    const taints = formatTaints([
-      { key: "gpu", value: "true", effect: "NoSchedule" },
-      { key: "dedicated", value: "", effect: "NoExecute" },
-    ]);
-    expect(taints).toBe("gpu=true:NoSchedule,dedicated:NoExecute");
-    expect(TAINTS_PATTERN.test(taints)).toBe(true);
-    const labels = formatLabels({ role: "gpu", tier: "web" });
-    expect(labels).toBe("role=gpu,tier=web");
-    expect(LABELS_PATTERN.test(labels)).toBe(true);
+  it.each([
+    { text: "role=gpu", valid: true },
+    { text: "role=gpu, zone=a", valid: true },
+    { text: "role=", valid: true },
+    { text: "role", valid: false },
+    { text: "role=gpu,", valid: false },
+    { text: "a b=c", valid: false },
+  ])("labels $text valid: $valid", ({ text, valid }) => {
+    expect(LABELS_PATTERN.test(text)).toBe(valid);
+  });
+
+  it.each([
+    { text: "gpu=true:NoSchedule", valid: true },
+    { text: "spot:NoExecute, gpu:PreferNoSchedule", valid: true },
+    { text: "gpu=true", valid: false },
+    { text: "gpu:Sometimes", valid: false },
+  ])("taints $text valid: $valid", ({ text, valid }) => {
+    expect(TAINTS_PATTERN.test(text)).toBe(valid);
   });
 });
 
-describe("create cluster cascade", () => {
-  const combination = (
-    version: string,
-    zone: string,
-    driver: string,
-    id: string,
-  ): TemplateCombination => ({
-    kubernetes_version: version,
-    availability_zone: zone,
-    network_driver: driver,
-    template_id: id,
-  });
-  const template = (id: string) => ({ id, name: id }) as ClusterTemplate;
-  const options = {
-    combinations: [
-      combination("v1.30", "melbourne", "calico", "t1"),
-      combination("v1.30", "melbourne", "flannel", "t2"),
-      combination("v1.30", "auckland", "calico", "t3"),
-      combination("v1.31", "melbourne", "calico", "t4"),
-    ],
-    templates: [template("t1"), template("t2"), template("t3"), template("t4")],
-  } as ClusterOptions;
+/** The offers as `id: reason` pairs, with "" for an enabled action. */
+const reasons = (offers: ActionOffer<string>[]) =>
+  Object.fromEntries(offers.map((o) => [o.id, o.disabledReason ?? ""]));
 
-  it("narrows zones by version and drivers by version and zone", () => {
-    expect(zonesFor(options, "v1.30")).toEqual(["auckland", "melbourne"]);
-    expect(zonesFor(options, "v1.31")).toEqual(["melbourne"]);
-    expect(driversFor(options, "v1.30", "melbourne")).toEqual([
-      "calico",
-      "flannel",
-    ]);
-    expect(driversFor(options, "v1.30", "auckland")).toEqual(["calico"]);
-    expect(zonesFor(undefined, "v1.30")).toEqual([]);
+const cluster = (overrides: Partial<Cluster> = {}): Cluster => ({
+  id: "c1",
+  name: "k8s",
+  status: "CREATE_COMPLETE",
+  status_reason: null,
+  health_status: "HEALTHY",
+  health_status_reason: null,
+  master_count: 1,
+  node_count: 2,
+  coe_version: null,
+  cluster_template_id: null,
+  template_name: null,
+  keypair: null,
+  api_address: "https://203.0.113.10:6443",
+  master_addresses: [],
+  node_addresses: [],
+  master_flavor_id: null,
+  flavor_id: null,
+  create_timeout: null,
+  labels: {},
+  availability_zone: null,
+  network_driver: null,
+  kubernetes_version: null,
+  upgrade_targets: [],
+  stack_id: null,
+  created_at: null,
+  updated_at: null,
+  actions: ["config", "certificate", "sign", "upgrade", "nodegroups", "delete"],
+  ...overrides,
+});
+
+const group = (overrides: Partial<NodeGroup> = {}): NodeGroup => ({
+  id: "g1",
+  name: "workers",
+  role: "worker",
+  is_default: false,
+  status: "CREATE_COMPLETE",
+  status_reason: null,
+  flavor_id: null,
+  image_id: null,
+  node_count: 2,
+  min_node_count: 1,
+  max_node_count: 3,
+  node_addresses: [],
+  labels: {},
+  auto_scaling: true,
+  node_labels: {},
+  node_taints: [],
+  created_at: null,
+  updated_at: null,
+  ...overrides,
+});
+
+const WAIT = "Wait for the cluster to finish its current operation";
+
+describe("cluster actions", () => {
+  it("offers everything on a completed cluster", () => {
+    expect(reasons(availableClusterActions(cluster()))).toEqual({
+      config: "",
+      nodegroups: "",
+      upgrade: "",
+      certificate: "",
+      sign: "",
+      delete: "",
+    });
   });
 
-  it("names exactly one template for a full choice", () => {
-    expect(templateFor(options, "v1.30", "melbourne", "flannel")?.id).toBe(
-      "t2",
+  it("disables what a cluster still being created cannot do", () => {
+    const creating = cluster({
+      status: "CREATE_IN_PROGRESS",
+      api_address: null,
+      actions: ["config", "certificate", "sign", "delete"],
+    });
+    expect(reasons(availableClusterActions(creating))).toEqual({
+      config: "The cluster has no API address yet",
+      nodegroups: "",
+      upgrade: "The cluster must be in a completed state",
+      certificate: "The cluster has no API address yet",
+      sign: "The cluster has no API address yet",
+      delete: "",
+    });
+  });
+
+  it("waits to delete while another operation runs", () => {
+    const updating = cluster({
+      status: "UPDATE_IN_PROGRESS",
+      actions: ["config", "certificate", "sign"],
+    });
+    expect(reasons(availableClusterActions(updating)).delete).toBe(
+      "Wait for the current operation to finish",
     );
-    expect(templateFor(options, "v1.31", "melbourne", "calico")?.id).toBe("t4");
-    expect(templateFor(options, "v1.31", "auckland", "calico")).toBeUndefined();
-    expect(templateFor(undefined, "v1.30", "melbourne", "calico")).toBe(
-      undefined,
-    );
+  });
+});
+
+describe("node group actions", () => {
+  it("offers everything on a worker group while the cluster can change", () => {
+    expect(reasons(availableNodeGroupActions(group(), true))).toEqual({
+      resize: "",
+      autoscaling: "",
+      labels: "",
+      delete: "",
+    });
+  });
+
+  it("names the group's own reason before the cluster's state", () => {
+    const master = group({
+      role: "master",
+      is_default: true,
+      auto_scaling: false,
+    });
+    expect(reasons(availableNodeGroupActions(master, false))).toEqual({
+      resize: WAIT,
+      autoscaling: "Autoscaling is not enabled on this node group",
+      labels: "Control plane node groups cannot carry labels or taints",
+      delete: "The default node group cannot be deleted",
+    });
+  });
+
+  it("waits for the cluster on an otherwise allowed action", () => {
+    expect(reasons(availableNodeGroupActions(group(), false))).toEqual({
+      resize: WAIT,
+      autoscaling: WAIT,
+      labels: WAIT,
+      delete: WAIT,
+    });
   });
 });

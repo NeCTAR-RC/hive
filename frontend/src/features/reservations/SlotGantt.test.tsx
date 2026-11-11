@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ReservationFlavor } from "../../lib/api/types";
+import type { ReservationFlavor } from "../../lib/api/types/reservations";
 import { buildRows, ganttRange } from "./gantt";
 import { SlotGantt } from "./SlotGantt";
 
@@ -57,6 +57,7 @@ describe("SlotGantt", () => {
       <SlotGantt
         rows={rows}
         range={range}
+        searchedTo={range.last}
         daysLeft={18}
         canReserve
         onPick={onPick}
@@ -82,6 +83,7 @@ describe("SlotGantt", () => {
       <SlotGantt
         rows={rows}
         range={range}
+        searchedTo={range.last}
         daysLeft={3}
         canReserve
         onPick={onPick}
@@ -100,11 +102,30 @@ describe("SlotGantt", () => {
     });
   });
 
+  it("says on a fully booked flavour's row how far the search looked", () => {
+    const booked = buildRows([flavor], [], [], range);
+    render(
+      <SlotGantt
+        rows={booked}
+        range={range}
+        searchedTo="2026-12-31"
+        daysLeft={18}
+        canReserve
+        onPick={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText("No free time slots up to 31 Dec 2026."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Reserve/ })).toBeNull();
+  });
+
   it("disables the slots when the project cannot reserve", () => {
     render(
       <SlotGantt
         rows={rows}
         range={range}
+        searchedTo={range.last}
         daysLeft={0}
         canReserve={false}
         onPick={vi.fn()}

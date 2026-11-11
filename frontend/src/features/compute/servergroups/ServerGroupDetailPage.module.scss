@@ -1,24 +1,20 @@
 @use "mixins" as *;
 
+/// Panels side by side from 1024px, span 6 each with the grid's 24px gap
+/// (grids spec, 12 columns, 24px gap).
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: 1fr;
+  gap: var(--hive-grid-gap);
+  grid-template-columns: minmax(0, 1fr);
 
   @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.members {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-}
-
+/// A note in a panel ("No instances are in this group"): Body/14 Grey-500,
+/// the library field helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }

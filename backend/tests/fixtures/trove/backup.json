@@ -1,0 +1,12 @@
+{
+  "id": "bk-1",
+  "name": "nightly",
+  "status": "COMPLETED",
+  "instance_id": "db-1",
+  "datastore": {
+    "type": "mysql",
+    "version": "8.0"
+  },
+  "created": "2026-10-02T00:00:00",
+  "locationRef": "swift://backups/bk-1"
+}

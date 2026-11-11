@@ -1,25 +1,23 @@
-import { useMemo, useState } from "react";
+// The image list: the project's images or instance snapshots, filtered by
+// visibility and searched on the image service.
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import type { Image } from "../../../lib/api/types";
-import { formatBytes, formatRelative } from "../../../lib/format";
-import { notify } from "../../../lib/notify";
-import { useProjectId } from "../../../lib/useProject";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
+import { allows, toRowActions } from "../../../lib/actions";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { imagesRoute } from "../../../app/router";
-import { imagesQuery, useDeleteImages } from "../api";
-import { CreateImageDialog, EditImageDialog } from "./ImageDialogs";
-import { imageStatusTone, visibilityLabel } from "./presentation";
-import styles from "./ImagesPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { imagesQuery } from "../api";
+import { useImageActions } from "./ImageActions";
+import { CreateImageDialog } from "./dialogs/CreateImageDialog";
+import { imageColumns } from "./imageColumns";
+import { availableImageActions } from "./presentation";
+
+const imagesRoute = getRouteApi("/app/compute/images");
 
 const VISIBILITY_FILTERS = [
   { id: "", label: "All visibilities" },
@@ -29,13 +27,17 @@ const VISIBILITY_FILTERS = [
   { id: "community", label: "Community" },
 ];
 
+/**
+ * The project's images, or its instance snapshots, from the image service.
+ * Search runs on the service, so community images of other projects
+ * appear once the user searches for them.
+ */
 export function ImagesPage() {
   const projectId = useProjectId();
-  const search = imagesRoute.useSearch();
-  const navigate = useNavigate({ from: imagesRoute.fullPath });
-  const q = search.q ?? "";
-  const visibility = search.visibility ?? "";
-  const snapshots = search.snapshots ?? false;
+  const search = useListSearch(imagesRoute);
+  const q = search.text;
+  const visibility = search.params.visibility ?? "";
+  const snapshots = search.params.snapshots ?? false;
   const images = useQuery(
     imagesQuery(projectId, {
       ...(visibility ? { visibility } : {}),
@@ -43,110 +45,16 @@ export function ImagesPage() {
       snapshots,
     }),
   );
-  const remove = useDeleteImages(projectId);
+  const table = useQueryTable(images, {
+    noun: "images",
+    emptyTitle: snapshots ? "No snapshots" : "No images match",
+    search,
+    placeholder: "Search images (community images appear when you search)",
+    remoteSearch: true,
+    resetKey: `${visibility}|${snapshots}`,
+  });
   const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<Image | null>(null);
-  const [deleting, setDeleting] = useState<Image[]>([]);
-
-  const setSearch = (patch: {
-    q?: string;
-    visibility?: string;
-    snapshots?: boolean;
-  }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        if (!next.visibility) delete next.visibility;
-        if (!next.snapshots) delete next.snapshots;
-        return next;
-      },
-      replace: true,
-    });
-
-  const columns = useMemo<ColumnDef<Image>[]>(
-    () => [
-      {
-        id: "name",
-        label: "Name",
-        isRowHeader: true,
-        cell: (row) => (
-          <RouteLink to="/compute/images/$imageId" params={{ imageId: row.id }}>
-            {row.name ?? row.id}
-          </RouteLink>
-        ),
-        sortValue: (row) => row.name ?? "",
-      },
-      {
-        id: "status",
-        label: "Status",
-        cell: (row) => (
-          <StatusPill tone={imageStatusTone(row.status)}>
-            {row.status}
-          </StatusPill>
-        ),
-        sortValue: (row) => row.status,
-      },
-      {
-        id: "visibility",
-        label: "Visibility",
-        cell: (row) => visibilityLabel(row),
-        sortValue: (row) => visibilityLabel(row),
-        hideBelow: "md",
-      },
-      {
-        id: "protected",
-        label: "Protected",
-        cell: (row) => (row.protected ? "Yes" : "No"),
-        sortValue: (row) => (row.protected ? 1 : 0),
-        hideBelow: "lg",
-      },
-      {
-        id: "disk_format",
-        label: "Format",
-        cell: (row) => (row.disk_format ?? "").toUpperCase(),
-        sortValue: (row) => row.disk_format ?? "",
-        hideBelow: "lg",
-      },
-      {
-        id: "size",
-        label: "Size",
-        cell: (row) => formatBytes(row.size),
-        sortValue: (row) => row.size ?? 0,
-        hideBelow: "md",
-      },
-      {
-        id: "created_at",
-        label: "Age",
-        cell: (row) =>
-          row.created_at ? (
-            <time dateTime={row.created_at} title={row.created_at}>
-              {formatRelative(row.created_at)}
-            </time>
-          ) : (
-            ""
-          ),
-        sortValue: (row) => row.created_at ?? "",
-        hideBelow: "lg",
-      },
-    ],
-    [],
-  );
-
-  const confirmDelete = async () => {
-    try {
-      await remove.mutateAsync(deleting.map((i) => i.id));
-      notify.success(
-        deleting.length === 1
-          ? `Image ${deleting[0]?.name} deleted.`
-          : `${deleting.length} images deleted.`,
-      );
-      setDeleting([]);
-    } catch (error) {
-      notify.danger(`Could not delete: ${(error as Error).message}`);
-      setDeleting([]);
-    }
-  };
+  const { run, dialogs, tableProps } = useImageActions();
 
   return (
     <>
@@ -162,30 +70,18 @@ export function ImagesPage() {
       <DataTable
         id="images"
         label="Images"
-        columns={columns}
-        rows={images.data?.items}
+        columns={imageColumns}
         getRowId={(row) => row.id}
-        isLoading={images.isPending}
-        isFetching={images.isFetching}
-        error={images.error}
-        onRetry={() => void images.refetch()}
-        onRefresh={() => void images.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder:
-            "Search images (community images appear when you search)",
-        }}
-        resetKey={`${q}|${visibility}|${snapshots}`}
+        {...table}
+        {...tableProps}
         filters={
           <>
             <Select
               aria-label="Type"
               labelPosition="side"
-              className={styles.filter}
               selectedKey={snapshots ? "snapshots" : "images"}
               onSelectionChange={(key: Key | null) =>
-                setSearch({ snapshots: key === "snapshots" })
+                search.patch({ snapshots: key === "snapshots" })
               }
             >
               <Label>Type</Label>
@@ -199,10 +95,9 @@ export function ImagesPage() {
             <Select
               aria-label="Visibility"
               labelPosition="side"
-              className={styles.filter}
               selectedKey={visibility}
               onSelectionChange={(key: Key | null) =>
-                setSearch({ visibility: key === null ? "" : String(key) })
+                search.patch({ visibility: key === null ? "" : String(key) })
               }
             >
               <Label>Visibility</Label>
@@ -218,7 +113,6 @@ export function ImagesPage() {
             </Select>
           </>
         }
-        emptyTitle={snapshots ? "No snapshots" : "No images match"}
         emptyBody={
           !q && !visibility ? (
             <p>
@@ -228,78 +122,22 @@ export function ImagesPage() {
           ) : null
         }
         defaultSort={{ column: "name", direction: "ascending" }}
-        rowActions={(row) => [
-          {
-            id: "launch",
-            label: "Launch instance",
-            onAction: () =>
-              void navigate({
-                to: "/compute/instances/launch",
-                search: {
-                  source: `${row.is_snapshot ? "snapshot" : "image"}:${row.id}`,
-                },
-              }),
-            isDisabled: row.status !== "active",
-            disabledReason: "The image is not active yet",
-          },
-          {
-            id: "edit",
-            label: "Edit image",
-            onAction: () => setEditing(row),
-            isDisabled: !row.is_owner,
-            disabledReason: "Only the owning project can edit this image",
-          },
-          {
-            id: "delete",
-            label: "Delete image",
-            tone: "danger",
-            onAction: () => setDeleting([row]),
-            isDisabled: !row.is_owner || row.protected,
-            disabledReason: row.protected
-              ? "The image is protected"
-              : "Only the owning project can delete this image",
-          },
-        ]}
+        rowActions={(row) =>
+          toRowActions(availableImageActions(row), (id) => run(id, [row]))
+        }
         batchActions={[
           {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (rows) => setDeleting(rows),
+            onAction: (rows) => run("delete", rows),
             isDisabled: (rows) =>
-              rows.some((row) => !row.is_owner || row.protected),
+              !rows.some((row) => allows(availableImageActions(row), "delete")),
           },
         ]}
       />
-      <CreateImageDialog
-        projectId={projectId}
-        isOpen={creating}
-        onOpenChange={setCreating}
-      />
-      {editing && (
-        <EditImageDialog
-          projectId={projectId}
-          image={editing}
-          onClose={() => setEditing(null)}
-        />
-      )}
-      <ConfirmDialog
-        isOpen={deleting.length > 0}
-        onOpenChange={(open) => !open && setDeleting([])}
-        title={
-          deleting.length === 1
-            ? `Delete image ${deleting[0]?.name}?`
-            : `Delete ${deleting.length} images?`
-        }
-        confirmLabel="Delete"
-        isPending={remove.isPending}
-        onConfirm={() => void confirmDelete()}
-      >
-        <p>
-          Instances already running from the image are not affected. This cannot
-          be undone.
-        </p>
-      </ConfirmDialog>
+      {creating && <CreateImageDialog onClose={() => setCreating(false)} />}
+      {dialogs}
     </>
   );
 }

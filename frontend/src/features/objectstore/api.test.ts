@@ -1,61 +1,81 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
-import type { ObjectListing } from "../../lib/api/types";
-import { objectsQuery } from "./api";
+import { describe, expect, it } from "vitest";
+import type {
+  ObjectListing,
+  StoreObject,
+} from "../../lib/api/types/objectstore";
+import { deleteOutcome, joinListing, nextMarker } from "./api";
 
-function page(names: string[], next: string | null): ObjectListing {
+/** An object or folder row named `name`. */
+function row(name: string): StoreObject {
+  const folder = name.endsWith("/");
   return {
-    container: "c",
-    prefix: "",
-    items: names.map((name) => ({
-      name,
-      basename: name,
-      is_folder: false,
-      bytes: 1,
-      content_type: null,
-      last_modified: null,
-    })) as ObjectListing["items"],
-    has_more: next !== null,
-    next_marker: next,
+    name,
+    basename: name.replace(/\/$/, "").split("/").pop() ?? name,
+    is_folder: folder,
+    bytes: folder ? 0 : 1,
+    content_type: null,
+    hash: null,
+    last_modified: null,
   };
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+describe("deleteOutcome", () => {
+  const a = row("docs/a.txt");
+  const b = row("docs/b.txt");
+  const photos = row("docs/photos/");
 
-describe("objectsQuery paging", () => {
-  it("asks for the next page from the last marker", () => {
-    const options = objectsQuery("p1", "c", "");
-    const next = options.getNextPageParam;
-    expect(next(page(["a"], "a"), [], null, [null])).toBe("a");
-    expect(next(page(["b"], null), [], "a", [null, "a"])).toBeNull();
+  it("succeeds on every object when nothing failed", () => {
+    expect(
+      deleteOutcome("box", [a, photos], { deleted: 5, failed: [] }),
+    ).toEqual({ succeeded: [a, photos], failed: [] });
   });
 
-  it("sends the marker and joins the pages", async () => {
-    const urls: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) => {
-        urls.push(url);
-        const body = url.includes("marker=")
-          ? page(["c", "d"], null)
-          : page(["a", "b"], "b");
-        return Promise.resolve(new Response(JSON.stringify(body)));
-      }),
-    );
-    const client = new QueryClient();
-    const options = objectsQuery("p1", "c", "docs");
-    const data = await client.fetchInfiniteQuery({ ...options, pages: 2 });
-    expect(data.pages.flatMap((p) => p.items.map((i) => i.name))).toEqual([
-      "a",
-      "b",
-      "c",
-      "d",
-    ]);
-    expect(urls[0]).toBe("/api/object-store/containers/c/objects?path=docs");
-    expect(urls.at(-1)).toBe(
-      "/api/object-store/containers/c/objects?path=docs&marker=b",
-    );
+  it("maps a failed name back to its object, with no reason", () => {
+    expect(
+      deleteOutcome("box", [a, b], { deleted: 1, failed: ["docs/b.txt"] }),
+    ).toEqual({ succeeded: [a], failed: [{ item: b, error: undefined }] });
+  });
+
+  it("reads Swift's quoted paths and fails the folder they were in", () => {
+    const outcome = deleteOutcome("my box", [a, photos], {
+      deleted: 3,
+      failed: ["/my%20box/docs/photos/big%20one.jpg"],
+    });
+    expect(outcome.succeeded).toEqual([a]);
+    expect(outcome.failed.map(({ item }) => item)).toEqual([photos]);
+  });
+
+  it("does not fail a folder for a sibling that shares its prefix", () => {
+    const outcome = deleteOutcome("box", [photos], {
+      deleted: 0,
+      failed: ["docs/photos-old.jpg"],
+    });
+    expect(outcome.failed).toEqual([]);
+  });
+});
+
+describe("folder pages", () => {
+  /** A listing page holding `names`. */
+  function page(names: string[], next: string | null): ObjectListing {
+    return {
+      container: "box",
+      prefix: "",
+      items: names.map(row),
+      has_more: next !== null,
+      next_marker: next,
+    };
+  }
+
+  it("asks for the page after a full one, by its marker", () => {
+    expect(nextMarker(page(["a", "b"], "b"))).toBe("b");
+    expect(nextMarker(page(["c"], null))).toBeNull();
+  });
+
+  it("reads the loaded pages as one list", () => {
+    expect(
+      joinListing({
+        pages: [page(["a", "b"], "b"), page(["c"], null)],
+      }).items.map((item) => item.name),
+    ).toEqual(["a", "b", "c"]);
   });
 });

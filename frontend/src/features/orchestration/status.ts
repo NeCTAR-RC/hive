@@ -1,52 +1,87 @@
-// Heat status wording (`<ACTION>_<STATE>` as heat-dashboard shows it) and
-// the parameter form helpers for the launch and update steps.
+// Heat status wording (`<ACTION>_<STATE>` as heat-dashboard shows it), the
+// stack action rules and the parameter form helpers for the launch and
+// update steps.
 import { z } from "zod";
-import type { StatusTone } from "../../components/StatusPill/StatusPill";
-import type { ParameterSpec, TemplateSource } from "../../lib/api/types";
+import { offerActions, type ActionTable } from "../../lib/actions";
+import type {
+  ParameterSpec,
+  Stack,
+  TemplateSource,
+} from "../../lib/api/types/orchestration";
+import { heatActivity, heatStatus } from "../../lib/status";
 
-export function statusTone(status: string | null | undefined): StatusTone {
-  if (!status) return "neutral";
-  if (status.endsWith("_IN_PROGRESS")) return "progress";
-  if (status.endsWith("_FAILED")) return "danger";
-  if (status === "DELETE_COMPLETE") return "neutral";
-  if (status.endsWith("_COMPLETE")) return "success";
-  return "neutral";
-}
+type Status = string | null | undefined;
 
-export function statusLabel(status: string | null | undefined): string {
-  if (!status) return "Unknown";
-  const match = /^([A-Z]+)_(IN_PROGRESS|COMPLETE|FAILED)$/.exec(status);
-  if (!match) return status;
-  const verb = (match[1] ?? "").toLowerCase();
-  const state = (match[2] ?? "").toLowerCase().replace("_", " ");
-  return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${state}`;
-}
+export const statusTone = (status: Status) => heatStatus(status).tone;
+export const statusLabel = (status: Status) => heatStatus(status).label;
 
-export const ACTION_LABELS: Record<string, string> = {
-  suspend: "Suspend stack",
-  resume: "Resume stack",
-  check: "Check stack",
-  update: "Change stack template",
-  cancel_update: "Cancel stack update",
-  delete: "Delete stack",
-};
-
-/** The verb for "Could not <verb> stack <name>". */
-export function actionVerb(action: string): string {
-  return action === "cancel_update" ? "cancel the update of" : action;
-}
+export type StackActionId =
+  "suspend" | "resume" | "check" | "cancel_update" | "delete";
 
 /**
- * A template's `allowed_pattern` as a JavaScript regex anchored at both
- * ends, or null when it does not compile here (Heat takes Python regex
- * syntax, which JavaScript does not fully share); Heat checks it anyway.
+ * The stack menu, in heat-dashboard's order, with Heat's cancel update
+ * (the Heat API's `cancel_update` stack action) before delete. The backend
+ * reads the stack's status and lists the actions Heat allows now in
+ * `actions`; each rule gives the reason when its action is not among them.
  */
-export function compilePattern(pattern: string): RegExp | null {
-  try {
-    return new RegExp(`^(?:${pattern})$`);
-  } catch {
-    return null;
-  }
+const STACK_ACTIONS: ActionTable<StackActionId, Stack> = {
+  rules: [
+    {
+      id: "suspend",
+      label: "Suspend stack",
+      checks: [(s) => !s.actions.includes("suspend") && suspendReason(s)],
+    },
+    {
+      id: "resume",
+      label: "Resume stack",
+      checks: [
+        (s) => !s.actions.includes("resume") && "The stack is not suspended",
+      ],
+    },
+    {
+      id: "check",
+      label: "Check stack",
+      checks: [
+        (s) =>
+          !s.actions.includes("check") &&
+          "The stack can be checked once it is complete",
+      ],
+    },
+    {
+      id: "cancel_update",
+      label: "Cancel stack update",
+      checks: [
+        (s) =>
+          !s.actions.includes("cancel_update") &&
+          "Only an update in progress can be cancelled",
+      ],
+    },
+    {
+      id: "delete",
+      label: "Delete stack",
+      tone: "danger",
+      checks: [
+        (s) =>
+          !s.actions.includes("delete") && "The stack is already being deleted",
+      ],
+    },
+  ],
+};
+
+/**
+ * Why a stack cannot be suspended now: what it is busy doing ("while it is
+ * being created"), that it already is, or its status for any other state.
+ */
+function suspendReason(stack: Stack): string {
+  const activity = heatActivity(stack.status);
+  if (activity) return `The stack cannot be suspended while it is ${activity}`;
+  if (stack.status === "SUSPEND_COMPLETE")
+    return "The stack is already suspended";
+  return `Not available while the status is ${statusLabel(stack.status)}`;
+}
+
+export function availableStackActions(stack: Stack) {
+  return offerActions(STACK_ACTIONS, stack);
 }
 
 /** The form's string value for a parameter's default. */
@@ -57,6 +92,34 @@ export function defaultValue(spec: ParameterSpec): string {
   if (Array.isArray(value)) return value.join(",");
   return String(value);
 }
+
+/**
+ * A Heat `allowed_pattern` as a whole-value JavaScript regex, or null when
+ * it does not compile. Heat patterns are Python regexes, and Python-only
+ * syntax such as `(?P<name>...)` is not valid here; Heat still checks those
+ * on launch, so the form skips them rather than failing to validate.
+ */
+export function compilePattern(pattern: string): RegExp | null {
+  try {
+    return new RegExp(`^(?:${pattern})$`);
+  } catch {
+    return null;
+  }
+}
+
+/** The most minutes Heat's stack timeout takes: a week. */
+const MAX_TIMEOUT_MINS = 10080;
+
+/**
+ * A stack's creation or update timeout: a whole number of minutes from 1 to
+ * a week. Each way a value can be wrong says so in the field's own words,
+ * rather than zod's.
+ */
+export const timeoutMinutes = z
+  .number("Enter a number of minutes")
+  .int("Enter a whole number of minutes")
+  .min(1, "At least 1 minute")
+  .max(MAX_TIMEOUT_MINS, `At most ${MAX_TIMEOUT_MINS} minutes (a week)`);
 
 /** The zod schema for the generated parameters step: every parameter is a
  * string in the form; the backend coerces by type. */
@@ -130,18 +193,31 @@ export function groupParameters(
   return [...groups.filter((g) => g.label), ...groups.filter((g) => !g.label)];
 }
 
-/** The template step's form values for a source that validated, so going
- * back to that step shows what was used. */
-export function templateSourceValues(body: TemplateSource): {
+/** The template step's form values. */
+export interface TemplateFormValues {
   source: "text" | "url";
   template: string;
   template_url: string;
   environment: string;
-} {
+}
+
+/**
+ * The template step's values for a template already validated, so going
+ * Back from the parameters step shows what the user entered.
+ */
+export function templateFormValues(source: TemplateSource): TemplateFormValues {
   return {
-    source: body.template_url ? "url" : "text",
-    template: body.template ?? "",
-    template_url: body.template_url ?? "",
-    environment: body.environment ?? "",
+    source: source.template_url ? "url" : "text",
+    template: sourceText(source.template),
+    template_url: source.template_url ?? "",
+    environment: sourceText(source.environment),
   };
+}
+
+/**
+ * A template or environment as the form holds it. The SPA sends both as
+ * text; the backend also takes a parsed object, which the form never holds.
+ */
+function sourceText(value: TemplateSource["template"]): string {
+  return typeof value === "string" ? value : "";
 }

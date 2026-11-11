@@ -1,7 +1,9 @@
 """Manila (shared file systems) v2 client, pinned to a microversion."""
 
-from hive.clients.base import seg
-from hive.clients.base import ServiceClient
+from hive.clients.base import path, ServiceClient
+
+# Manila schedules a share before it answers a create.
+CREATE_TIMEOUT = 60
 
 
 class ManilaClient(ServiceClient):
@@ -13,251 +15,203 @@ class ManilaClient(ServiceClient):
         kwargs.setdefault("microversion", settings.manila_microversion)
         super().__init__(http, settings, scoped, **kwargs)
 
-    async def _list(self, path: str, key: str, **params) -> list[dict]:
-        body = await self.get_json(path, params=params or None)
-        return (body or {}).get(key, [])
-
-    async def _get(self, path: str, key: str) -> dict:
-        body = await self.get_json(path)
-        return (body or {}).get(key, {})
-
-    async def _create(self, path: str, key: str, fields: dict) -> dict:
-        resp = await self.request("POST", path, json={key: fields}, timeout=60)
-        return resp.json().get(key, {}) if resp.content else {}
-
-    async def _update(self, path: str, key: str, fields: dict) -> dict:
-        resp = await self.request("PUT", path, json={key: fields})
-        return resp.json().get(key, {}) if resp.content else {}
-
-    async def _action(self, path: str, body: dict, timeout=None) -> dict:
-        resp = await self.request(
-            "POST", f"{path}/action", json=body, timeout=timeout, ok=(200, 202)
-        )
-        return resp.json() if resp.content else {}
-
-    # shares
     async def shares(self, **params) -> list[dict]:
-        return await self._list("/shares/detail", "shares", **params)
+        return await self.list("/shares/detail", "shares", **params)
 
     async def share(self, share_id: str) -> dict:
-        return await self._get(f"/shares/{seg(share_id)}", "share")
+        return await self.get(path("shares", share_id), "share")
 
     async def create_share(self, fields: dict) -> dict:
-        return await self._create("/shares", "share", fields)
+        return await self.create(
+            "/shares", "share", fields, timeout=CREATE_TIMEOUT
+        )
 
     async def update_share(self, share_id: str, fields: dict) -> dict:
-        return await self._update(f"/shares/{seg(share_id)}", "share", fields)
+        return await self.update(path("shares", share_id), "share", fields)
 
     async def delete_share(self, share_id: str) -> None:
-        await self.request("DELETE", f"/shares/{seg(share_id)}", ok=(202, 204))
+        await self.delete(path("shares", share_id))
 
     async def extend_share(self, share_id: str, size: int) -> None:
-        await self._action(
-            f"/shares/{seg(share_id)}", {"extend": {"new_size": size}}
+        await self.action(
+            path("shares", share_id, "action"), {"extend": {"new_size": size}}
         )
 
     async def shrink_share(self, share_id: str, size: int) -> None:
-        await self._action(
-            f"/shares/{seg(share_id)}", {"shrink": {"new_size": size}}
+        await self.action(
+            path("shares", share_id, "action"), {"shrink": {"new_size": size}}
         )
 
     async def revert_share(self, share_id: str, snapshot_id: str) -> None:
-        await self._action(
-            f"/shares/{seg(share_id)}",
+        await self.action(
+            path("shares", share_id, "action"),
             {"revert": {"snapshot_id": snapshot_id}},
         )
 
     async def access_rules(self, share_id: str) -> list[dict]:
-        return await self._list(
+        return await self.list(
             "/share-access-rules", "access_list", share_id=share_id
         )
 
     async def allow_access(self, share_id: str, fields: dict) -> dict:
-        body = await self._action(
-            f"/shares/{seg(share_id)}", {"allow_access": fields}
+        body = await self.action(
+            path("shares", share_id, "action"), {"allow_access": fields}
         )
         return body.get("access", {})
 
     async def deny_access(self, share_id: str, access_id: str) -> None:
-        await self._action(
-            f"/shares/{seg(share_id)}",
+        await self.action(
+            path("shares", share_id, "action"),
             {"deny_access": {"access_id": access_id}},
         )
 
     async def export_locations(self, share_id: str) -> list[dict]:
-        return await self._list(
-            f"/shares/{seg(share_id)}/export_locations", "export_locations"
+        return await self.list(
+            path("shares", share_id, "export_locations"), "export_locations"
         )
 
     async def share_metadata(self, share_id: str) -> dict:
-        body = await self.get_json(f"/shares/{seg(share_id)}/metadata")
-        return (body or {}).get("metadata", {})
+        return await self.get(path("shares", share_id, "metadata"), "metadata")
 
     async def set_share_metadata(self, share_id: str, metadata: dict) -> dict:
-        resp = await self.request(
-            "PUT",
-            f"/shares/{seg(share_id)}/metadata",
-            json={"metadata": metadata},
+        return await self.update(
+            path("shares", share_id, "metadata"), "metadata", metadata
         )
-        return resp.json().get("metadata", {}) if resp.content else {}
-
-    async def update_share_metadata(self, share_id: str, metadata: dict):
-        """``POST`` merges into the existing metadata; ``PUT`` replaces it."""
-        resp = await self.request(
-            "POST",
-            f"/shares/{seg(share_id)}/metadata",
-            json={"metadata": metadata},
-        )
-        return resp.json().get("metadata", {}) if resp.content else {}
 
     async def delete_share_metadata(self, share_id: str, key: str) -> None:
-        await self.request(
-            "DELETE",
-            f"/shares/{seg(share_id)}/metadata/{seg(key)}",
-            ok=(200, 204),
-        )
+        await self.delete(path("shares", share_id, "metadata", key))
 
-    # snapshots
     async def snapshots(self, **params) -> list[dict]:
-        return await self._list("/snapshots/detail", "snapshots", **params)
+        return await self.list("/snapshots/detail", "snapshots", **params)
 
     async def snapshot(self, snapshot_id: str) -> dict:
-        return await self._get(f"/snapshots/{seg(snapshot_id)}", "snapshot")
-
-    async def create_snapshot(self, fields: dict) -> dict:
-        return await self._create("/snapshots", "snapshot", fields)
-
-    async def update_snapshot(self, snapshot_id: str, fields: dict) -> dict:
-        return await self._update(
-            f"/snapshots/{seg(snapshot_id)}", "snapshot", fields
-        )
-
-    async def delete_snapshot(self, snapshot_id: str) -> None:
-        await self.request(
-            "DELETE", f"/snapshots/{seg(snapshot_id)}", ok=(202, 204)
-        )
+        return await self.get(path("snapshots", snapshot_id), "snapshot")
 
     async def snapshot_export_locations(self, snapshot_id: str) -> list[dict]:
-        return await self._list(
-            f"/snapshots/{seg(snapshot_id)}/export-locations",
+        return await self.list(
+            path("snapshots", snapshot_id, "export-locations"),
             "share_snapshot_export_locations",
         )
 
     async def snapshot_access_rules(self, snapshot_id: str) -> list[dict]:
-        return await self._list(
-            f"/snapshots/{seg(snapshot_id)}/access-list",
+        return await self.list(
+            path("snapshots", snapshot_id, "access-list"),
             "snapshot_access_list",
         )
 
-    async def snapshot_allow_access(
-        self, snapshot_id: str, fields: dict
-    ) -> dict:
-        body = await self._action(
-            f"/snapshots/{seg(snapshot_id)}", {"allow_access": fields}
+    async def snapshot_allow_access(self, snapshot_id: str, fields: dict):
+        """The whole reply: ``snapshot_access``, or the bare rule."""
+        return await self.action(
+            path("snapshots", snapshot_id, "action"), {"allow_access": fields}
         )
-        return body.get("snapshot_access", body)
 
-    async def snapshot_deny_access(
-        self, snapshot_id: str, access_id: str
-    ) -> None:
-        await self._action(
-            f"/snapshots/{seg(snapshot_id)}",
+    async def snapshot_deny_access(self, snapshot_id: str, access_id: str):
+        await self.action(
+            path("snapshots", snapshot_id, "action"),
             {"deny_access": {"access_id": access_id}},
         )
 
-    # security services
+    async def create_snapshot(self, fields: dict) -> dict:
+        return await self.create(
+            "/snapshots", "snapshot", fields, timeout=CREATE_TIMEOUT
+        )
+
+    async def update_snapshot(self, snapshot_id: str, fields: dict) -> dict:
+        return await self.update(
+            path("snapshots", snapshot_id), "snapshot", fields
+        )
+
+    async def delete_snapshot(self, snapshot_id: str) -> None:
+        await self.delete(path("snapshots", snapshot_id))
+
     async def security_services(self, **params) -> list[dict]:
-        return await self._list(
+        return await self.list(
             "/security-services/detail", "security_services", **params
         )
 
     async def security_service(self, service_id: str) -> dict:
-        return await self._get(
-            f"/security-services/{seg(service_id)}", "security_service"
+        return await self.get(
+            path("security-services", service_id), "security_service"
         )
 
     async def create_security_service(self, fields: dict) -> dict:
-        return await self._create(
-            "/security-services", "security_service", fields
+        return await self.create(
+            "/security-services",
+            "security_service",
+            fields,
+            timeout=CREATE_TIMEOUT,
         )
 
     async def update_security_service(self, service_id: str, fields: dict):
-        return await self._update(
-            f"/security-services/{seg(service_id)}", "security_service", fields
+        return await self.update(
+            path("security-services", service_id), "security_service", fields
         )
 
     async def delete_security_service(self, service_id: str) -> None:
-        await self.request(
-            "DELETE", f"/security-services/{seg(service_id)}", ok=(202, 204)
-        )
+        await self.delete(path("security-services", service_id))
 
-    # share groups
     async def share_groups(self, **params) -> list[dict]:
-        return await self._list(
+        return await self.list(
             "/share-groups/detail", "share_groups", **params
         )
 
     async def share_group(self, group_id: str) -> dict:
-        return await self._get(f"/share-groups/{seg(group_id)}", "share_group")
+        return await self.get(path("share-groups", group_id), "share_group")
 
     async def create_share_group(self, fields: dict) -> dict:
-        return await self._create("/share-groups", "share_group", fields)
+        return await self.create(
+            "/share-groups", "share_group", fields, timeout=CREATE_TIMEOUT
+        )
 
     async def update_share_group(self, group_id: str, fields: dict) -> dict:
-        return await self._update(
-            f"/share-groups/{seg(group_id)}", "share_group", fields
+        return await self.update(
+            path("share-groups", group_id), "share_group", fields
         )
 
     async def delete_share_group(self, group_id: str) -> None:
-        await self.request(
-            "DELETE", f"/share-groups/{seg(group_id)}", ok=(202, 204)
-        )
+        await self.delete(path("share-groups", group_id))
 
     async def share_group_types(self) -> list[dict]:
-        return await self._list("/share-group-types", "share_group_types")
+        return await self.list("/share-group-types", "share_group_types")
 
     async def share_group_snapshots(self, **params) -> list[dict]:
-        return await self._list(
+        return await self.list(
             "/share-group-snapshots/detail", "share_group_snapshots", **params
         )
 
     async def share_group_snapshot(self, snapshot_id: str) -> dict:
-        return await self._get(
-            f"/share-group-snapshots/{seg(snapshot_id)}",
-            "share_group_snapshot",
+        return await self.get(
+            path("share-group-snapshots", snapshot_id), "share_group_snapshot"
         )
 
     async def create_share_group_snapshot(self, fields: dict) -> dict:
-        return await self._create(
-            "/share-group-snapshots", "share_group_snapshot", fields
+        return await self.create(
+            "/share-group-snapshots",
+            "share_group_snapshot",
+            fields,
+            timeout=CREATE_TIMEOUT,
         )
 
     async def update_share_group_snapshot(
         self, snapshot_id: str, fields: dict
     ):
-        return await self._update(
-            f"/share-group-snapshots/{seg(snapshot_id)}",
+        return await self.update(
+            path("share-group-snapshots", snapshot_id),
             "share_group_snapshot",
             fields,
         )
 
     async def delete_share_group_snapshot(self, snapshot_id: str) -> None:
-        await self.request(
-            "DELETE",
-            f"/share-group-snapshots/{seg(snapshot_id)}",
-            ok=(202, 204),
-        )
+        await self.delete(path("share-group-snapshots", snapshot_id))
 
-    # catalogues
     async def share_types(self) -> list[dict]:
-        return await self._list("/types", "share_types")
+        return await self.list("/types", "share_types")
 
     async def availability_zones(self) -> list[dict]:
-        return await self._list("/availability-zones", "availability_zones")
+        return await self.list("/availability-zones", "availability_zones")
 
     async def share_networks(self) -> list[dict]:
-        return await self._list("/share-networks", "share_networks")
+        return await self.list("/share-networks", "share_networks")
 
     async def limits(self) -> dict:
-        body = await self.get_json("/limits")
-        return ((body or {}).get("limits") or {}).get("absolute") or {}
+        return (await self.get("/limits", "limits")).get("absolute") or {}

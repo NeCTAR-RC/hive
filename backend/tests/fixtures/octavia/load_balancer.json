@@ -1,0 +1,22 @@
+{
+  "id": "lb-1",
+  "name": "web",
+  "provisioning_status": "ACTIVE",
+  "operating_status": "ONLINE",
+  "admin_state_up": true,
+  "vip_address": "192.168.1.10",
+  "vip_port_id": "port-vip",
+  "vip_subnet_id": "subnet-1",
+  "vip_network_id": "net-priv",
+  "provider": "ovn",
+  "listeners": [
+    {
+      "id": "l-1"
+    }
+  ],
+  "pools": [
+    {
+      "id": "p-1"
+    }
+  ]
+}

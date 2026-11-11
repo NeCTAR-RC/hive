@@ -1,108 +1,86 @@
-import { useState } from "react";
+import type { Key } from "@ardc-ui/react";
 import {
-  Dialog as AriaDialog,
-  DialogTrigger,
-  ListBox,
-  ListBoxItem,
-  Popover,
-} from "react-aria-components";
-import { Button, ChevronDown, SearchField } from "@ardc-ui/react";
-import type { Me } from "../../lib/api/types";
+  Combobox,
+  ComboboxItem,
+  Label,
+  Select,
+  SelectItem,
+  Text,
+} from "@ardc-ui/react";
+import type { Me } from "../../lib/api/types/session";
 import { useSwitchProject } from "../../lib/queries";
 import { notify } from "../../lib/notify";
-import { loadingProps } from "../../components/buttonState";
-import styles from "./ProjectSwitcher.module.scss";
 
-const SEARCH_THRESHOLD = 8;
+/** Above this many projects the switcher becomes a combobox to type into. */
+export const FILTER_THRESHOLD = 8;
 
 /**
- * The sidebar's project selector: a button showing the current project that
- * opens a filterable, single-selection list, with the filter focused.
- *
- * Built from react-aria's Popover and ListBox around DS Button and
- * SearchField because @ardc-ui/react 5.1.0 has no filterable selection
- * menu: DS Menu renders its own Popover, so a SearchField cannot sit inside
- * it, and DS Combobox would replace the button with a text input holding
- * the project name. A design-system gap (review 2026-10, section 5.4);
- * swap to the DS part once one exists.
+ * The project switcher at the top of the sidebar: the library Select, or the
+ * library Combobox once the list is long enough to want filtering. Choosing a
+ * project switches the session's project and says so ("Switched to
+ * pt-1234."), then calls `onSwitched`. The field stays enabled while the
+ * switch runs, so keyboard focus stays on it; a second choice meanwhile is
+ * ignored.
  */
-export function ProjectSwitcher({ me }: { me: Me }) {
+export function ProjectSwitcher({
+  me,
+  onSwitched,
+}: {
+  me: Me;
+  onSwitched?: () => void;
+}) {
   const switchProject = useSwitchProject();
-  const [filter, setFilter] = useState("");
-  const projects = me.projects.filter((p) =>
-    p.name.toLowerCase().includes(filter.trim().toLowerCase()),
-  );
+
+  // A combobox reports null while its text is being edited; only a real,
+  // different project starts a switch.
+  const onSelectionChange = (key: Key | null) => {
+    if (key === null || key === me.project.id) return;
+    if (switchProject.isPending) return;
+    switchProject.mutate(String(key), {
+      onSuccess: (switched) => {
+        notify.success(`Switched to ${switched.project.name}.`);
+        onSwitched?.();
+      },
+      onError: () => notify.danger("Could not switch project."),
+    });
+  };
+
+  // The library finds the label and helper text among its direct children
+  // (an array is flattened, a fragment is not).
+  const fieldChildren = [
+    <Label key="label">Project</Label>,
+    switchProject.isPending ? (
+      <Text key="description" slot="description">
+        Switching project
+      </Text>
+    ) : null,
+  ];
+
+  if (me.projects.length > FILTER_THRESHOLD) {
+    return (
+      <Combobox
+        selectedKey={me.project.id}
+        onSelectionChange={onSelectionChange}
+        placeholder="Type to filter projects"
+      >
+        {fieldChildren}
+        {me.projects.map((project) => (
+          <ComboboxItem key={project.id} id={project.id}>
+            {project.name}
+          </ComboboxItem>
+        ))}
+      </Combobox>
+    );
+  }
 
   return (
-    <div className={styles.switcher}>
-      <p className={styles.label}>Project</p>
-      <DialogTrigger>
-        {/* One element throughout, so focus stays on it while pending. */}
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.trigger}
-          isPending={switchProject.isPending}
-          {...loadingProps(switchProject.isPending, "Switching project")}
-        >
-          <span className={styles.triggerName}>{me.project.name}</span>
-          <ChevronDown aria-hidden="true" />
-        </Button>
-        <Popover placement="bottom start" className={styles.popover}>
-          <AriaDialog aria-label="Switch project" className={styles.dialog}>
-            {({ close }) => (
-              <>
-                {me.projects.length > SEARCH_THRESHOLD && (
-                  <SearchField
-                    size="sm"
-                    // The user has just opened this popover, so moving
-                    // focus into it is the expected dialog behaviour; the
-                    // rule guards against focus stolen on page load.
-                    // eslint-disable-next-line jsx-a11y/no-autofocus
-                    autoFocus
-                    aria-label="Filter projects"
-                    placeholder="Filter projects"
-                    value={filter}
-                    onChange={setFilter}
-                    className={styles.search}
-                  />
-                )}
-                <ListBox
-                  aria-label="Projects"
-                  className={styles.list}
-                  selectionMode="single"
-                  disallowEmptySelection
-                  selectedKeys={[me.project.id]}
-                  items={projects}
-                  onSelectionChange={(keys) => {
-                    const [id] = [...keys];
-                    close();
-                    if (id && id !== me.project.id) {
-                      switchProject.mutate(String(id), {
-                        onError: () =>
-                          notify.danger("Could not switch project."),
-                      });
-                    }
-                  }}
-                >
-                  {(project) => (
-                    <ListBoxItem
-                      id={project.id}
-                      textValue={project.name}
-                      className={styles.item}
-                    >
-                      {project.name}
-                    </ListBoxItem>
-                  )}
-                </ListBox>
-                {projects.length === 0 && (
-                  <p className={styles.empty}>No projects match.</p>
-                )}
-              </>
-            )}
-          </AriaDialog>
-        </Popover>
-      </DialogTrigger>
-    </div>
+    <Select selectedKey={me.project.id} onSelectionChange={onSelectionChange}>
+      {fieldChildren}
+      {me.projects.map((project) => (
+        <SelectItem key={project.id} id={project.id}>
+          {project.name}
+        </SelectItem>
+      ))}
+    </Select>
   );
 }

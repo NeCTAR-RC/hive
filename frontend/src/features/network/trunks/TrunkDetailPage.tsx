@@ -1,26 +1,23 @@
-import { useMemo, useState } from "react";
+// A trunk's detail page: its fields, and its subports with add and
+// remove.
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import {
-  DataTable,
-  RowActionsMenu,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { REMOVE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { ApiError } from "../../../lib/api/client";
-import type { TrunkSubport } from "../../../lib/api/types";
+import { toRowActions } from "../../../lib/actions";
+import type { TrunkSubport } from "../../../lib/api/types/network";
 import { formatDateTime } from "../../../lib/format";
-import { notify } from "../../../lib/notify";
-import { useProjectId } from "../../../lib/useProject";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { trunkRoute } from "../../../app/router";
-import { trunkQuery, useRemoveSubports } from "../api";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
+import { removeSubports, trunkQuery, trunkWriteKeys } from "../api";
 import {
   adminStateLabel,
   availableTrunkActions,
@@ -28,9 +25,11 @@ import {
   statusTone,
 } from "../status";
 import { useTrunkActions } from "./TrunkActions";
-import { AddSubportsDialog } from "./TrunkDialogs";
+import { AddSubportsDialog } from "./dialogs/AddSubportsDialog";
+import { subportColumns } from "./subportColumns";
 import styles from "./TrunkDetailPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+
+const trunkRoute = getRouteApi("/app/network/trunks/$trunkId");
 
 const CRUMBS = [
   { label: "Project" },
@@ -38,226 +37,148 @@ const CRUMBS = [
   { label: "Trunks", href: "/network/trunks" },
 ];
 
+/** The ports of `subports`; a subport without one cannot be removed. */
+function portIds(subports: TrunkSubport[]): string[] {
+  return subports.flatMap((subport) =>
+    subport.port_id ? [subport.port_id] : [],
+  );
+}
+
+/** One trunk with its actions in the header and its subports. */
 export function TrunkDetailPage() {
   const projectId = useProjectId();
   const { trunkId } = trunkRoute.useParams();
   const navigate = useNavigate();
   const trunk = useQuery(trunkQuery(projectId, trunkId));
-  const removeSubports = useRemoveSubports(projectId);
   const actions = useTrunkActions(
-    projectId,
     () => void navigate({ to: "/network/trunks", search: {} }),
   );
-  const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState<TrunkSubport[] | null>(null);
-  const columns = useMemo<ColumnDef<TrunkSubport>[]>(
-    () => [
-      {
-        id: "port",
-        label: "Port",
-        isRowHeader: true,
-        cell: (row) =>
-          row.port_id ? (
-            <RouteLink
-              to="/network/ports/$portId"
-              params={{ portId: row.port_id }}
-            >
-              {row.port_name || row.port_id}
-            </RouteLink>
-          ) : (
-            ""
-          ),
-        sortValue: (row) => row.port_name ?? row.port_id ?? "",
-      },
-      {
-        id: "type",
-        label: "Segmentation type",
-        cell: (row) => (row.segmentation_type ?? "").toUpperCase(),
-      },
-      {
-        id: "id",
-        label: "Segmentation id",
-        cell: (row) => row.segmentation_id ?? "",
-        sortValue: (row) => row.segmentation_id ?? 0,
-      },
-    ],
-    [],
-  );
-
-  if (trunk.isError) {
-    const notFound =
-      trunk.error instanceof ApiError && trunk.error.status === 404;
-    return (
-      <>
-        <PageHeader
-          title={notFound ? "Trunk not found" : "Trunk"}
-          crumbs={CRUMBS}
-        />
-        {notFound ? (
-          <p>
-            There is no trunk <code>{trunkId}</code> in this project.{" "}
-            <RouteLink to="/network/trunks" search={{}}>
-              Back to trunks
-            </RouteLink>
-          </p>
-        ) : (
-          <ErrorState
-            error={trunk.error}
-            onRetry={() => void trunk.refetch()}
-          />
-        )}
-      </>
-    );
-  }
-
-  const data = trunk.data;
-  const confirmRemove = (targets: TrunkSubport[]) => {
-    if (!data) return;
-    removeSubports.mutate(
-      {
-        trunkId: data.id,
-        portIds: targets
-          .map((s) => s.port_id)
-          .filter((id): id is string => !!id),
-      },
-      {
-        onSuccess: () => {
-          notify.success(
-            targets.length === 1
-              ? "Subport removed."
-              : `${targets.length} subports removed.`,
-          );
-          setRemoving(null);
+  const subports = useBulkAction<TrunkSubport, "remove">({
+    noun: { one: "subport", many: "subports" },
+    name: (subport) => subport.port_name || subport.port_id || "",
+    getId: (subport) => subport.port_id ?? "",
+    invalidates: trunkWriteKeys,
+    actions: {
+      remove: {
+        verb: REMOVE,
+        // The trunk takes every port to remove in one request.
+        batch: async (targets) => {
+          await removeSubports(trunkId, portIds(targets));
+          return { succeeded: targets, failed: [] };
         },
+        eligible: (subport) => Boolean(subport.port_id),
+        skippedWhy: "they have no port",
+        body: <p>The port itself is kept; it just leaves the trunk.</p>,
       },
-    );
-  };
+    },
+  });
+  const [adding, setAdding] = useState(false);
+
   return (
     <>
-      <PageHeader
-        title={data ? data.name || data.id : "Trunk"}
+      <DetailPage
+        query={trunk}
+        noun="trunk"
+        id={trunkId}
         crumbs={CRUMBS}
-        actions={
-          data && (
-            <RowActionsMenu
-              actions={availableTrunkActions(data).map((action) => ({
-                id: action.id,
-                label: action.label,
-                onAction: () => actions.run(data, action.id),
-                isDisabled: action.isDisabled,
-                ...(action.tone ? { tone: action.tone } : {}),
-              }))}
-            />
-          )
-        }
-      />
-      <div className={styles.grid}>
-        <Panel title="Overview">
-          {!data ? (
-            <SkeletonLines lines={8} />
-          ) : (
-            <KeyValueList
-              items={[
-                { label: "Name", value: data.name },
-                { label: "ID", value: <code>{data.id}</code> },
-                { label: "Description", value: data.description || null },
-                {
-                  label: "Status",
-                  value: (
-                    <StatusPill tone={statusTone(data.status)}>
-                      {statusLabel(data.status)}
-                    </StatusPill>
-                  ),
-                },
-                {
-                  label: "Admin state",
-                  value: adminStateLabel(data.admin_state_up),
-                },
-                {
-                  label: "Parent port",
-                  value: data.port_id ? (
-                    <RouteLink
-                      to="/network/ports/$portId"
-                      params={{ portId: data.port_id }}
-                    >
-                      {data.port_name || data.port_id}
-                    </RouteLink>
-                  ) : null,
-                },
-                { label: "Created", value: formatDateTime(data.created_at) },
-                { label: "Updated", value: formatDateTime(data.updated_at) },
-              ]}
-            />
-          )}
-        </Panel>
-        <Panel
-          title="Subports"
-          actions={
-            data && (
-              <Button
-                variant="secondary"
-                size="xs"
-                onPress={() => setAdding(true)}
-              >
-                Add subports
-              </Button>
-            )
-          }
-        >
-          <DataTable
-            id="trunk-subports"
-            label="Subports"
-            columns={columns}
-            rows={data?.sub_ports}
-            getRowId={(row) => row.port_id ?? ""}
-            isLoading={trunk.isPending}
-            emptyTitle="No subports"
-            emptyBody={
-              <p>Each subport carries one VLAN over the parent port.</p>
-            }
-            rowActions={(row) => [
-              {
-                id: "remove",
-                label: "Remove subport",
-                tone: "danger",
-                onAction: () => setRemoving([row]),
-              },
-            ]}
-            batchActions={[
-              {
-                id: "remove",
-                label: "Remove",
-                tone: "danger",
-                onAction: (selected) => setRemoving(selected),
-              },
-            ]}
+        backTo={{ label: "trunks", href: "/network/trunks" }}
+        title={(data) => data.name || data.id}
+        actions={(data) => (
+          <RowActionsMenu
+            actions={toRowActions(availableTrunkActions(data), (id) =>
+              actions.run(id, [data]),
+            )}
           />
-        </Panel>
-      </div>
+        )}
+      >
+        {(data) => (
+          <div className={styles.grid}>
+            <Panel title="Trunk">
+              <KeyValueList
+                items={[
+                  { label: "Name", value: data.name },
+                  { label: "ID", value: <code>{data.id}</code> },
+                  { label: "Description", value: data.description || null },
+                  {
+                    label: "Status",
+                    value: (
+                      <StatusPill tone={statusTone(data.status)}>
+                        {statusLabel(data.status)}
+                      </StatusPill>
+                    ),
+                  },
+                  {
+                    label: "Admin state",
+                    value: adminStateLabel(data.admin_state_up),
+                  },
+                  {
+                    label: "Parent port",
+                    value: data.port_id ? (
+                      <AppLink
+                        to="/network/ports/$portId"
+                        params={{ portId: data.port_id }}
+                      >
+                        {data.port_name || data.port_id}
+                      </AppLink>
+                    ) : null,
+                  },
+                  { label: "Created", value: formatDateTime(data.created_at) },
+                  { label: "Updated", value: formatDateTime(data.updated_at) },
+                ]}
+              />
+            </Panel>
+            <Panel
+              title="Subports"
+              actions={
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onPress={() => setAdding(true)}
+                >
+                  Add subports
+                </Button>
+              }
+            >
+              <DataTable
+                id="trunk-subports"
+                label="Subports"
+                columns={subportColumns}
+                rows={data.sub_ports}
+                getRowId={(row) => row.port_id ?? ""}
+                {...subports.tableProps}
+                emptyTitle="No subports"
+                emptyBody={
+                  <p>Each subport carries one VLAN over the parent port.</p>
+                }
+                rowActions={(row) => [
+                  {
+                    id: "remove",
+                    label: "Remove subport",
+                    tone: "danger",
+                    onAction: () => subports.run("remove", [row]),
+                  },
+                ]}
+                batchActions={[
+                  {
+                    id: "remove",
+                    label: "Remove",
+                    tone: "danger",
+                    onAction: (selected) => subports.run("remove", selected),
+                  },
+                ]}
+              />
+            </Panel>
+          </div>
+        )}
+      </DetailPage>
       {actions.dialogs}
-      {adding && data && (
+      {adding && trunk.data && (
         <AddSubportsDialog
-          projectId={projectId}
-          trunk={data}
+          trunk={trunk.data}
           onClose={() => setAdding(false)}
         />
       )}
-      <ConfirmDialog
-        isOpen={removing !== null}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        title={
-          removing && removing.length > 1
-            ? `Remove ${removing.length} subports?`
-            : `Remove subport ${removing?.[0]?.port_name || removing?.[0]?.port_id || ""}?`
-        }
-        confirmLabel="Remove"
-        tone="danger"
-        isPending={removeSubports.isPending}
-        error={removeSubports.error}
-        onConfirm={() => removing && confirmRemove(removing)}
-      >
-        <p>The port itself is kept; it just leaves the trunk.</p>
-      </ConfirmDialog>
+      {subports.dialog}
     </>
   );
 }

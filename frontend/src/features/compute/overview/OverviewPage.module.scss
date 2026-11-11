@@ -1,86 +1,115 @@
 @use "mixins" as *;
 
+/// Panels two to a row from 1024px, span 6 each with the grid's 24px gap
+/// (grids spec, 12 columns, 24px gap).
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: 1fr;
+  gap: var(--hive-grid-gap);
+  grid-template-columns: minmax(0, 1fr);
 
   @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
+/// A panel across both columns (the usage trend, the security risks).
 .wide {
   grid-column: 1 / -1;
 }
 
+/// The quota meters 16px apart, the inter-field row gap (DERIVED-SPACING);
+/// the library `Meter` fills the panel's width.
 .meters {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-4);
 }
 
+/// The chart beside its total ("Sidebar right" layout): the total span 4
+/// of the grid, 24px from the chart, from 1280px; stacked under it before
+/// (gap "Charts").
 .trend {
   display: grid;
-  gap: var(--hive-space-4);
+  gap: var(--hive-grid-gap);
   grid-template-columns: minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
 
-  @include up($bp-md) {
-    grid-template-columns: minmax(0, 1fr) 14rem;
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// The chart's column may narrow below the chart's drawn width; the chart
+/// redraws to fit it.
 .trendChart {
   min-width: 0;
 }
 
+/// The total as an "Info - Sidebar" block's content (sidebar-blocks spec,
+/// line 120): the pair, the line to the usage trend and its button, 20px
+/// apart (the block gap), start-aligned.
 .trendTotal {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--hive-space-2);
-  text-align: center;
+  gap: var(--hive-space-5);
 }
 
-.noUsage {
-  padding: var(--hive-space-3);
-  border-radius: var(--hive-radius);
-  background: var(--hive-color-warning-tint);
-}
-
-.usageLabel {
-  color: var(--hive-color-text-muted);
-}
-
-.usageValue {
-  font-size: var(--hive-font-size-3xl);
-  font-weight: var(--hive-font-weight-bold);
-  color: var(--hive-color-brand-purple);
-}
-
-.muted {
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
-.statusList {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/// "Frame 246" (line 141): the title 4px above the figure.
+.pair {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-
-  a {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--hive-space-2);
-    text-decoration: none;
-  }
+  gap: var(--hive-space-1);
 }
 
+/// The pair's "Title" (line 154): Body/16/Bold Grey-900.
+.pairTitle {
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-900);
+}
+
+/// The total in Heading/H3 Grey-900, as the home page's usage figure (gap
+/// "Stat figure").
+.figure {
+  font: var(--hive-text-h3);
+  color: var(--hive-color-gray-900);
+}
+
+/// The block's text: Body/16 Grey-700 (line 168).
+.text {
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
+}
+
+/// The button keeps its own width, as the CTA - Sidebar block's
+/// "Buttons_Chevron_Light BG" wrapper (line 69) holds it.
+.action {
+  display: flex;
+  align-items: flex-start;
+}
+
+/// Notes in a panel ("No instances yet", "unavailable"): Body/14 Grey-500,
+/// the library field helper style.
+.muted {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
+}
+
+/// Instances by status, as related-list rows 8px apart (library
+/// `sidebar-block-list`); each row is a status badge and its count (gap
+/// "Status summary").
+.statusList {
+  @include sidebar-block-list;
+}
+
+/// The badge and its count 8px apart (DERIVED-SPACING, 8px).
+.statusItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+}
+
+/// The count: Body/16/Bold Grey-700, the related-list row label.
 .count {
-  font-weight: var(--hive-font-weight-semibold);
-  color: var(--hive-color-text-body);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
 }

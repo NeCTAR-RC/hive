@@ -10,9 +10,44 @@
       name="description"
       content="The ARDC Nectar Research Cloud dashboard."
     />
+    <!-- Without JS the agency components never hydrate, but their fallback
+         content would still take layout room (the inline opacity: 0 hides
+         it visually only), so remove them from layout entirely. -->
+    <noscript>
+      <style>
+        ardc-megamenu,
+        ardc-footer {
+          display: none;
+        }
+      </style>
+    </noscript>
   </head>
   <body>
+    <!-- The ARDC mega menu is the agency's web component: the 20px strip with
+         "Explore ARDC" across the top of every ARDC service, hydrated from
+         ardc.edu.au. Its content width is "full", so the tab sits at the
+         window's right edge. It collapses to nothing below 1200px. Its loader is
+         appended by the app (shell/megamenu.ts), which hides the element if
+         the loader fails without an inline handler the CSP would block. The
+         footer is rendered by the app (shell/ArdcFooter.tsx); its loader is
+         the script below. -->
+    <ardc-megamenu
+      id="ardc-menu"
+      class="ardc-megamenu ardc-custom-component"
+      data-host="ARDC Nectar Research Cloud"
+      data-content-width="full"
+      style="opacity: 0"
+    ></ardc-megamenu>
     <div id="root"></div>
+
     <script type="module" src="/src/main.tsx"></script>
+    <!-- The ?v query is the same one-time cache bust nectar-eligibility uses:
+         the loader is now served no-store, so it does not need bumping for
+         future footer updates. -->
+    <script
+      src="https://ardc.edu.au/wp-content/plugins/ardc-custom-web-components/dist/loaders/footer.min.js?v=20260930"
+      defer
+      data-no-optimize
+    ></script>
   </body>
 </html>

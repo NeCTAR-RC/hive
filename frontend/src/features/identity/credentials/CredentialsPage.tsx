@@ -1,57 +1,69 @@
 // Credentials: the project's EC2 key pair (Horizon API Access "View
-// credentials" and "Recreate EC2 credentials") and the user's generic
-// Keystone credentials (Horizon identity/credentials).
-import { useMemo, useState } from "react";
+// credentials" and "Recreate EC2 credentials"), then the user's EC2 keys in
+// their other projects (from Horizon identity/credentials, whose generic
+// TOTP and certificate creator Hive leaves out: users sign in through AAF).
+import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { Button } from "@ardc-ui/react";
-import { CodeBlock } from "../../../components/CodeBlock/CodeBlock";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import { CopyButton } from "../../../components/CopyButton/CopyButton";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { loadingProps } from "../../../components/buttonState";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
-import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
-import type { Credential } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
+import type { Items } from "../../../lib/api/types/common";
+import type { Credential } from "../../../lib/api/types/identity";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { meQuery } from "../../../lib/queries";
-import { useProjectId } from "../../../lib/useProject";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { credentialsRoute } from "../../../app/router";
 import {
-  credentialsQuery,
-  ec2Query,
-  useDeleteCredential,
-  useEnsureEc2,
-  useRecreateEc2,
+  credentialWriteKeys,
+  deleteCredential,
+  userCredentialsQuery,
 } from "../api";
-import { CreateCredentialDialog } from "./CredentialDialogs";
+import { Ec2Panel } from "./Ec2Panel";
+import { ec2AccessKey, otherProjectKeys } from "./ec2";
 import styles from "./CredentialsPage.module.scss";
+import { useCredentialColumns } from "./useCredentialColumns";
 
+/**
+ * The user's EC2 credentials: the current project's key pair first, with
+ * create, copy and recreate, then the keys the user holds in other
+ * projects, by project and access key, with delete.
+ */
 export function CredentialsPage() {
   const projectId = useProjectId();
   const { data: me } = useQuery(meQuery);
-  const search = credentialsRoute.useSearch();
-  const navigate = useNavigate({ from: credentialsRoute.fullPath });
-  const credentials = useQuery(credentialsQuery);
-  const remove = useDeleteCredential(projectId);
-  const [deleting, setDeleting] = useState<Credential[]>([]);
-  const creating = search.create === true;
-  const setCreating = (open: boolean) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous };
-        if (open) next.create = true;
-        else delete next.create;
-        return next;
+  const selectOthers = useCallback(
+    (data: Items<Credential>) => ({
+      ...data,
+      items: otherProjectKeys(data.items, projectId),
+    }),
+    [projectId],
+  );
+  const credentials = useQuery({
+    ...userCredentialsQuery,
+    select: selectOthers,
+  });
+  const credentialsTable = useQueryTable(credentials, {
+    noun: "EC2 keys",
+    emptyTitle: "No EC2 keys in other projects",
+  });
+  const remove = useBulkAction<Credential, "delete">({
+    noun: { one: "EC2 key", many: "EC2 keys" },
+    name: (credential) => ec2AccessKey(credential.blob) ?? credential.id,
+    getId: (credential) => credential.id,
+    invalidates: credentialWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        request: (credential) => deleteCredential(credential.id),
+        title: (credentials) =>
+          credentials.length === 1
+            ? "Delete this EC2 key?"
+            : `Delete ${credentials.length} EC2 keys?`,
+        body: <p>Anything using the key loses access immediately.</p>,
       },
-      replace: true,
-    });
+    },
+  });
 
   const projectNames = useMemo(() => {
     const names = new Map<string, string>();
@@ -60,252 +72,48 @@ export function CredentialsPage() {
     return names;
   }, [me]);
 
-  const columns = useMemo<ColumnDef<Credential>[]>(
-    () => [
-      {
-        id: "type",
-        label: "Type",
-        isRowHeader: true,
-        cell: (row) => row.type.toUpperCase(),
-        sortValue: (row) => row.type,
-      },
-      {
-        id: "project",
-        label: "Project",
-        cell: (row) =>
-          row.project_id
-            ? (projectNames.get(row.project_id) ?? (
-                <code>{row.project_id}</code>
-              ))
-            : "-",
-        sortValue: (row) =>
-          row.project_id
-            ? (projectNames.get(row.project_id) ?? row.project_id)
-            : "",
-      },
-      {
-        id: "blob",
-        label: "Data",
-        cell: (row) => <code className={styles.blob}>{row.blob}</code>,
-        hideBelow: "md",
-      },
-      {
-        id: "id",
-        label: "ID",
-        cell: (row) => <code className={styles.blob}>{row.id}</code>,
-        hideBelow: "lg",
-        defaultHidden: true,
-      },
-    ],
-    [projectNames],
-  );
-
-  const confirmDelete = async () => {
-    const results = await Promise.allSettled(
-      deleting.map((row) => remove.mutateAsync(row.id)),
-    );
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed === 0) {
-      notify.success(
-        deleting.length === 1
-          ? "Credential deleted."
-          : `${deleting.length} credentials deleted.`,
-      );
-    } else {
-      notify.danger(
-        `Could not delete ${failed} of ${deleting.length} credentials.`,
-      );
-    }
-    setDeleting([]);
-  };
+  const columns = useCredentialColumns(projectNames);
 
   return (
     <>
-      <PageHeader
-        title="Credentials"
-        crumbs={[{ label: "Identity" }]}
-        actions={
-          <Button size="sm" onPress={() => setCreating(true)}>
-            Create credential
-          </Button>
-        }
-      />
+      <PageHeader title="Credentials" crumbs={[{ label: "Identity" }]} />
       <div className={styles.stack}>
-        <Ec2Panel projectId={projectId} projectName={me?.project.name ?? ""} />
-        <DataTable
-          id="credentials"
-          label="Credentials"
-          columns={columns}
-          rows={credentials.data?.items}
-          getRowId={(row) => row.id}
-          isLoading={credentials.isPending}
-          isFetching={credentials.isFetching}
-          error={credentials.error}
-          onRetry={() => void credentials.refetch()}
-          onRefresh={() => void credentials.refetch()}
-          emptyTitle="No credentials"
-          emptyBody={
-            <p>
-              EC2 credentials appear here once created, as do TOTP and
-              certificate credentials you add.
-            </p>
-          }
-          defaultSort={{ column: "type", direction: "ascending" }}
-          rowActions={(row) => [
-            {
-              id: "delete",
-              label: "Delete",
-              tone: "danger",
-              onAction: () => setDeleting([row]),
-            },
-          ]}
-          batchActions={[
-            {
-              id: "delete",
-              label: "Delete",
-              tone: "danger",
-              onAction: (selected) => setDeleting(selected),
-            },
-          ]}
-        />
-      </div>
-      <CreateCredentialDialog
-        projects={me?.projects ?? []}
-        currentProjectId={projectId}
-        isOpen={creating}
-        onOpenChange={setCreating}
-      />
-      <ConfirmDialog
-        isOpen={deleting.length > 0}
-        onOpenChange={(open) => !open && setDeleting([])}
-        title={
-          deleting.length === 1
-            ? "Delete this credential?"
-            : `Delete ${deleting.length} credentials?`
-        }
-        confirmLabel="Delete"
-        isPending={remove.isPending}
-        onConfirm={() => void confirmDelete()}
-      >
-        <p>Anything using the credential loses access immediately.</p>
-      </ConfirmDialog>
-    </>
-  );
-}
-
-function Ec2Panel({
-  projectId,
-  projectName,
-}: {
-  projectId: string;
-  projectName: string;
-}) {
-  const ec2 = useQuery(ec2Query(projectId));
-  const ensure = useEnsureEc2(projectId);
-  const recreate = useRecreateEc2(projectId);
-  const [recreating, setRecreating] = useState(false);
-  // The access key whose secret the user chose to show; a recreated pair
-  // starts hidden again.
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const credential = ec2.data?.credential ?? null;
-  return (
-    <Panel
-      title={`EC2 credentials for ${projectName}`}
-      actions={
-        credential ? (
-          <Button
-            variant="secondary"
-            tone="danger"
-            size="sm"
-            onPress={() => setRecreating(true)}
-          >
-            Recreate EC2 credentials
-          </Button>
-        ) : null
-      }
-    >
-      <p className={styles.intro}>
-        EC2 credentials let S3-compatible tools use the object store with an
-        access key and secret key. Each project has its own pair.
-      </p>
-      {ec2.isPending ? (
-        <SkeletonLines lines={2} />
-      ) : ec2.isError ? (
-        <ErrorState error={ec2.error} onRetry={() => ec2.refetch()} />
-      ) : credential ? (
-        <KeyValueList
-          items={[
-            {
-              label: "Access key",
-              value: (
-                <span className={styles.copyable}>
-                  <code>{credential.access}</code>
-                  <CopyButton
-                    text={credential.access}
-                    label="Copy access key"
-                  />
-                </span>
-              ),
-            },
-            {
-              label: "Secret key",
-              // Horizon's "View credentials" keeps the secret out of the
-              // page until asked; so does this, per credential.
-              value:
-                revealed === credential.access ? (
-                  <CodeBlock text={credential.secret} label="Secret key" wrap />
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="xs"
-                    onPress={() => setRevealed(credential.access)}
-                  >
-                    Show secret key
-                  </Button>
-                ),
-            },
-          ]}
-        />
-      ) : (
-        <>
-          <p>This project has no EC2 credentials yet.</p>
-          {ensure.isError && (
-            <ErrorState error={ensure.error} title="Could not create" />
-          )}
-          <Button
-            isPending={ensure.isPending}
-            {...loadingProps(ensure.isPending, "Creating...")}
-            onPress={() =>
-              ensure.mutate(undefined, {
-                onSuccess: () => notify.success("EC2 credentials created."),
-              })
+        <Ec2Panel projectName={me?.project.name ?? ""} />
+        <Panel title="EC2 keys in your other projects">
+          <DataTable
+            id="credentials"
+            label="EC2 keys in your other projects"
+            columns={columns}
+            getRowId={(row) => row.id}
+            {...credentialsTable}
+            {...remove.tableProps}
+            emptyBody={
+              <p>
+                Each project has its own EC2 key pair. Keys you create in your
+                other projects are listed here.
+              </p>
             }
-          >
-            Create EC2 credentials
-          </Button>
-        </>
-      )}
-      <ConfirmDialog
-        isOpen={recreating}
-        onOpenChange={setRecreating}
-        title="Recreate EC2 credentials?"
-        confirmLabel="Recreate"
-        isPending={recreate.isPending}
-        error={recreate.error}
-        onConfirm={() =>
-          recreate.mutate(undefined, {
-            onSuccess: () => {
-              setRecreating(false);
-              notify.success("EC2 credentials recreated.");
-            },
-          })
-        }
-      >
-        <p>
-          This action cannot be undone. The current EC2 credentials are deleted
-          and cannot be recovered.
-        </p>
-      </ConfirmDialog>
-    </Panel>
+            defaultSort={{ column: "project", direction: "ascending" }}
+            rowActions={(row) => [
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                onAction: () => remove.run("delete", [row]),
+              },
+            ]}
+            batchActions={[
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                onAction: (selected) => remove.run("delete", selected),
+              },
+            ]}
+          />
+        </Panel>
+      </div>
+      {remove.dialog}
+    </>
   );
 }

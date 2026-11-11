@@ -36,15 +36,17 @@ browser (SPA) --same origin--> FastAPI (/api, /auth, static SPA)
 make env                    # .env from ./test-cred (git-ignored)
 make start                  # redis + API (:8000, reload) + Vite (:5173), in the background
 make login                  # print a one-shot login URL; open it once in a browser
-make restart                # restart the API and Vite after backend edits (session survives)
+make restart                # restart the API and Vite, for example after editing .env
 make status                 # what is running, and where the logs are (.dev/)
 make stop                   # stop everything, redis included
 ```
 
 Those targets call `scripts/dev-stack.sh`, which also has `logs`. `make dev`
-runs the same stack in the foreground instead. `uvicorn --reload` can miss
-backend edits on machines at the inotify watch limit; `make restart` is the
-fix.
+runs the same stack in the foreground instead. To look at the UI without
+a backend or credentials, `pnpm -C frontend dev:mock` serves it on :5173
+against the in-browser mocked API. The API reloads on edits
+under `backend/hive` only, so `frontend/node_modules` no longer exhausts the
+file watcher.
 
 `make login` runs `scripts/dev-login.py`: it gets an unscoped token with the
 credentials in `test-cred` and serves manuka's auto-submitting form once on
@@ -53,14 +55,42 @@ without a manuka whitelist entry. The URL is consumed on first use and
 lands you in the account's first project; switch projects from the header.
 
 ```
-tox                 # unit tests and lint (py314, pep8)
+tox                 # the whole gate: the Python envs and the frontend envs
+tox -m python       # the Python side only (py314, pep8, typecheck, deps)
+tox -m frontend     # frontend-lint, -unit, -build and e2e (node 26 + pnpm)
 tox -e cover        # coverage with a 90% floor
-tox -e frontend     # lint, test and build the SPA (node 24 + corepack)
+tox -e lock         # rewrite requirements.lock after changing dependencies
+tox -e frontend     # lint, test and build the SPA (node 26 + pnpm)
 tox -e live         # against rctest; needs HIVE_TEST_CRED=/path/to/test-cred
 ```
 
+Runtime dependencies are pinned with hashes in `requirements.lock`, which
+the image installs; `tox -e deps` fails when it no longer matches
+`pyproject.toml`.
+
 Configuration is entirely `HIVE_*` environment variables; see
 `backend/hive/config.py` and `.env.example`.
+
+## Production settings
+
+With `HIVE_ENV=prod` the app refuses to start unless these are set:
+
+- `HIVE_WEBSSO_ALLOWED_ORIGINS`: manuka's origin. The login receiver is
+  the one CSRF-exempt route, and an empty list rejects every login.
+- `HIVE_COOKIE_SECURE=true` (the default) and an `https` `HIVE_PUBLIC_URL`.
+- `HIVE_DOCS_ENABLED=false` (the default).
+- `HIVE_KEYSTONE_URL`, explicitly (the default points at rctest).
+
+The chart should also set:
+
+- `HIVE_FORWARDED_ALLOW_IPS`: the ingress addresses whose
+  `X-Forwarded-For` and `X-Forwarded-Proto` are trusted (default
+  `127.0.0.1`).
+- `HIVE_METRICS_ALLOWED_NETWORKS`: the networks Prometheus scrapes from.
+  `/metrics` answers 404 to everyone else (default: localhost only).
+
+The ingress should not expose `/metrics`, `/healthz` or `/readyz`: they
+are for the cluster, not the internet.
 
 ## Container and chart
 

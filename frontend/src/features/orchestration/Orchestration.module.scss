@@ -1,33 +1,40 @@
 @use "mixins" as *;
 
+/// Page sections (an alert above the panels, the panels, a tab's code
+/// blocks) 32px apart (library `content-block-stack`, the content blocks'
+/// section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
 }
 
+/// Helper text and notes: Body/14 in Grey-500, the text field's helper
+/// style (text-input spec, "Input Field with Labels").
 .muted {
-  margin: 0;
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.mono {
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+/// An identifier in a table cell (a resource's physical ID): the cell's own
+/// Body/14, breaking anywhere rather than widening the table. No code face
+/// (gap "Code face and copyable value").
+.identifier {
   overflow-wrap: anywhere;
 }
 
+/// Buttons in a page's action slot, 12px apart, the gap between controls in
+/// a row (content-blocks spec, Frame 1400; library dialog actions item gap).
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-3);
 }
 
+/// Two panels side by side from 1024px, span 6 each with the grid's 24px
+/// gap (grids spec, 12 columns); stacked below.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
   @include up($bp-lg) {
@@ -35,38 +42,79 @@
   }
 }
 
+/// The "Sidebar right" layout (layouts spec, "Single pages"): the form
+/// beside a span 4 side column (384px, the sidebar block's width), 24px
+/// apart. The side column joins from 1280px, where the form keeps more
+/// than 500px beside it; stacked below (gap "Breakpoints").
 .layout {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
-  @include up($bp-lg) {
-    grid-template-columns: minmax(0, 1fr) 20rem;
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// A page form: its field groups, then the button row 32px under them
+/// (DERIVED-SPACING: field group to primary action, 32px; library
+/// `content-block-stack`). Without a side column it keeps to the width the
+/// form takes beside one: span 8 (792px, the "Sidebar right" main column).
 .form {
+  @include content-block-stack;
+
+  min-width: 0;
+  max-width: var(--hive-grid-span-8);
+}
+
+/// Field groups (a form's panels, a notice, a failure) 24px apart
+/// (DERIVED-SPACING: fieldset to fieldset, 24px). In the update dialog the
+/// buttons follow at the same 24px, the library dialog's actions gap.
+.groups {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-4);
+  gap: var(--hive-space-6);
   min-width: 0;
 }
 
-.fields {
+/// A group of parameters inside a dialog: no panel chrome and no rule,
+/// its heading 12px above the fields (DERIVED-SPACING: panel heading to
+/// body, 12px).
+.group {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-3);
-  max-width: 40rem;
 }
 
+/// The group's heading: Heading/H5 in Grey-900 (typography spec), whatever
+/// its level in the outline.
+.groupTitle {
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
+}
+
+/// Fields in a group 16px apart (DERIVED-SPACING: inter-field row gap),
+/// in a span 6 column (588px, the 50-50 content column) so text fields do
+/// not run the panel's full width.
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-6);
+}
+
+/// The side column's summary stays in view while the form scrolls (gap
+/// "Sticky summary"), 16px under the window's top edge.
 .summary {
   position: sticky;
   top: var(--hive-space-4);
 }
 
+/// A form's buttons: 12px apart and start-aligned (content-blocks spec,
+/// Frame 1400), wrapping on a narrow column. No rule above them.
 .buttons {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--hive-space-2);
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
 }

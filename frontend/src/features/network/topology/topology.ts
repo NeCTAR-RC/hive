@@ -2,7 +2,8 @@
 // with its subnets and the devices attached to it (instances and routers
 // by their ports), the external networks first. Horizon draws this as a
 // graph; Hive lists it so it reads on a phone and with a screen reader.
-import type { Topology, TopologyPort } from "../../../lib/api/types";
+import type { Topology, TopologyPort } from "../../../lib/api/types/network";
+import { LOCALE } from "../../../lib/format";
 
 export interface TopologyAttachment {
   kind: "instance" | "router" | "gateway" | "port";
@@ -12,6 +13,12 @@ export interface TopologyAttachment {
   addresses: string[];
   /** Route target: an instance, router or port detail page. */
   href: string | null;
+  /**
+   * For a router, the other networks it joins this one to (by its gateway
+   * or its interfaces), so a router listed under two networks says that
+   * it links them; empty for every other kind.
+   */
+  connects: { id: string; name: string }[];
 }
 
 export interface TopologyNetwork {
@@ -56,6 +63,17 @@ export function buildTopology(data: Topology): {
     ]);
   }
   const attachedDevices = new Set<string>();
+  const networkNames = new Map(data.networks.map((n) => [n.id, n.name]));
+  // The listed networks each router has a port on, in list order.
+  const routerNetworks = new Map<string, string[]>();
+  for (const network of data.networks) {
+    for (const port of byNetwork.get(network.id) ?? []) {
+      if (!routers.has(port.device_id)) continue;
+      const joined = routerNetworks.get(port.device_id) ?? [];
+      if (!joined.includes(network.id)) joined.push(network.id);
+      routerNetworks.set(port.device_id, joined);
+    }
+  }
 
   const networks = data.networks.map((network) => {
     const ports = byNetwork.get(network.id) ?? [];
@@ -75,6 +93,7 @@ export function buildTopology(data: Topology): {
           status: server.status,
           addresses,
           href: `/compute/instances/${server.id}`,
+          connects: [],
         };
       } else if (router) {
         const gateway = port.device_owner === "network:router_gateway";
@@ -85,6 +104,9 @@ export function buildTopology(data: Topology): {
           status: router.status,
           addresses,
           href: `/network/routers/${router.id}`,
+          connects: (routerNetworks.get(router.id) ?? [])
+            .filter((id) => id !== network.id)
+            .map((id) => ({ id, name: networkNames.get(id) ?? id })),
         };
       } else {
         attachment = {
@@ -96,6 +118,7 @@ export function buildTopology(data: Topology): {
           href: port.id.startsWith("gateway-")
             ? null
             : `/network/ports/${port.id}`,
+          connects: [],
         };
       }
       if (attachment.kind !== "port") attachedDevices.add(attachment.id);
@@ -110,7 +133,7 @@ export function buildTopology(data: Topology): {
     const attachments = [...seen.values()].sort((a, b) => {
       const order = { gateway: 0, router: 1, instance: 2, port: 3 };
       return (
-        order[a.kind] - order[b.kind] || a.name.localeCompare(b.name, "en-AU")
+        order[a.kind] - order[b.kind] || a.name.localeCompare(b.name, LOCALE)
       );
     });
     return {

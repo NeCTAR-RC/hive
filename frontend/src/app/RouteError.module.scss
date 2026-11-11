@@ -1,0 +1,10 @@
+/// The error that replaces a whole page: its parts 16px apart
+/// (DERIVED-SPACING: inter-field row gap), at most span 9 of the grid wide
+/// (894px, the narrow single column; gap "Reading measure"), inset 32px
+/// (the content blocks' section gap) and a gutter from the side.
+.page {
+  display: grid;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-9);
+  padding: var(--hive-space-8) var(--hive-gutter);
+}

@@ -6,22 +6,9 @@ import httpx
 
 from tests import conftest
 from tests.conftest import csrf_headers, KEYSTONE, login, MANUKA
+from tests.fixtures.loader import fixture
 
-USER = {
-    "id": "u1",
-    "first_name": "Sam",
-    "surname": "Example",
-    "displayname": "Sam Example",
-    "email": "sam@example.edu",
-    "organisation": "Example University",
-    "affiliation": "staff",
-    "phone_number": None,
-    "mobile_number": "0400 000 000",
-    "orcid": None,
-    "external_ids": [
-        {"idp": "https://idp.example.edu", "last_login": "2026-10-09"}
-    ],
-}
+USER = fixture("manuka", "user")
 
 
 async def test_profile_carries_orcid_links(logged_in, upstream):
@@ -140,5 +127,7 @@ async def test_user_lookup(client, upstream, monkeypatch):
         return_value=httpx.Response(200, json={**USER, "id": "u2"})
     )
     detail = (await client.get("/api/identity/users/u2")).json()
-    assert detail["id"] == "u2" and detail["surname"] == "Example"
-    assert "affiliations" not in detail and "orcid_link_url" not in detail
+    assert detail['id'] == 'u2'
+    assert detail['surname'] == 'Example'
+    assert 'affiliations' not in detail
+    assert 'orcid_link_url' not in detail

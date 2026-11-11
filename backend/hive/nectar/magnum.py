@@ -8,9 +8,14 @@
 - Control planes are 1, 3, 5 or 7 nodes; a template without a master load
   balancer forces one (``workflow.service.js:91-141``,
   ``cluster-template.controller.js:72-110``).
-- The create request carries only the etcd volume labels, merged onto the
-  template's (``api/magnum.py:213-227``); keypair, autoscaling,
-  autorepair, addons and free labels were removed by the Nectar commits.
+- The create request carries the etcd volume labels, merged onto the
+  template's (``api/magnum.py:213-227``). The Nectar commits removed
+  keypair, autoscaling, autorepair, addons and free labels from the form;
+  Hive offers the key pair and autoscaling again (a deliberate departure,
+  2026-10-16), sent as upstream magnum-ui sends them (believed: Magnum's
+  cluster ``keypair`` field, and the ``auto_scaling_enabled``,
+  ``min_node_count`` and ``max_node_count`` labels its cluster autoscaler
+  reads, as the node group form here already sends).
 - Upgrade targets are the template ids in the current template's
   ``upgrade_targets`` label (``rolling-upgrade/upgrade.service.js``);
   upgrades and node group changes need a ``*_COMPLETE`` status
@@ -26,6 +31,9 @@
 
 import base64
 import re
+
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
 
 TEMPLATE_NAME = re.compile(r"^kubernetes-v([^-]+)-(.+)-([^-]+)-v(.+)$")
 CLUSTER_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_\-.]*$")
@@ -46,6 +54,7 @@ CREATE_TIMEOUT = 60
 
 
 def parse_template_name(name: str) -> dict | None:
+    """Version, zone, driver (``utils.service.js:40-49``)."""
     match = TEMPLATE_NAME.match(name or "")
     if not match:
         return None
@@ -59,18 +68,20 @@ def parse_template_name(name: str) -> dict | None:
 
 
 def version_key(version: str) -> tuple:
-    parts = []
-    for piece in re.split(r"[.-]", version):
-        parts.append((0, int(piece)) if piece.isdigit() else (1, piece))
-    return tuple(parts)
+    """Sort key for versions (``utils.service.js:40-49``)."""
+    return tuple(
+        (0, int(piece)) if piece.isdigit() else (1, piece)
+        for piece in re.split(r"[.-]", version)
+    )
 
 
 def template_summary(template: dict) -> dict:
+    """A template with its parsed name (magnum-ui fork)."""
     parsed = parse_template_name(template.get("name") or "")
     labels = template.get("labels") or {}
     return {
         "id": template.get("uuid"),
-        "name": template.get("name"),
+        "name": template.get("name") or "",
         "coe": template.get("coe"),
         "image_id": template.get("image_id"),
         "flavor_id": template.get("flavor_id"),
@@ -101,8 +112,8 @@ def template_summary(template: dict) -> dict:
         "upgrade_targets": [
             t for t in (labels.get("upgrade_targets") or "").split(",") if t
         ],
-        "created_at": template.get("created_at"),
-        "updated_at": template.get("updated_at"),
+        "created_at": to_utc_iso(template.get("created_at")),
+        "updated_at": to_utc_iso(template.get("updated_at")),
     }
 
 
@@ -160,21 +171,38 @@ def picker_options(templates: list[dict]) -> dict:
     }
 
 
-def validate_cluster_name(name: str) -> str | None:
+def validate_cluster_name(name: str) -> None:
+    """The cluster name pattern (magnum-ui create form)."""
     if not CLUSTER_NAME.match(name or ""):
-        return (
+        raise RuleViolation(
             "Cluster names start with a letter and contain only letters,"
             " numbers, dots, dashes and underscores."
         )
-    return None
 
 
-def validate_master_count(count: int, master_lb_enabled: bool) -> str | None:
+def validate_master_count(count: int, master_lb_enabled: bool) -> None:
+    """1, 3, 5 or 7 (``workflow.service.js:91-141``)."""
     if not master_lb_enabled and count != 1:
-        return "This template runs a single control plane node."
+        raise RuleViolation("This template runs a single control plane node.")
     if count not in CONTROL_PLANE_SIZES:
-        return "Supported control plane sizes are 1, 3, 5 or 7."
-    return None
+        raise RuleViolation("Supported control plane sizes are 1, 3, 5 or 7.")
+
+
+def validate_autoscaling(
+    node_count: int, minimum: int | None, maximum: int | None
+) -> None:
+    """An autoscaled group starts inside its own bounds (magnum-ui fork
+    node group form, which the cluster form now shares)."""
+    if minimum is None or maximum is None:
+        return
+    if maximum < minimum:
+        raise RuleViolation(
+            "The maximum node count must be at least the minimum."
+        )
+    if not minimum <= node_count <= maximum:
+        raise RuleViolation(
+            "The node count must be between the minimum and the maximum."
+        )
 
 
 def create_body(
@@ -187,7 +215,14 @@ def create_body(
     node_flavor: str,
     etcd_volume_size: int | None,
     etcd_volume_type: str | None,
+    keypair: str | None = None,
+    autoscaling: bool = False,
+    min_node_count: int | None = None,
+    max_node_count: int | None = None,
 ) -> dict:
+    """The create body (``api/magnum.py:213-227``): the etcd volume as
+    labels, and the key pair and the default worker group's autoscaling
+    when asked for, the bounds defaulting as a node group's do."""
     body: dict = {
         "name": name,
         "cluster_template_id": template["id"],
@@ -198,7 +233,17 @@ def create_body(
         "node_count": node_count,
         "flavor_id": node_flavor,
     }
+    if keypair:
+        body["keypair"] = keypair
     labels: dict[str, str] = {}
+    if autoscaling:
+        labels["auto_scaling_enabled"] = "true"
+        labels["min_node_count"] = str(
+            min_node_count if min_node_count is not None else 1
+        )
+        labels["max_node_count"] = str(
+            max_node_count if max_node_count is not None else node_count
+        )
     if etcd_volume_size:
         labels["etcd_volume_size"] = str(etcd_volume_size)
         if etcd_volume_type:
@@ -210,24 +255,28 @@ def create_body(
 
 
 def is_transitional(status: str | None) -> bool:
+    """An ``*_IN_PROGRESS`` status (``clusters.utils.js``)."""
     return bool(status) and status.endswith(TRANSITIONAL_SUFFIX)
 
 
 def can_upgrade(status: str | None) -> bool:
+    """Upgrades need ``*_COMPLETE`` (``clusters.utils.js``)."""
     return status in UPGRADE_STATUSES
 
 
 def can_change_nodegroups(status: str | None) -> bool:
+    """Needs ``*_COMPLETE`` (``nodegroups.controller.js``)."""
     return status in COMPLETE_STATUSES
 
 
 def cluster_summary(cluster: dict, template: dict | None = None) -> dict:
+    """A cluster row (magnum-ui fork clusters table)."""
     labels = cluster.get("labels") or {}
     parsed = parse_template_name((template or {}).get("name") or "")
     status = cluster.get("status")
     return {
         "id": cluster.get("uuid"),
-        "name": cluster.get("name"),
+        "name": cluster.get("name") or "",
         "status": status,
         "status_reason": cluster.get("status_reason"),
         "health_status": cluster.get("health_status"),
@@ -255,37 +304,43 @@ def cluster_summary(cluster: dict, template: dict | None = None) -> dict:
             t for t in (labels.get("upgrade_targets") or "").split(",") if t
         ],
         "stack_id": cluster.get("stack_id"),
-        "created_at": cluster.get("created_at"),
-        "updated_at": cluster.get("updated_at"),
+        "created_at": to_utc_iso(cluster.get("created_at")),
+        "updated_at": to_utc_iso(cluster.get("updated_at")),
         "actions": cluster_actions(status),
     }
 
 
 def cluster_actions(status: str | None) -> list[str]:
+    """The row actions a status allows (``clusters.utils.js``). A cluster
+    still being created can be deleted too: Magnum accepts the delete and
+    stops the build, so a cluster created by mistake need not run to its
+    create timeout (magnum-ui allows it, believed: not checked out here)."""
     actions = ["config", "certificate", "sign"]
     if can_upgrade(status):
         actions.append("upgrade")
     if can_change_nodegroups(status):
         actions.append("nodegroups")
-    if not is_transitional(status):
+    if not is_transitional(status) or status == "CREATE_IN_PROGRESS":
         actions.append("delete")
     return actions
 
 
 def parse_node_labels(text: str | None) -> dict[str, str]:
+    """``key=value`` pairs (``labels-taints.service.js``)."""
     labels: dict[str, str] = {}
     for pair in (text or "").replace(";", ",").split(","):
         pair = pair.strip()
         if not pair:
             continue
         if not LABEL_PAIR.match(pair):
-            raise ValueError(f'Label "{pair}" must look like key=value.')
+            raise RuleViolation(f'Label "{pair}" must look like key=value.')
         key, _, value = pair.partition("=")
         labels[key] = value
     return labels
 
 
 def parse_node_taints(text: str | None) -> list[dict]:
+    """``key[=value]:effect`` (``labels-taints.service.js``)."""
     taints = []
     for item in (text or "").replace(";", ",").split(","):
         item = item.strip()
@@ -293,22 +348,24 @@ def parse_node_taints(text: str | None) -> list[dict]:
             continue
         spec, sep, effect = item.rpartition(":")
         if not sep or effect not in TAINT_EFFECTS:
-            raise ValueError(
+            raise RuleViolation(
                 f'Taint "{item}" must look like key=value:NoSchedule,'
                 " key:PreferNoSchedule or key:NoExecute."
             )
         key, _, value = spec.partition("=")
         if not key:
-            raise ValueError(f'Taint "{item}" needs a key.')
+            raise RuleViolation(f'Taint "{item}" needs a key.')
         taints.append({"key": key, "value": value, "effect": effect})
     return taints
 
 
 def format_node_labels(labels: dict | None) -> str:
+    """Labels back to text (``labels-taints.service.js``)."""
     return ",".join(f"{k}={v}" for k, v in (labels or {}).items())
 
 
 def format_node_taints(taints: list | None) -> str:
+    """Taints back to text (``labels-taints.service.js``)."""
     out = []
     for taint in taints or []:
         key = taint.get("key", "")
@@ -335,8 +392,7 @@ def same_node_labels(wanted: dict | None, stored: dict | None) -> bool:
 def same_node_taints(wanted: list | None, stored: list | None) -> bool:
     """Compare taints as ``key[=value]:effect`` text, order-insensitive,
     so ``{"value": null}`` and ``{"value": ""}`` are the same taint
-    (``labels-taints.service.js:37-40``). A spurious change would PATCH the
-    node group and roll every node in it."""
+    (``labels-taints.service.js:37-40``)."""
 
     def canonical(taints: list | None) -> list[str]:
         return sorted(
@@ -349,10 +405,11 @@ def same_node_taints(wanted: list | None, stored: list | None) -> bool:
 
 
 def nodegroup_summary(nodegroup: dict) -> dict:
+    """A node group row (``nodegroups.controller.js``)."""
     labels = nodegroup.get("labels") or {}
     return {
         "id": nodegroup.get("uuid"),
-        "name": nodegroup.get("name"),
+        "name": nodegroup.get("name") or "",
         "role": nodegroup.get("role"),
         "is_default": bool(nodegroup.get("is_default")),
         "status": nodegroup.get("status"),
@@ -368,8 +425,8 @@ def nodegroup_summary(nodegroup: dict) -> dict:
         == "true",
         "node_labels": nodegroup.get("node_labels") or {},
         "node_taints": nodegroup.get("node_taints") or [],
-        "created_at": nodegroup.get("created_at"),
-        "updated_at": nodegroup.get("updated_at"),
+        "created_at": to_utc_iso(nodegroup.get("created_at")),
+        "updated_at": to_utc_iso(nodegroup.get("updated_at")),
     }
 
 
@@ -386,6 +443,7 @@ def nodegroup_body(
     node_labels: str | None,
     node_taints: str | None,
 ) -> dict:
+    """The create-node-group body (magnum-ui fork)."""
     body: dict = {
         "name": name,
         "flavor_id": flavor,
@@ -417,17 +475,16 @@ def nodegroup_body(
     return body
 
 
-def validate_resize(role: str | None, node_count: int) -> str | None:
+def validate_resize(role: str | None, node_count: int) -> None:
+    """Master groups keep 1, 3, 5 or 7 (magnum-ui fork)."""
     if role == "master":
         if node_count not in CONTROL_PLANE_SIZES:
-            return "Supported control plane sizes are 1, 3, 5 or 7."
-        return None
+            raise RuleViolation(
+                "Supported control plane sizes are 1, 3, 5 or 7."
+            )
+        return
     if node_count < 0:
-        return "Node count cannot be negative."
-    return None
-
-
-# --- cluster config -------------------------------------------------------
+        raise RuleViolation("Node count cannot be negative.")
 
 
 def generate_key_and_csr() -> tuple[str, str]:
@@ -472,6 +529,7 @@ def kubeconfig(
     cert: str | None,
     key: str | None,
 ) -> str:
+    """The cluster config (``api/magnum.py:260-283``)."""
     if ca and cert and key:
         return "\n".join(
             [

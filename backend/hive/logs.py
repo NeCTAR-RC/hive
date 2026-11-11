@@ -29,7 +29,7 @@ def configure_logging(log_format: str = "json", level: str = "INFO") -> None:
         level=numeric, stream=sys.stdout, format="%(message)s", force=True
     )
     # The request middleware writes one line per request instead, and
-    # upstream calls are logged by the client layer at debug.
+    # ``ServiceClient.request`` logs each upstream call at debug.
     logging.getLogger("uvicorn.access").disabled = True
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -1,0 +1,15 @@
+{
+  "Description": "demo",
+  "Parameters": {
+    "count": {
+      "Type": "Number",
+      "Default": 1,
+      "Label": "Count"
+    },
+    "name": {
+      "Type": "String",
+      "Label": "Name",
+      "NoEcho": "false"
+    }
+  }
+}

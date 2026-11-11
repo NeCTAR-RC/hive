@@ -15,8 +15,7 @@ describe("ReorderList", () => {
     render(
       <ReorderList items={items} onReorder={() => {}} aria-label="Order" />,
     );
-    const list = screen.getByRole("grid", { name: "Order" });
-    expect(list).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "Order" })).toBeInTheDocument();
     const rows = screen.getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveTextContent(/1\s*classic/);
@@ -25,5 +24,21 @@ describe("ReorderList", () => {
       screen.getByRole("button", { name: "Drag my-net" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Drag / })).toHaveLength(3);
+  });
+
+  it("follows the order it is given", () => {
+    const { rerender } = render(
+      <ReorderList items={items} onReorder={() => {}} aria-label="Order" />,
+    );
+    rerender(
+      <ReorderList
+        items={[items[2]!, items[0]!, items[1]!]}
+        onReorder={() => {}}
+        aria-label="Order"
+      />,
+    );
+    const rows = screen.getAllByRole("row");
+    expect(rows[0]).toHaveTextContent(/1\s*qh2-shared/);
+    expect(rows[1]).toHaveTextContent(/2\s*classic/);
   });
 });

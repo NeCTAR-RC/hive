@@ -1,13 +1,21 @@
 @use "mixins" as *;
 
-// Cards wrap into as many columns as fit, so every option is on screen at
-// once at any width: four across in the wizard's column, two on a phone.
+/// Cards wrap into as many columns of at least span 2 as fit, so every
+/// option is on screen at once: four across a wizard step's span 8, one on
+/// a phone; 8px apart (DERIVED-SPACING, 8px; gap "Card radios").
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(var(--hive-grid-span-2), 1fr)
+  );
   gap: var(--hive-space-2);
 }
 
+/// A card: its lines 4px apart, the library's label to helper gap, 12px
+/// inside a Grey-100 rule at the 4px radius on the surface, as the launch
+/// source list's box (gap "Option list with descriptions"). Grey-50 under
+/// the pointer, as a library table row.
 .card {
   display: flex;
   flex-direction: column;
@@ -18,16 +26,16 @@
   background: var(--hive-color-surface);
   cursor: pointer;
   transition:
-    border-color var(--hive-transition-fast),
-    background-color var(--hive-transition-fast);
+    border-color var(--hive-transition-base),
+    background-color var(--hive-transition-base);
 
   &[data-hovered] {
     background: var(--hive-color-gray-50);
   }
 
-  // The chosen card: the brand purple on its rule and a purple wash, the
-  // same pair the sidebar uses for the current page. The border keeps its
-  // width so the grid never shifts.
+  /// The chosen card: the brand purple on its rule over the Purple-50
+  /// wash, the pair the library uses for a selected item; the rule keeps
+  /// its width so the grid never shifts.
   &[data-selected] {
     border-color: var(--hive-color-brand-purple);
     background: var(--hive-color-purple-50);
@@ -37,31 +45,55 @@
     @include focus-ring;
   }
 
-  &[data-disabled] {
-    cursor: default;
-    opacity: 0.6;
-  }
-
+  /// No colour fade for those who ask for less motion.
   @media (prefers-reduced-motion: reduce) {
     transition: none;
   }
 }
 
+/// The radio glyph and the title in a row 8px apart, as the library radio
+/// item sets its indicator beside its label.
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+}
+
+/// The library radio's glyph in the 16px icon frame, in its colours:
+/// Grey-500 when clear, the brand purple when chosen (library
+/// `RadioGroupItem`).
+.indicator {
+  flex: none;
+  width: var(--hive-icon-frame);
+  height: var(--hive-icon-frame);
+  color: var(--hive-color-text-muted);
+
+  .card[data-selected] & {
+    color: var(--hive-color-brand-purple);
+  }
+}
+
+/// The chosen glyph's white centre (library `RadioGroupItem`).
+.indicatorDot {
+  fill: var(--hive-color-white);
+}
+
+/// The option's title: Body/16/Bold Grey-900, the library field label
+/// weight in the heading colour.
 .title {
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
   color: var(--hive-color-text-heading);
 }
 
-.card[data-selected] .title {
-  color: var(--hive-color-purple-700);
-}
-
+/// The short line under the title: Body/14 Grey-500, the library field
+/// helper style.
 .meta {
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }
 
+/// The option's sentence: Body/12 Grey-500, a step under the meta line.
 .description {
-  font-size: var(--hive-font-size-xs);
+  font: var(--hive-text-body-12);
   color: var(--hive-color-text-muted);
 }

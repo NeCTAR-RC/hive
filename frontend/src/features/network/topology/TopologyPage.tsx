@@ -5,34 +5,25 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@ardc-ui/react";
-import { Globe, Network as NetworkIcon, Router, Server } from "lucide-react";
+import { AppLink } from "../../../components/AppLink/AppLink";
 import { EmptyState } from "../../../components/EmptyState/EmptyState";
 import { ErrorState } from "../../../components/ErrorState/ErrorState";
 import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { useProjectId } from "../../../lib/useProject";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { statusLabel, statusTone } from "../status";
 import { topologyQuery } from "../api";
-import { buildTopology, type TopologyAttachment } from "./topology";
+import { buildTopology } from "./topology";
+import { TopologyIslands } from "./TopologyIslands";
+import { TopologyNetworkItem } from "./TopologyNetworkItem";
 import styles from "./TopologyPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
-function AttachmentIcon({ kind }: { kind: TopologyAttachment["kind"] }) {
-  const size = 16;
-  switch (kind) {
-    case "instance":
-      return <Server aria-hidden="true" size={size} />;
-    case "router":
-    case "gateway":
-      return <Router aria-hidden="true" size={size} />;
-    default:
-      return <NetworkIcon aria-hidden="true" size={size} />;
-  }
-}
-
+/**
+ * The topology page: the network list once it loads, with Horizon's three
+ * create actions (launch an instance, create a network, create a router)
+ * and Refresh in the header, and the unconnected devices after it.
+ */
 export function TopologyPage() {
   const projectId = useProjectId();
   const topology = useQuery(topologyQuery(projectId));
@@ -44,17 +35,43 @@ export function TopologyPage() {
   return (
     <>
       <PageHeader
-        title="Network Topology"
+        title="Network topology"
         crumbs={CRUMBS}
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            onPress={() => void topology.refetch()}
-            isDisabled={topology.isFetching}
-          >
-            Refresh
-          </Button>
+          <>
+            <AppLink
+              variant="primary"
+              size="sm"
+              to="/compute/instances/launch"
+              search={{}}
+            >
+              Launch instance
+            </AppLink>
+            <AppLink
+              variant="secondary"
+              size="sm"
+              to="/network/networks"
+              search={{ create: true }}
+            >
+              Create network
+            </AppLink>
+            <AppLink
+              variant="secondary"
+              size="sm"
+              to="/network/routers"
+              search={{ create: true }}
+            >
+              Create router
+            </AppLink>
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => void topology.refetch()}
+              isDisabled={topology.isFetching}
+            >
+              Refresh
+            </Button>
+          </>
         }
       />
       {topology.isError ? (
@@ -75,128 +92,11 @@ export function TopologyPage() {
         <div className={styles.layout}>
           <ul className={styles.networks} aria-label="Networks">
             {built.networks.map((network) => (
-              <li key={network.id} className={styles.network}>
-                <div className={styles.networkHead}>
-                  <h2 className={styles.networkName}>
-                    {network.isExternal ? (
-                      <Globe aria-hidden="true" size={18} />
-                    ) : (
-                      <NetworkIcon aria-hidden="true" size={18} />
-                    )}
-                    <RouteLink
-                      to="/network/networks/$networkId"
-                      params={{ networkId: network.id }}
-                      search={{}}
-                    >
-                      {network.name}
-                    </RouteLink>
-                  </h2>
-                  <div className={styles.badges}>
-                    {network.isExternal && (
-                      <StatusPill tone="info">External</StatusPill>
-                    )}
-                    {network.isShared && (
-                      <StatusPill tone="neutral">Shared</StatusPill>
-                    )}
-                    <StatusPill tone={statusTone(network.status)}>
-                      {statusLabel(network.status)}
-                    </StatusPill>
-                  </div>
-                </div>
-                {network.subnets.length > 0 && (
-                  <p className={styles.subnets}>
-                    {network.subnets.map((subnet, index) => (
-                      <span key={subnet.id}>
-                        {index > 0 && ", "}
-                        <RouteLink
-                          to="/network/subnets/$subnetId"
-                          params={{ subnetId: subnet.id }}
-                        >
-                          {subnet.name ? `${subnet.name} ` : ""}
-                          <code>{subnet.cidr}</code>
-                        </RouteLink>
-                      </span>
-                    ))}
-                  </p>
-                )}
-                {network.attachments.length === 0 ? (
-                  <p className={styles.muted}>Nothing is connected.</p>
-                ) : (
-                  <ul
-                    className={styles.attachments}
-                    aria-label={`Connected to ${network.name}`}
-                  >
-                    {network.attachments.map((attachment) => (
-                      <li
-                        key={`${attachment.kind}:${attachment.id}`}
-                        className={styles.attachment}
-                      >
-                        <AttachmentIcon kind={attachment.kind} />
-                        <span className={styles.attachmentBody}>
-                          {attachment.href ? (
-                            <RouteLink to={attachment.href}>
-                              {attachment.name}
-                            </RouteLink>
-                          ) : (
-                            attachment.name
-                          )}
-                          <span className={styles.kind}>
-                            {attachment.kind === "gateway"
-                              ? " (router gateway)"
-                              : attachment.kind === "router"
-                                ? " (router)"
-                                : attachment.kind === "port"
-                                  ? " (port)"
-                                  : ""}
-                          </span>
-                          {attachment.addresses.length > 0 && (
-                            <code className={styles.addresses}>
-                              {attachment.addresses.join(", ")}
-                            </code>
-                          )}
-                        </span>
-                        {attachment.status && (
-                          <StatusPill tone={statusTone(attachment.status)}>
-                            {statusLabel(attachment.status)}
-                          </StatusPill>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
+              <TopologyNetworkItem key={network.id} network={network} />
             ))}
           </ul>
           {built.islands.length > 0 && (
-            <section
-              className={styles.islands}
-              aria-labelledby="topology-unconnected"
-            >
-              <h2 id="topology-unconnected" className={styles.islandsTitle}>
-                Not connected to a network
-              </h2>
-              <ul className={styles.attachments}>
-                {built.islands.map((island) => (
-                  <li
-                    key={`${island.kind}:${island.id}`}
-                    className={styles.attachment}
-                  >
-                    <AttachmentIcon kind={island.kind} />
-                    <span className={styles.attachmentBody}>
-                      <RouteLink to={island.href}>{island.name}</RouteLink>
-                      <span className={styles.kind}>
-                        {island.kind === "router" ? " (router)" : ""}
-                      </span>
-                    </span>
-                    {island.status && (
-                      <StatusPill tone={statusTone(island.status)}>
-                        {statusLabel(island.status)}
-                      </StatusPill>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <TopologyIslands islands={built.islands} />
           )}
         </div>
       )}

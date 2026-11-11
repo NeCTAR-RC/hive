@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Network, Topology } from "../../../lib/api/types";
+import type { Network, Topology } from "../../../lib/api/types/network";
 import { buildTopology } from "./topology";
 
 function network(
@@ -130,6 +130,7 @@ describe("buildTopology", () => {
         status: "ACTIVE",
         addresses: [],
         href: "/network/routers/r-1",
+        connects: [{ id: "net-priv", name: "private" }],
       },
     ]);
     expect(
@@ -140,6 +141,16 @@ describe("buildTopology", () => {
       ["port", "DHCP agent", ["192.168.1.2"]],
     ]);
     expect(networks[1]?.subnets[0]?.cidr).toBe("192.168.1.0/24");
+  });
+
+  it("says which other networks a router joins", () => {
+    const { networks } = buildTopology(DATA);
+    const router = networks[1]?.attachments.find((a) => a.kind === "router");
+    expect(router?.connects).toEqual([
+      { id: "net-ext", name: "ardctest-artm" },
+    ]);
+    const web = networks[1]?.attachments.find((a) => a.kind === "instance");
+    expect(web?.connects).toEqual([]);
   });
 
   it("lists routers and instances with no port as islands", () => {

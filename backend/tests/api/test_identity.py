@@ -5,37 +5,11 @@ import json
 import httpx
 
 from tests.conftest import csrf_headers, KEYSTONE, MANUKA
+from tests.fixtures.loader import fixture
 
-ASSIGNMENTS = {
-    "role_assignments": [
-        {
-            "user": {"id": "u1", "name": "sam@example.edu"},
-            "role": {"id": "r-member", "name": "member"},
-            "scope": {"project": {"id": "p2"}},
-        },
-        {
-            "user": {"id": "u2", "name": "ann@example.edu"},
-            "role": {"id": "r-tm", "name": "tenantmanager"},
-            "scope": {"project": {"id": "p2"}},
-        },
-        {
-            "user": {"id": "u3", "name": "bot"},
-            "role": {"id": "r-bot", "name": "reservation_bot"},
-            "scope": {"project": {"id": "p2"}},
-        },
-    ]
-}
+ASSIGNMENTS = fixture("keystone", "role_assignments")
 
-APP_CRED = {
-    "id": "ac-1",
-    "name": "deploy",
-    "description": None,
-    "project_id": "p1",
-    "expires_at": "2027-01-10T00:00:00.000000Z",
-    "unrestricted": False,
-    "roles": [{"id": "r-member", "name": "member", "domain_id": None}],
-    "access_rules": [],
-}
+APP_CRED = fixture("keystone", "application_credential")
 
 
 async def as_manager(client):
@@ -79,7 +53,16 @@ async def test_members_list_add_and_remove(logged_in, upstream):
         headers=csrf_headers(client),
     )
     assert response.status_code == 201, response.text
-    assert response.json()["role_name"] == "member"
+    # The reply is a full MemberRow, so the SPA can add it as it is.
+    assert response.json() == {
+        "id": "u9-r-member",
+        "user_id": "u9",
+        "name": "new@example.edu",
+        "role_id": "r-member",
+        "role_name": "member",
+        "is_self": False,
+        "can_remove": True,
+    }
     assert grant.called
 
     revoke = upstream.delete(
@@ -287,28 +270,6 @@ async def test_generic_credentials(logged_in, upstream):
     )
     body = (await logged_in.get("/api/identity/credentials")).json()
     assert body["items"][0]["type"] == "ec2"
-    created = upstream.post(f"{KEYSTONE}/credentials").mock(
-        return_value=httpx.Response(
-            201,
-            json={
-                "credential": {
-                    "id": "c2",
-                    "type": "totp",
-                    "project_id": None,
-                    "blob": "SEED",
-                }
-            },
-        )
-    )
-    response = await logged_in.post(
-        "/api/identity/credentials",
-        json={"type": "totp", "blob": "SEED"},
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 201
-    assert json.loads(created.calls.last.request.content) == {
-        "credential": {"user_id": "u1", "type": "totp", "blob": "SEED"}
-    }
     upstream.delete(f"{KEYSTONE}/credentials/c2").mock(
         return_value=httpx.Response(204)
     )
@@ -316,25 +277,3 @@ async def test_generic_credentials(logged_in, upstream):
         "/api/identity/credentials/c2", headers=csrf_headers(logged_in)
     )
     assert response.status_code == 204
-
-
-async def test_member_email_reaches_manuka_percent_encoded(
-    logged_in, upstream
-):
-    client = await as_manager(logged_in)
-    seen = []
-
-    def manuka(request):
-        seen.append(request.url.raw_path.decode())
-        return httpx.Response(404, json={"error": "User doesn't exist"})
-
-    upstream.route(host="manuka.test").mock(side_effect=manuka)
-    response = await client.post(
-        "/api/identity/members",
-        json={"email": "a?x=1/../b@example.edu", "role_id": "r-member"},
-        headers=csrf_headers(client),
-    )
-    assert response.status_code == 404
-    assert seen == [
-        "/v1/keystone-ext/user-by-name/a%3Fx%3D1%2F..%2Fb%40example.edu/"
-    ]

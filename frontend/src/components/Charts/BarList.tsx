@@ -1,6 +1,3 @@
-// A ranked list of values with proportional bars: the accessible stand-in
-// for the pie and bar charts on the usage pages. Each row is real text with
-// the value and share, so nothing depends on colour or a canvas.
 import { formatNumber } from "../../lib/format";
 import styles from "./BarList.module.scss";
 
@@ -20,6 +17,12 @@ export interface BarListProps {
 
 const PALETTE = 5;
 
+/**
+ * A ranked list of values with proportional bars: the accessible stand-in
+ * for the pie and bar charts on the usage pages. Each row is real text with
+ * the value and share, so nothing depends on colour or a canvas. Bars take
+ * the chart palette in turn; a `muted` item (such as "Other") takes grey.
+ */
 export function BarList({ items, unit, "aria-label": label }: BarListProps) {
   const total = items.reduce((sum, item) => sum + item.value, 0);
   const largest = items.reduce((max, item) => Math.max(max, item.value), 0);

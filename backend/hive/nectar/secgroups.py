@@ -37,6 +37,7 @@ OPEN_CIDRS = {"0.0.0.0/0", "::/0"}
 
 
 def preset(preset_id: str) -> dict | None:
+    """One ``SECURITY_GROUP_RULES`` preset (``_local_settings.tpl``)."""
     return next((p for p in PRESETS if p["id"] == preset_id), None)
 
 
@@ -57,6 +58,7 @@ def apply_preset(rule: dict) -> dict:
 
 
 def is_open_to_the_world(rule: dict) -> bool:
+    """A rule open to every address (0.0.0.0/0 or ::/0)."""
     return rule.get("remote_ip_prefix") in OPEN_CIDRS
 
 
@@ -136,8 +138,8 @@ def port_range(
 ) -> dict:
     """``port_range_min``/``port_range_max`` for neutron.
 
-    Negative values mean unset, as in ``api/neutron.py:539-542``, so an
-    ICMP rule with a type and no code (``-1``) sends the type only. A
+    Negative values mean unset, as in ``api/neutron.py:474-477``
+    (``rule_create``), so an ICMP rule with a type and no code (``-1``) sends the type only. A
     single TCP or UDP port fills the top of the range from the bottom;
     ICMP never does, because there ``max`` is the ICMP code.
     """

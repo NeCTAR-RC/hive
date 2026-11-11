@@ -1,0 +1,17 @@
+{
+  "uuid": "t-133",
+  "name": "kubernetes-v1.33.4-ardctest-artm-calico-v5",
+  "coe": "kubernetes",
+  "image_id": "img-1",
+  "flavor_id": "m3.small",
+  "master_flavor_id": "m3.small",
+  "network_driver": "calico",
+  "master_lb_enabled": true,
+  "tls_disabled": false,
+  "public": true,
+  "hidden": false,
+  "labels": {
+    "availability_zone": "ardctest-artm",
+    "upgrade_targets": "t-134"
+  }
+}

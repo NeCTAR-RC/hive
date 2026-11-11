@@ -6,6 +6,8 @@ SENSITIVE_HEADERS = {"cookie", "set-cookie", "x-auth-token", "authorization"}
 
 
 def _scrub(event, _hint):
+    """Drop credentials from the request part of an event (headers,
+    cookies, body) before it is sent."""
     request = event.get("request")
     if isinstance(request, dict):
         headers = request.get("headers")
@@ -19,6 +21,7 @@ def _scrub(event, _hint):
 
 
 def init_sentry(settings: Settings, release: str) -> bool:
+    """Start error reporting when ``HIVE_SENTRY_DSN`` is set."""
     if not settings.sentry_dsn:
         return False
     import sentry_sdk
@@ -30,9 +33,10 @@ def init_sentry(settings: Settings, release: str) -> bool:
         environment=settings.sentry_environment or settings.env,
         release=f"hive@{release}",
         send_default_pii=False,
-        # Frame locals hold tokens, session data and request bodies; never
-        # ship them. TokenInfo also hides its token from repr().
+        # Frame locals hold tokens (request headers, session models) and
+        # bodies hold passwords; neither may leave the cluster.
         include_local_variables=False,
+        max_request_body_size="never",
         auto_session_tracking=False,
         traces_sample_rate=0,
         before_send=_scrub,

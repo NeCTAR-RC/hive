@@ -1,5 +1,8 @@
 @use "mixins" as *;
 
+/// The date range and its presets: stacked 12px apart on a phone, one
+/// wrapping row from 768px (DERIVED-SPACING, 12px between side-by-side
+/// fields).
 .controls {
   display: flex;
   flex-direction: column;
@@ -12,50 +15,52 @@
   }
 }
 
+/// The date range at most span 4 of the grid (`--hive-field-max`).
 .range {
-  max-width: 24rem;
+  max-width: var(--hive-field-max);
 }
 
-.presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-2);
-}
-
+/// The data note under the controls, 8px down: Body/14 Grey-500, the
+/// library field helper style.
 .note {
-  margin: var(--hive-space-2) 0 0;
-  font-size: var(--hive-font-size-sm);
+  margin-top: var(--hive-space-2);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }
 
+/// Three panels to a row from 1024px (span 4 each at 1200px), the chart
+/// and the table across the row, 24px apart (grids spec, 24px gap).
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
+  gap: var(--hive-grid-gap);
   grid-template-columns: minmax(0, 1fr);
 
   @include up($bp-lg) {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
+/// A panel or the table across the whole row.
 .wide {
   grid-column: 1 / -1;
   min-width: 0;
 }
 
+/// The total's panel may narrow below its figure's width.
 .total {
   min-width: 0;
 }
 
+/// The total in Heading/H3 Grey-900 (gap "Stat figure").
 .totalValue {
-  margin: 0;
-  font-size: var(--hive-font-size-3xl);
-  font-weight: var(--hive-font-weight-bold);
-  color: var(--hive-color-text-heading);
+  font: var(--hive-text-h3);
+  color: var(--hive-color-gray-900);
 }
 
+/// Notes in a panel: Body/14 Grey-500, the library field helper style, 8px
+/// above what follows.
 .muted {
   margin: 0 0 var(--hive-space-2);
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }

@@ -1,28 +1,57 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
-import type { KeyPair } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useProjectId } from "../../../lib/useProject";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
+import type { KeyPair } from "../../../lib/api/types/compute";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { keyPairsQuery, useDeleteKeyPair } from "../api";
-import { CreateKeyPairDialog, ImportKeyPairDialog } from "./KeyPairDialogs";
+import { deleteKeyPair, keyPairWriteKeys, keyPairsQuery } from "../api";
+import { CreateKeyPairDialog } from "./dialogs/CreateKeyPairDialog";
+import { ImportKeyPairDialog } from "./dialogs/ImportKeyPairDialog";
 import styles from "./KeyPairsPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+
+const keyPairsRoute = getRouteApi("/app/compute/key-pairs");
+
+/** A key pair's name, which is also its id. */
+const getName = (keyPair: KeyPair) => keyPair.name;
 
 export function KeyPairsPage() {
   const projectId = useProjectId();
   const keyPairs = useQuery(keyPairsQuery(projectId));
-  const remove = useDeleteKeyPair(projectId);
-  const [query, setQuery] = useState("");
+  const search = useListSearch(keyPairsRoute);
+  const table = useQueryTable(keyPairs, {
+    noun: "key pairs",
+    search,
+    placeholder: "Search key pairs",
+  });
   const [dialog, setDialog] = useState<"create" | "import" | null>(null);
-  const [deleting, setDeleting] = useState<KeyPair[]>([]);
+  const bulk = useBulkAction<KeyPair, "delete">({
+    noun: { one: "key pair", many: "key pairs" },
+    name: getName,
+    getId: getName,
+    invalidates: keyPairWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        request: (keyPair) => deleteKeyPair(keyPair.name),
+        body: (
+          <p>
+            Instances already launched with the key keep it. You will not be
+            able to launch new instances with it.
+          </p>
+        ),
+      },
+    },
+  });
 
   const columns = useMemo<ColumnDef<KeyPair>[]>(
     () => [
@@ -31,9 +60,13 @@ export function KeyPairsPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouteLink to="/compute/key-pairs/$name" params={{ name: row.name }}>
+          <AppLink
+            size="sm"
+            to="/compute/key-pairs/$name"
+            params={{ name: row.name }}
+          >
             {row.name}
-          </RouteLink>
+          </AppLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => row.name,
@@ -57,34 +90,11 @@ export function KeyPairsPage() {
     ],
     [],
   );
-  const rows = useMemo(
-    () => filterRows(keyPairs.data?.items ?? [], query, columns),
-    [keyPairs.data, query, columns],
-  );
-
-  const confirmDelete = async () => {
-    const names = deleting.map((k) => k.name);
-    const results = await Promise.allSettled(
-      names.map((name) => remove.mutateAsync(name)),
-    );
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed === 0) {
-      notify.success(
-        names.length === 1
-          ? `Key pair ${names[0]} deleted.`
-          : `${names.length} key pairs deleted.`,
-      );
-      setDeleting([]);
-    } else {
-      notify.danger(`Could not delete ${failed} of ${names.length} key pairs.`);
-      setDeleting([]);
-    }
-  };
 
   return (
     <>
       <PageHeader
-        title="Key Pairs"
+        title="Key pairs"
         crumbs={[{ label: "Project" }, { label: "Compute" }]}
         actions={
           <>
@@ -105,31 +115,14 @@ export function KeyPairsPage() {
         id="keypairs"
         label="Key pairs"
         columns={columns}
-        rows={rows}
-        getRowId={(row) => row.name}
-        isLoading={keyPairs.isPending}
-        isFetching={keyPairs.isFetching}
-        error={keyPairs.error}
-        onRetry={() => void keyPairs.refetch()}
-        onRefresh={() => void keyPairs.refetch()}
-        search={{
-          value: query,
-          onChange: setQuery,
-          placeholder: "Search key pairs",
-        }}
-        resetKey={query}
-        emptyTitle={
-          keyPairs.data?.items.length
-            ? "No key pairs match"
-            : "No key pairs yet"
-        }
+        getRowId={getName}
+        {...table}
+        {...bulk.tableProps}
         emptyBody={
-          keyPairs.data?.items.length === 0 ? (
-            <p>
-              Create a key pair or import your existing public key to log in to
-              instances over SSH.
-            </p>
-          ) : null
+          <p>
+            Create a key pair or import your existing public key to log in to
+            instances over SSH.
+          </p>
         }
         defaultSort={{ column: "name", direction: "ascending" }}
         rowActions={(row) => [
@@ -137,7 +130,7 @@ export function KeyPairsPage() {
             id: "delete",
             label: "Delete key pair",
             tone: "danger",
-            onAction: () => setDeleting([row]),
+            onAction: () => bulk.run("delete", [row]),
           },
         ]}
         batchActions={[
@@ -145,37 +138,17 @@ export function KeyPairsPage() {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (rows) => setDeleting(rows),
+            onAction: (rows) => bulk.run("delete", rows),
           },
         ]}
       />
-      <CreateKeyPairDialog
-        projectId={projectId}
-        isOpen={dialog === "create"}
-        onOpenChange={(open) => !open && setDialog(null)}
-      />
-      <ImportKeyPairDialog
-        projectId={projectId}
-        isOpen={dialog === "import"}
-        onOpenChange={(open) => !open && setDialog(null)}
-      />
-      <ConfirmDialog
-        isOpen={deleting.length > 0}
-        onOpenChange={(open) => !open && setDeleting([])}
-        title={
-          deleting.length === 1
-            ? `Delete key pair ${deleting[0]?.name}?`
-            : `Delete ${deleting.length} key pairs?`
-        }
-        confirmLabel="Delete"
-        isPending={remove.isPending}
-        onConfirm={() => void confirmDelete()}
-      >
-        <p>
-          Instances already launched with the key keep it. You will not be able
-          to launch new instances with it.
-        </p>
-      </ConfirmDialog>
+      {dialog === "create" && (
+        <CreateKeyPairDialog onClose={() => setDialog(null)} />
+      )}
+      {dialog === "import" && (
+        <ImportKeyPairDialog onClose={() => setDialog(null)} />
+      )}
+      {bulk.dialog}
     </>
   );
 }

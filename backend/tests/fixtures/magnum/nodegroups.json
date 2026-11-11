@@ -1,0 +1,20 @@
+[
+  {
+    "uuid": "ng-m",
+    "name": "default-master",
+    "role": "master",
+    "is_default": true
+  },
+  {
+    "uuid": "ng-w",
+    "name": "default-worker",
+    "role": "worker",
+    "is_default": true
+  },
+  {
+    "uuid": "ng-gpu",
+    "name": "gpu",
+    "role": "worker",
+    "is_default": false
+  }
+]

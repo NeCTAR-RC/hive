@@ -1,6 +1,3 @@
-// A file picker in the shape of the design system's fields: label, a
-// "Choose file" button (React Aria's FileTrigger owns the hidden input),
-// the chosen file's name and size, helper text and the validation message.
 import { useId } from "react";
 import { FileTrigger } from "react-aria-components";
 import { Button } from "@ardc-ui/react";
@@ -19,6 +16,13 @@ export interface FileInputProps {
   accept?: string[];
 }
 
+/**
+ * A file picker in the shape of the library's fields: the label with its
+ * helper text beneath, a "Choose file" button (React Aria's `FileTrigger`
+ * owns the hidden input) with the chosen file's name and size, and the
+ * validation message. The library has no file field, so this one copies the
+ * text field's label, helper and error styles from the token bridge.
+ */
 export function FileInput({
   label,
   value,
@@ -47,24 +51,31 @@ export function FileInput({
       aria-labelledby={labelId}
       data-invalid={error ? "true" : undefined}
     >
-      <span id={labelId} className={styles.label}>
-        {label}
-        {isRequired && (
-          <span className={styles.required} aria-hidden="true">
-            {" "}
-            *
+      <div className={styles.header}>
+        <span id={labelId} className={styles.label}>
+          {label}
+          {isRequired && (
+            <span className={styles.required} aria-hidden="true">
+              {" "}
+              *
+            </span>
+          )}
+        </span>
+        {description && (
+          <span id={descriptionId} className={styles.description}>
+            {description}
           </span>
         )}
-      </span>
+      </div>
       <div className={styles.row}>
         <FileTrigger
           onSelect={(files) => onChange(files?.item(0) ?? null)}
-          {...(accept ? { acceptedFileTypes: accept } : {})}
+          acceptedFileTypes={accept}
         >
           <Button
             variant="secondary"
             size="sm"
-            isDisabled={isDisabled ?? false}
+            isDisabled={isDisabled}
             aria-describedby={describedBy}
           >
             {value ? "Choose a different file" : "Choose file"}
@@ -80,17 +91,12 @@ export function FileInput({
             variant="link"
             size="sm"
             onPress={() => onChange(null)}
-            isDisabled={isDisabled ?? false}
+            isDisabled={isDisabled}
           >
             Remove
           </Button>
         )}
       </div>
-      {description && (
-        <span id={descriptionId} className={styles.description}>
-          {description}
-        </span>
-      )}
       {error && (
         <span id={errorId} className={styles.error} role="alert">
           {error}

@@ -1,23 +1,52 @@
-// The launch wizard's form: the schema, its value type and the behaviour
-// shared by the wizard and its step components.
-import { useEffect } from "react";
-import { useWatch } from "react-hook-form";
-import type { useForm } from "react-hook-form";
+// The launch wizard's form: its values and field rules, the extra rules the
+// loaded options add, and the launch request the values become.
 import { z } from "zod";
-import type { LaunchOptions } from "../../../lib/api/types";
-import { typesForZone } from "../../volumes/volumes/rules";
-import { findImage, launchZone, volumeSizeFloor } from "./launch";
+import {
+  keyValueRecord,
+  keyValueSchema,
+} from "../../../components/Form/keyValue";
+import type {
+  LaunchOptions,
+  LaunchRequest,
+} from "../../../lib/api/types/compute";
+import { maxLength } from "../../../lib/validation";
+import {
+  flavorQuotaProblem,
+  instanceQuotaProblem,
+  isSourceOffered,
+  userDataTooLarge,
+  volumeSizeFloor,
+  volumeTypesForZone,
+} from "./launch";
+import { isReservationFlavor, launchZone } from "./launchFlavors";
 
-export const launchSchema = z
+/** The select value for "No key pair" and "No server group". */
+export const NONE = "__none__";
+
+/**
+ * The zone choice that leaves the zone to Nova's scheduler, Horizon's "Any
+ * Availability Zone" (launch-instance-model.service.js).
+ */
+export const ANY_ZONE = "__any__";
+
+/** How the picker and the summary name `ANY_ZONE`, as Horizon does. */
+export const ANY_ZONE_LABEL = "Any availability zone";
+
+/** The volume type choice that leaves the type to Cinder's default. */
+export const DEFAULT_VOLUME_TYPE = "__default__";
+
+/** The zone the form names, or "" for any zone. */
+export function chosenZone(value: string): string {
+  return value === ANY_ZONE ? "" : value;
+}
+
+/** The field rules of every launch, whatever the options offer. */
+export const launchFormSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(1, "Enter an instance name")
-      .max(255, "At most 255 characters"),
-    description: z.string().trim().max(255, "At most 255 characters"),
-    // "" lets the scheduler choose (Horizon's "Any Availability Zone").
-    availability_zone: z.string(),
+    name: maxLength(255).min(1, "Enter an instance name"),
+    description: maxLength(255),
+    // ANY_ZONE leaves the choice to Nova.
+    availability_zone: z.string().min(1, "Choose an availability zone"),
     count: z
       .number({ message: "Enter how many instances to launch" })
       .int()
@@ -25,166 +54,279 @@ export const launchSchema = z
       .max(100, "At most 100"),
     source_type: z.enum(["image", "snapshot", "volume", "volume_snapshot"]),
     source_id: z.string().min(1, "Choose a source"),
-    delete_volume_on_termination: z.boolean(),
-    // Horizon's "Create New Volume" for an image or snapshot source.
     create_volume: z.boolean(),
-    volume_size_gb: z
-      .number({ message: "Enter a volume size" })
-      .int("Whole gigabytes only")
-      .min(1, "At least 1 GB")
-      .optional(),
-    // Not sent: the floor the wizard keeps for the size, so the schema can
-    // check it without reaching for the launch options.
-    volume_size_min_gb: z.number(),
-    // "" means the zone's default volume type.
+    volume_size_gb: z.number().int().optional(),
+    // DEFAULT_VOLUME_TYPE leaves the type to Cinder.
     volume_type: z.string(),
-    // Not sent: the chosen flavour class, kept here so it survives the
-    // step panel being unmounted and mounted again.
+    delete_volume_on_termination: z.boolean(),
+    // Not sent: the flavour class card the user opened, kept in the form so
+    // it survives the flavour step unmounting.
     flavor_class: z.string(),
     flavor_id: z.string().min(1, "Choose a flavour"),
     networks: z.array(z.string()),
     ports: z.array(z.string()),
     security_groups: z.array(z.string()),
     key_name: z.string(),
-    user_data: z.string().max(65535, "User data is limited to 64 KB"),
+    user_data: z.string().refine((script) => !userDataTooLarge(script), {
+      message: "Scripts are limited to 48 KB",
+    }),
     server_group_id: z.string(),
-    metadata: z.array(
-      z.object({
-        key: z.string().trim().min(1, "Enter a key").max(255),
-        value: z.string().max(255),
-      }),
-    ),
+    config_drive: z.boolean(),
+    metadata: keyValueSchema,
   })
   .refine((v) => v.networks.length + v.ports.length > 0, {
     message: "Choose at least one network or port",
     path: ["networks"],
   })
-  .superRefine((v, ctx) => {
-    if (!v.create_volume) return;
-    if (v.volume_size_gb === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["volume_size_gb"],
-        message: "Enter a volume size",
-      });
-    } else if (v.volume_size_gb < v.volume_size_min_gb) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["volume_size_gb"],
-        message: `The volume must be at least ${v.volume_size_min_gb} GB`,
-      });
-    }
+  // Nova gives a port to one instance only, so several instances cannot
+  // share an existing port (Nova refuses the launch).
+  .refine((v) => v.ports.length === 0 || v.count <= 1, {
+    message:
+      "An existing port can serve one instance only. Launch one instance, or choose networks instead.",
+    path: ["ports"],
   });
 
-export type LaunchForm = z.infer<typeof launchSchema>;
+export type LaunchForm = z.infer<typeof launchFormSchema>;
 
-export type LaunchFormApi = ReturnType<typeof useForm<LaunchForm>>;
+/** Whether the source type is copied to a new volume when asked. */
+export function canCreateVolume(type: LaunchForm["source_type"]): boolean {
+  return type === "image" || type === "snapshot";
+}
 
-/**
- * Clear the chosen source whenever the user picks another boot-source type:
- * an image id is not a volume id, and nova rejects the mix. Horizon's
- * source step clears its allocated source on a type change the same way,
- * and resets the new-volume toggle (source.controller.js
- * updateBootSourceSelection). A form reset (the deep link or the Nectar
- * defaults) carries no field name and is left alone.
- */
-export function useSourceTypeReset(form: LaunchFormApi): void {
-  useEffect(() => {
-    const subscription = form.watch((_values, { name }) => {
-      if (name !== "source_type") return;
-      form.setValue("source_id", "", { shouldDirty: true });
-      form.setValue("delete_volume_on_termination", false, {
-        shouldDirty: true,
-      });
-      form.setValue("create_volume", false, { shouldDirty: true });
-      form.setValue("volume_size_gb", undefined, { shouldDirty: true });
-      form.setValue("volume_type", "", { shouldDirty: true });
-      form.clearErrors(["source_id", "volume_size_gb"]);
-    });
-    return () => subscription.unsubscribe();
-  }, [form]);
+/** The chosen image or instance snapshot, if one is chosen. */
+export function chosenImage(
+  options: Pick<LaunchOptions, "images" | "snapshots"> | undefined,
+  values: Pick<LaunchForm, "source_type" | "source_id">,
+) {
+  if (!canCreateVolume(values.source_type)) return undefined;
+  return [...(options?.images ?? []), ...(options?.snapshots ?? [])].find(
+    (image) => image.id === values.source_id,
+  );
 }
 
 /**
- * Keep the new-volume fields consistent with the rest of the form, as
- * Horizon's source step does: the size floor follows the chosen image
- * (source.controller.js checkVolumeForImage) and the flavour's root disk
- * (its flavour watcher), a size below the floor is raised to it, the new
- * volume is turned off when no zone will be sent (Nectar patch 216995ea1)
- * and a volume type the zone does not offer is dropped (the type picker
- * is Hive's own addition).
+ * The zone the launch runs in, as far as the wizard knows: the chosen zone,
+ * or "" for any zone and for a reservation flavour, whose reservation
+ * decides (`launchZone`). Sources, volume types and the new volume follow
+ * it.
  */
-export function useNewVolumeRules(
-  form: LaunchFormApi,
-  data: LaunchOptions | undefined,
-): void {
-  const [
-    sourceType,
-    sourceId,
-    flavorId,
-    createVolume,
-    zone,
-    volumeType,
-    size,
-    floor,
-  ] = useWatch({
-    control: form.control,
-    name: [
-      "source_type",
-      "source_id",
-      "flavor_id",
-      "create_volume",
-      "availability_zone",
-      "volume_type",
-      "volume_size_gb",
-      "volume_size_min_gb",
-    ],
-  });
-  useEffect(() => {
-    if (!data) return;
-    const image = findImage(data, sourceType, sourceId);
-    const flavor = data.flavors?.find((f) => f.id === flavorId);
-    const next = volumeSizeFloor(image, flavor);
-    if (next !== floor) form.setValue("volume_size_min_gb", next);
-    const effective = launchZone(data.flavors, flavorId, zone);
-    if (createVolume && !effective) {
-      // The toggle needs a zone (see the source step); choosing "any" or a
-      // reservation flavour afterwards turns it off.
-      form.setValue("create_volume", false, { shouldDirty: true });
-    } else if (createVolume && (size === undefined || size < next)) {
-      form.setValue("volume_size_gb", next, { shouldDirty: true });
+export function effectiveZone(
+  options: Pick<LaunchOptions, "flavors"> | undefined,
+  values: Pick<LaunchForm, "availability_zone" | "flavor_id">,
+): string {
+  return launchZone(
+    options?.flavors,
+    values.flavor_id,
+    chosenZone(values.availability_zone),
+  );
+}
+
+/**
+ * The volume type to keep in a zone: the chosen one while the zone offers
+ * it, else the default, so a type never outlives the zone that serves it.
+ */
+export function offeredVolumeType(
+  options: Pick<LaunchOptions, "volume_types" | "has_zoned_types">,
+  zone: string,
+  current: string,
+): string {
+  if (current === DEFAULT_VOLUME_TYPE) return current;
+  const offered = volumeTypesForZone(options, zone).some(
+    (t) => t.name === current,
+  );
+  return offered ? current : DEFAULT_VOLUME_TYPE;
+}
+
+/**
+ * The smallest new boot volume for the chosen image and flavour
+ * (`volumeSizeFloor`).
+ */
+export function chosenVolumeFloor(
+  options: Pick<LaunchOptions, "images" | "snapshots" | "flavors"> | undefined,
+  values: Pick<LaunchForm, "source_type" | "source_id" | "flavor_id">,
+): number {
+  return volumeSizeFloor(
+    chosenImage(options, values),
+    options?.flavors?.find((f) => f.id === values.flavor_id),
+  );
+}
+
+/**
+ * The new volume's size raised to the floor, or undefined when the size
+ * already holds it: a new volume starts at the floor and grows with it,
+ * and a larger size the user typed is kept.
+ */
+export function volumeSizeAtFloor(
+  size: number | undefined,
+  floor: number,
+): number | undefined {
+  return size === undefined || size < floor ? floor : undefined;
+}
+
+/**
+ * Why the new boot volume cannot be made, or null when it can. The fork
+ * offers a new volume only once a zone is chosen (Horizon commit 216995ea1,
+ * as backend/hive/nectar/volumes.py checks it); a reservation flavour sends
+ * no zone, so it cannot have one either.
+ */
+function newVolumeZoneProblem(
+  options: LaunchOptions | undefined,
+  values: LaunchForm,
+): string | null {
+  if (effectiveZone(options, values)) return null;
+  return isReservationFlavor(options?.flavors, values.flavor_id)
+    ? "A reservation flavour sets the availability zone, so it cannot boot from a new volume. Turn this off, or choose another flavour."
+    : "Choose an availability zone on the Details step to boot from a new volume";
+}
+
+/**
+ * The launch schema for the loaded options: on top of the field rules, the
+ * chosen source must be one the options offer for the chosen type and
+ * zone, a new boot volume needs a zone, must hold the image and the
+ * flavour's root disk and take a type the zone offers, and the count and
+ * flavour must fit the project's instance, vCPU and RAM quota, so Next and
+ * Launch stop at the field instead of Nova refusing the launch at the end.
+ */
+export function launchSchema(options: LaunchOptions | undefined) {
+  return launchFormSchema.superRefine((values, ctx) => {
+    const zone = effectiveZone(options, values);
+    if (values.create_volume && canCreateVolume(values.source_type)) {
+      const problem = newVolumeZoneProblem(options, values);
+      if (problem) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["create_volume"],
+          message: problem,
+        });
+      }
+      const floor = chosenVolumeFloor(options, values);
+      if (values.volume_size_gb === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["volume_size_gb"],
+          message: "Enter the volume size",
+        });
+      } else if (values.volume_size_gb < floor) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["volume_size_gb"],
+          message: `At least ${floor} GB`,
+        });
+      }
+      // With no zone to judge the type by, the zone problem is the one
+      // error to show.
+      if (
+        options &&
+        !problem &&
+        offeredVolumeType(options, zone, values.volume_type) !==
+          values.volume_type
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["volume_type"],
+          message: "Choose one of the listed volume types",
+        });
+      }
+    }
+    const instances = instanceQuotaProblem(options?.limits, values.count);
+    if (instances) {
+      ctx.addIssue({ code: "custom", path: ["count"], message: instances });
+    }
+    const flavor = options?.flavors?.find((f) => f.id === values.flavor_id);
+    const resources =
+      flavor && flavorQuotaProblem(options?.limits, flavor, values.count);
+    if (resources) {
+      ctx.addIssue({ code: "custom", path: ["flavor_id"], message: resources });
     }
     if (
-      volumeType &&
-      !typesForZone(data, effective).some((t) => t.name === volumeType)
+      options &&
+      values.source_id &&
+      !isSourceOffered(options, values.source_type, zone, values.source_id)
     ) {
-      form.setValue("volume_type", "");
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_id"],
+        message: "Choose one of the listed sources",
+      });
     }
-  }, [
-    data,
-    form,
-    sourceType,
-    sourceId,
-    flavorId,
-    createVolume,
-    zone,
-    volumeType,
-    size,
-    floor,
-  ]);
+  });
 }
 
-/** Focus the checked control in a group, else its first enabled one. */
-export function focusTarget(container: HTMLElement | null) {
-  if (!container) return null;
+/**
+ * The new boot volume as the summary names it ("New 40 GB volume
+ * (qh2-ssd), deleted with the instance"), or "" when there is none. The
+ * values are the summary's partial watch, so any field may be missing.
+ */
+export function newVolumeSummary(
+  values: Partial<
+    Pick<
+      LaunchForm,
+      | "create_volume"
+      | "source_type"
+      | "volume_size_gb"
+      | "volume_type"
+      | "delete_volume_on_termination"
+    >
+  >,
+): string {
+  if (!values.create_volume || !values.source_type) return "";
+  if (!canCreateVolume(values.source_type)) return "";
+  const type =
+    values.volume_type && values.volume_type !== DEFAULT_VOLUME_TYPE
+      ? ` (${values.volume_type})`
+      : "";
+  const deleted = values.delete_volume_on_termination
+    ? ", deleted with the instance"
+    : "";
+  return `New ${values.volume_size_gb ?? "?"} GB volume${type}${deleted}`;
+}
+
+/**
+ * The launch request for validated form values. An empty or "none" choice
+ * is sent as null ("Any availability zone", a reservation flavour's zone
+ * and the default volume type too), and the metadata rows as an object. A
+ * new boot volume is sent only for an image or instance snapshot.
+ */
+export function launchRequest(
+  values: LaunchForm,
+  options: Pick<LaunchOptions, "flavors"> | undefined,
+): LaunchRequest {
+  const newVolume =
+    values.create_volume &&
+    canCreateVolume(values.source_type) &&
+    values.volume_size_gb !== undefined;
+  const bootsFromVolume = newVolume || !canCreateVolume(values.source_type);
   return {
-    focus: () => {
-      const target =
-        container.querySelector<HTMLElement>("input:checked") ??
-        container.querySelector<HTMLElement>(
-          'input:not(:disabled), [role="row"][aria-selected], tbody [role="row"]:not([aria-disabled="true"])',
-        );
-      target?.focus();
-    },
+    name: values.name,
+    count: values.count,
+    source: { type: values.source_type, id: values.source_id },
+    flavor_id: values.flavor_id,
+    availability_zone: effectiveZone(options, values) || null,
+    networks: values.networks,
+    ports: values.ports,
+    security_groups: values.security_groups,
+    key_name:
+      values.key_name && values.key_name !== NONE ? values.key_name : null,
+    user_data: values.user_data || null,
+    metadata: keyValueRecord(values.metadata),
+    description: values.description || null,
+    server_group_id:
+      values.server_group_id && values.server_group_id !== NONE
+        ? values.server_group_id
+        : null,
+    // Only a volume the instance boots from can go with it.
+    delete_volume_on_termination:
+      bootsFromVolume && values.delete_volume_on_termination,
+    config_drive: values.config_drive,
+    ...(newVolume
+      ? {
+          create_volume: true,
+          volume_size_gb: values.volume_size_gb,
+          volume_type:
+            values.volume_type === DEFAULT_VOLUME_TYPE
+              ? null
+              : values.volume_type,
+        }
+      : {}),
   };
 }

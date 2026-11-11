@@ -1,121 +1,99 @@
-// Router row actions behind one hook, as useVolumeActions.
+// Every router action behind one hook: `run(action, routers)` deletes or
+// clears the gateway of the batch after asking, or opens the form dialog
+// the action needs. The hook returns the dialogs to render and the props
+// for the table that lists the routers.
 import { useState, type ReactNode } from "react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import type { Router } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useClearGateway, useDeleteRouters } from "../api";
-import type { RouterActionId } from "../status";
-import { EditRouterDialog, SetGatewayDialog } from "./RouterDialogs";
+import { DELETE, type Verb } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { allows } from "../../../lib/actions";
+import type { Router } from "../../../lib/api/types/network";
+import { clearGateway, deleteRouter, routerWriteKeys } from "../api";
+import { availableRouterActions, type RouterActionId } from "../status";
+import { EditRouterDialog } from "./dialogs/EditRouterDialog";
+import { SetGatewayDialog } from "./dialogs/SetGatewayDialog";
 
-type Dialog =
-  | { kind: "delete"; routers: Router[] }
-  | { kind: "clear-gateway" | "edit" | "set-gateway"; router: Router }
-  | null;
+/** Worded so the toast reads "Cleared the gateway of router web." */
+const CLEAR_GATEWAY: Verb = {
+  label: "Clear gateway",
+  done: "Cleared the gateway of",
+  failed: "clear the gateway of",
+};
 
-export function useRouterActions(
-  projectId: string,
-  onDeleted?: () => void,
-): {
-  run: (router: Router, action: RouterActionId) => void;
-  runDelete: (routers: Router[]) => void;
-  dialogs: ReactNode;
-} {
-  const remove = useDeleteRouters(projectId);
-  const clearGateway = useClearGateway(projectId);
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const close = () => setDialog(null);
+/** The actions that open a form for one router. */
+type DialogActionId = Exclude<RouterActionId, "delete" | "clear-gateway">;
 
-  const run = (router: Router, action: RouterActionId) => {
-    if (action === "delete") setDialog({ kind: "delete", routers: [router] });
-    else setDialog({ kind: action, router });
+/**
+ * Every router action. `onDeleted` runs after a delete that removed at
+ * least one router (a detail page leaves for the list).
+ */
+export function useRouterActions(onDeleted?: () => void) {
+  const [dialog, setDialog] = useState<{
+    kind: DialogActionId;
+    router: Router;
+  } | null>(null);
+  const bulk = useBulkAction<Router, "delete" | "clear-gateway">({
+    noun: { one: "router", many: "routers" },
+    name: (router) => router.name,
+    getId: (router) => router.id,
+    invalidates: routerWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        request: (router) => deleteRouter(router.id),
+        body: (
+          <p>
+            The router's interfaces are detached first. Subnets behind it lose
+            their route to the outside and any floating IPs on them stop
+            working.
+          </p>
+        ),
+        onSucceeded: () => onDeleted?.(),
+      },
+      "clear-gateway": {
+        verb: CLEAR_GATEWAY,
+        request: (router) => clearGateway(router.id),
+        eligible: (router) =>
+          allows(availableRouterActions(router), "clear-gateway"),
+        skippedWhy: "they have no gateway",
+        title: (routers) =>
+          routers.length === 1
+            ? `Clear the gateway of ${routers[0]?.name}?`
+            : `Clear the gateway of ${routers.length} routers?`,
+        body: (
+          <p>
+            You can set a gateway again later, but the router's external address
+            may change. A gateway still used by floating IPs cannot be cleared.
+          </p>
+        ),
+      },
+    },
+  });
+
+  const run = (action: RouterActionId, routers: Router[]) => {
+    const [first] = routers;
+    if (action === "delete" || action === "clear-gateway") {
+      bulk.run(action, routers);
+    } else if (first) {
+      setDialog({ kind: action, router: first });
+    }
   };
 
-  let dialogs: ReactNode = null;
-  if (dialog?.kind === "delete") {
-    const { routers } = dialog;
-    dialogs = (
-      <ConfirmDialog
-        isOpen
-        onOpenChange={(open) => !open && close()}
-        title={
-          routers.length === 1
-            ? `Delete router ${routers[0]?.name}?`
-            : `Delete ${routers.length} routers?`
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        isPending={remove.isPending}
-        error={remove.error}
-        onConfirm={() =>
-          remove.mutate(
-            routers.map((r) => r.id),
-            {
-              onSuccess: () => {
-                notify.success(
-                  routers.length === 1
-                    ? `Deleted router ${routers[0]?.name}.`
-                    : `Deleted ${routers.length} routers.`,
-                );
-                close();
-                onDeleted?.();
-              },
-            },
-          )
-        }
-      >
-        <p>
-          The router's interfaces are detached first. Subnets behind it lose
-          their route to the outside and any floating IPs on them stop working.
-        </p>
-      </ConfirmDialog>
-    );
-  } else if (dialog?.kind === "clear-gateway") {
-    const { router } = dialog;
-    dialogs = (
-      <ConfirmDialog
-        isOpen
-        onOpenChange={(open) => !open && close()}
-        title={`Clear the gateway of ${router.name}?`}
-        confirmLabel="Clear gateway"
-        tone="danger"
-        isPending={clearGateway.isPending}
-        error={clearGateway.error}
-        onConfirm={() =>
-          clearGateway.mutate(router.id, {
-            onSuccess: () => {
-              notify.success(`Cleared the gateway of router ${router.name}.`);
-              close();
-            },
-          })
-        }
-      >
-        <p>
-          You can set a gateway again later, but the router's external address
-          may change. A gateway still used by floating IPs cannot be cleared.
-        </p>
-      </ConfirmDialog>
-    );
-  } else if (dialog?.kind === "edit") {
-    dialogs = (
-      <EditRouterDialog
-        projectId={projectId}
-        router={dialog.router}
-        onClose={close}
-      />
-    );
+  const close = () => setDialog(null);
+  let formDialog: ReactNode = null;
+  if (dialog?.kind === "edit") {
+    formDialog = <EditRouterDialog router={dialog.router} onClose={close} />;
   } else if (dialog?.kind === "set-gateway") {
-    dialogs = (
-      <SetGatewayDialog
-        projectId={projectId}
-        router={dialog.router}
-        onClose={close}
-      />
-    );
+    formDialog = <SetGatewayDialog router={dialog.router} onClose={close} />;
   }
 
   return {
     run,
-    runDelete: (routers) => setDialog({ kind: "delete", routers }),
-    dialogs,
+    dialogs: (
+      <>
+        {formDialog}
+        {bulk.dialog}
+      </>
+    ),
+    tableProps: bulk.tableProps,
   };
 }

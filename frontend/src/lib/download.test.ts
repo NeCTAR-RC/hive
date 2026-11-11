@@ -1,13 +1,26 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { downloadText, downloadUrl } from "./download";
 
-describe("download helpers", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
+/** The anchors the helpers click, in order. */
+let clicks: HTMLAnchorElement[] = [];
 
-  it("saves text through a temporary object URL", async () => {
+beforeEach(() => {
+  clicks = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    clicks.push(this);
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("downloadText", () => {
+  it("saves text through a temporary object URL, released afterwards", async () => {
     vi.useFakeTimers();
     const created: Blob[] = [];
     const createObjectURL = vi.fn((blob: Blob) => {
@@ -15,13 +28,11 @@ describe("download helpers", () => {
       return "blob:hive/1";
     });
     const revokeObjectURL = vi.fn();
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
-    const clicks: HTMLAnchorElement[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      clicks.push(this);
-    });
+    // jsdom has no object URLs; a URL class with the two statics stands in.
+    vi.stubGlobal(
+      "URL",
+      Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL }),
+    );
 
     downloadText("key.pem", "PRIVATE", "application/x-pem-file");
 
@@ -35,21 +46,17 @@ describe("download helpers", () => {
     vi.advanceTimersByTime(1000);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:hive/1");
   });
+});
 
-  it("saves a same-origin URL with an optional filename", () => {
-    const clicks: HTMLAnchorElement[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      clicks.push(this);
-    });
+describe("downloadUrl", () => {
+  it("saves a same-origin URL, with a filename when one is given", () => {
     downloadUrl("/api/reservations/r1/calendar.ics", "r1.ics");
     downloadUrl("/api/api-access/openrc");
-    expect(clicks.map((a) => a.getAttribute("href"))).toEqual([
+    expect(clicks.map((anchor) => anchor.getAttribute("href"))).toEqual([
       "/api/reservations/r1/calendar.ics",
       "/api/api-access/openrc",
     ]);
-    expect(clicks.map((a) => a.download)).toEqual(["r1.ics", ""]);
-    expect(clicks.every((a) => !a.isConnected)).toBe(true);
+    expect(clicks.map((anchor) => anchor.download)).toEqual(["r1.ics", ""]);
+    expect(clicks.every((anchor) => !anchor.isConnected)).toBe(true);
   });
 });

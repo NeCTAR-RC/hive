@@ -1,0 +1,28 @@
+{
+  "swift": {
+    "max_file_size": 5368709120,
+    "container_listing_limit": 10000,
+    "policies": [
+      {
+        "default": true,
+        "name": "default-placement"
+      }
+    ],
+    "strict_cors_mode": true
+  },
+  "tempurl": {
+    "methods": [
+      "GET",
+      "HEAD",
+      "PUT",
+      "POST",
+      "DELETE"
+    ]
+  },
+  "slo": {
+    "max_manifest_segments": 1000
+  },
+  "bulk_delete": {
+    "max_deletes_per_request": 1000
+  }
+}

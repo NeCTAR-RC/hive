@@ -1,0 +1,11 @@
+---
+other:
+  - |
+    The frontend now guards its design-system conformance: the design token
+    check fails on rem and em lengths and on typography literals,
+    uppercase text, selectors into library class names and className
+    overrides on library components; stylelint forbids :hover and
+    :focus-visible in CSS modules; and a Playwright spec captures eight
+    representative views (pages, the shell and a dialog) for desktop and
+    mobile Chrome and attaches the pictures to the test report for a
+    reviewer's eye. No screenshots are kept in the repository.

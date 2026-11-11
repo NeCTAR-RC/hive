@@ -1,0 +1,290 @@
+{
+  "nova/server": [
+    "description",
+    "fault",
+    "flavor.extra_specs.aggregate_instance_extra_specs:reservation",
+    "flavor.extra_specs.flavor_class:name",
+    "flavor.id",
+    "flavor.name",
+    "flavor.os-flavor-access:is_public",
+    "hostId",
+    "progress",
+    "server_groups"
+  ],
+  "nova/flavors": [
+    "ephemeral",
+    "extra_specs.aggregate_instance_extra_specs:reservation",
+    "swap"
+  ],
+  "glance/images": [
+    "checksum",
+    "container_format",
+    "created_at",
+    "disk_format",
+    "image_type",
+    "min_disk",
+    "min_ram",
+    "os_version",
+    "protected",
+    "size",
+    "tags",
+    "updated_at"
+  ],
+  "cinder/volumes": [
+    "group_id",
+    "multiattach",
+    "snapshot_id",
+    "source_volid",
+    "updated_at"
+  ],
+  "cinder/snapshots": [
+    "created_at",
+    "description",
+    "group_snapshot_id",
+    "metadata",
+    "updated_at"
+  ],
+  "cinder/backups": [
+    "created_at",
+    "data_timestamp",
+    "description",
+    "fail_reason",
+    "has_dependent_backups",
+    "updated_at"
+  ],
+  "cinder/types": [
+    "description",
+    "is_public",
+    "os-volume-type-access:is_public"
+  ],
+  "neutron/subnets": [
+    "created_at",
+    "ipv6_address_mode",
+    "ipv6_ra_mode",
+    "project_id",
+    "subnetpool_id",
+    "tenant_id",
+    "updated_at"
+  ],
+  "neutron/router": [
+    "availability_zones",
+    "created_at",
+    "description",
+    "updated_at"
+  ],
+  "neutron/vm_port": [
+    "allowed_address_pairs",
+    "binding:vnic_type",
+    "created_at",
+    "description",
+    "trunk_details",
+    "updated_at"
+  ],
+  "neutron/fips": [
+    "created_at",
+    "dns_domain",
+    "dns_name",
+    "updated_at"
+  ],
+  "octavia/load_balancer": [
+    "availability_zone",
+    "created_at",
+    "description",
+    "flavor_id",
+    "updated_at"
+  ],
+  "octavia/listener": [
+    "allowed_cidrs",
+    "connection_limit",
+    "created_at",
+    "default_tls_container_ref",
+    "description",
+    "insert_headers",
+    "sni_container_refs",
+    "timeout_client_data",
+    "timeout_member_connect",
+    "timeout_member_data",
+    "timeout_tcp_inspect",
+    "tls_ciphers",
+    "updated_at"
+  ],
+  "octavia/pool": [
+    "created_at",
+    "description",
+    "session_persistence",
+    "tls_ciphers",
+    "tls_enabled",
+    "updated_at"
+  ],
+  "octavia/member": [
+    "backup",
+    "created_at",
+    "monitor_address",
+    "monitor_port",
+    "name",
+    "updated_at"
+  ],
+  "octavia/monitor": [
+    "admin_state_up",
+    "created_at",
+    "max_retries_down",
+    "name",
+    "operating_status",
+    "updated_at"
+  ],
+  "octavia/policy": [
+    "admin_state_up",
+    "created_at",
+    "description",
+    "name",
+    "operating_status",
+    "redirect_pool_id",
+    "redirect_prefix",
+    "redirect_url",
+    "updated_at"
+  ],
+  "designate/zone": [
+    "created_at",
+    "description",
+    "masters",
+    "shared",
+    "updated_at"
+  ],
+  "designate/recordsets": [
+    "action",
+    "created_at",
+    "description",
+    "updated_at"
+  ],
+  "magnum/template": [
+    "cluster_distro",
+    "created_at",
+    "dns_nameserver",
+    "docker_storage_driver",
+    "docker_volume_size",
+    "external_network_id",
+    "fixed_network",
+    "fixed_subnet",
+    "floating_ip_enabled",
+    "keypair_id",
+    "registry_enabled",
+    "server_type",
+    "updated_at",
+    "volume_driver"
+  ],
+  "magnum/cluster": [
+    "create_timeout",
+    "created_at",
+    "flavor_id",
+    "health_status_reason",
+    "keypair",
+    "master_addresses",
+    "master_flavor_id",
+    "node_addresses",
+    "stack_id",
+    "status_reason",
+    "updated_at"
+  ],
+  "magnum/nodegroups": [
+    "created_at",
+    "flavor_id",
+    "image_id",
+    "labels",
+    "max_node_count",
+    "min_node_count",
+    "node_addresses",
+    "node_count",
+    "node_labels",
+    "node_taints",
+    "status",
+    "status_reason",
+    "updated_at"
+  ],
+  "heat/stack": [
+    "deletion_time",
+    "description",
+    "parent",
+    "stack_owner",
+    "updated_time"
+  ],
+  "manila/share": [
+    "created_at",
+    "description",
+    "share_group_id",
+    "snapshot_id"
+  ],
+  "manila/snapshot": [
+    "description",
+    "share_proto",
+    "share_size"
+  ],
+  "manila/service": [
+    "created_at",
+    "description",
+    "ou",
+    "status",
+    "user"
+  ],
+  "manila/group": [
+    "availability_zone",
+    "consistent_snapshot_support",
+    "created_at",
+    "description",
+    "source_share_group_snapshot_id"
+  ],
+  "manila/group_snapshot": [
+    "created_at",
+    "description",
+    "members"
+  ],
+  "trove/instance": [
+    "access.is_public",
+    "availability_zone",
+    "configuration",
+    "fault",
+    "hostname",
+    "operating_status",
+    "region",
+    "replica_of",
+    "replicas",
+    "service_status_updated",
+    "updated"
+  ],
+  "trove/backup": [
+    "description",
+    "parent_id",
+    "size",
+    "updated"
+  ],
+  "trove/config": [
+    "created",
+    "description",
+    "updated"
+  ],
+  "trove/flavors": [
+    "disk",
+    "ephemeral"
+  ],
+  "langstroth/outage": [
+    "cancelled",
+    "description"
+  ],
+  "warre/flavor": [
+    "end",
+    "start"
+  ],
+  "allocations/allocation": [
+    "allocation_home_display",
+    "managed",
+    "national",
+    "project_description",
+    "status_display"
+  ],
+  "manuka/user": [
+    "expiry_next_step",
+    "expiry_status",
+    "last_login",
+    "registered_at",
+    "terms_accepted_at"
+  ]
+}

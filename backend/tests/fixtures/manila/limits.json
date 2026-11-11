@@ -1,0 +1,10 @@
+{
+  "maxTotalShares": 10,
+  "totalSharesUsed": 2,
+  "maxTotalShareGigabytes": 100,
+  "totalShareGigabytesUsed": 10,
+  "maxTotalShareSnapshots": 10,
+  "totalShareSnapshotsUsed": 1,
+  "maxTotalSnapshotGigabytes": 100,
+  "totalSnapshotGigabytesUsed": 5
+}

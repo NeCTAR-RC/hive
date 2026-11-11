@@ -1,0 +1,266 @@
+@use "mixins" as *;
+
+/// The desktop header ("Nav with Mega Menu", services-headers spec line 181)
+/// under the agency mega menu's strip, which stands for the spec's band:
+/// white, in flow with the page, above the scrolling columns. It needs no
+/// rule along its foot: the grey canvas below it marks its end (Darcelle, 22
+/// Oct 2026; the spec draws the header on its own, with no page under it).
+.header {
+  background: var(--hive-color-surface);
+}
+
+/// The 100px row ("Main Nav", line 325) across the content width: the brand
+/// at the start, centred in the row; the items at the end, standing on the
+/// row's foot so their hover rule meets the header's bottom edge (the items
+/// are drawn bottom-aligned at top 40px in the 100px row). The CTA slot the
+/// spec draws after the items holds "Log in" without a session and stays
+/// empty with one (gap "Service header: account menu and CTA slot").
+.row {
+  @include content-container;
+
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hive-header-nav-gap);
+  height: var(--hive-header-row-height);
+}
+
+/// Logo, then the product name 24px after it ("Frame 1307", line 558; the
+/// gap is the Nectar logo's, own decision).
+.brand {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--hive-header-brand-gap);
+  min-width: 0;
+  margin-inline-end: auto;
+  color: var(--hive-color-gray-900);
+  text-decoration: none;
+  border-radius: var(--hive-radius);
+  outline: none;
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+/// The Nectar logo, 47px high at every width with its width following its
+/// proportions (the spec draws the ARDC mark at 146x47, line 575, and 141x45
+/// on the Mobile frame, line 5690; own decision, as the logo is another).
+.logo {
+  display: block;
+  flex: none;
+  width: auto;
+  height: var(--hive-header-logo-height);
+}
+
+/// The product name (line 636): Figtree 16/18 regular, Grey-900, in a 100px
+/// box, so "Nectar Dashboard" takes two lines beside the logo (own decision).
+/// Mobile: 14/18 (line 5751) in the room left beside the logo, up to the
+/// same box.
+.title {
+  min-width: 0;
+  max-width: var(--hive-header-title-width);
+  font: var(--hive-text-header-title);
+
+  .brand[data-compact] & {
+    font-size: var(--hive-font-size-sm);
+  }
+}
+
+/// The navigation landmark at the row's end ("Main Nav", line 325).
+.nav {
+  display: flex;
+}
+
+/// The items 32px apart (the 1280 and 1024 sets).
+.items {
+  display: flex;
+  gap: var(--hive-header-nav-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/// One navigation item ("Nav Service Menu", Breakpoint=Desktop cells, lines
+/// 5766 to 5923): Body/16/Regular Grey-700, 20px above and below, 8px to the
+/// chevron. Hover (and an open dropdown): Grey-900 over a 4px Purple-500 rule
+/// drawn inside the item, so the label does not move. Focused: the same, in a
+/// 1.5px Purple-500 ring 4px out with a 4px radius (Frame 123). The rule is
+/// a pseudo-element rather than an inset shadow or a border, which the
+/// item's 4px radius (there for the focus ring) would round at both ends;
+/// the spec's rule is square.
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--hive-header-item-gap);
+  padding: var(--hive-header-item-padding-y) 0;
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
+  text-decoration: none;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  border-radius: var(--hive-radius);
+  outline: none;
+  cursor: pointer;
+
+  &[data-hovered],
+  &[data-focus-visible],
+  &[aria-expanded="true"] {
+    color: var(--hive-color-gray-900);
+
+    &::after {
+      position: absolute;
+      inset: auto 0 0;
+      height: var(--hive-header-item-underline);
+      content: "";
+      background: var(--hive-color-brand-purple);
+    }
+  }
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+/// Where the row runs short (from 1024px up to about 1200px), the account
+/// trigger gives way rather than the navigation: the name is cut shorter
+/// (own decision).
+.row > .item {
+  min-width: 0;
+}
+
+/// The call to action after the items ("Buttons_Chevron_Light BG", line
+/// 508), shown to a visitor without a session: the library primary link in
+/// its navigation tone (Purple-500, white Body/16/Bold) at its small size,
+/// which is the drawn 40px button with 8px and 24px padding, its foot 10px
+/// above the header's.
+.cta {
+  flex: none;
+  margin-block-end: var(--hive-header-cta-offset);
+}
+
+/// The account name is cut short with an ellipsis only once the row runs
+/// out of room (own decision); at full width the whole name shows, as
+/// Horizon shows it.
+.itemLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/// The dropdown chevron ("Vector", 4.98x8 turned 90deg, Grey-700 in every
+/// state): the library ChevronDown, which is that glyph already turned.
+.itemChevron {
+  flex: none;
+  width: var(--hive-header-item-chevron-width);
+  color: var(--hive-color-gray-700);
+}
+
+/// The dropdown panel ("Frame 1336", line 1345): 335px, white, 8px padding,
+/// 4px radius. The spec draws it on a grey canvas with no edge; on Hive's
+/// white page it takes the library menu's Grey-100 rule and shadow (own
+/// decision).
+.menu {
+  box-sizing: border-box;
+  width: var(--hive-header-menu-width);
+  padding: var(--hive-header-menu-padding);
+  background: var(--hive-color-surface);
+  border: var(--hive-border-width) solid var(--hive-color-rule);
+  border-radius: var(--hive-radius);
+  box-shadow: var(--hive-shadow-menu);
+}
+
+/// The panel's list draws no ring of its own: keyboard focus shows on the
+/// row (see `.menuRow`).
+.menuList {
+  outline: none;
+}
+
+/// One row ("Mega Menu Nav Links", Frame 1295 and 1296, lines 14 to 170):
+/// 16px padding, Body/16/Regular Grey-900. Hover and keyboard highlight:
+/// Grey-50 with a 4px radius, the 20px chevron shown at the row's end.
+/// Keyboard focus adds the library menu row's ring, drawn just inside the
+/// row.
+.menuRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-1);
+  padding: var(--hive-header-menu-row-padding);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-900);
+  text-decoration: none;
+  border-radius: var(--hive-radius);
+  outline: none;
+  cursor: pointer;
+
+  &[data-focused],
+  &[data-hovered] {
+    background: var(--hive-color-gray-50);
+  }
+
+  &[data-focus-visible] {
+    outline: var(--hive-focus-ring);
+    outline-offset: calc(-1 * var(--hive-focus-ring-width));
+  }
+}
+
+/// "Icon/Chevron Right" (line 1480): a 20px frame holding the 9.38px
+/// Purple-500 glyph, hidden at rest.
+.menuChevron {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--hive-header-menu-chevron-frame);
+  height: var(--hive-header-menu-chevron-frame);
+  color: var(--hive-color-brand-purple);
+  visibility: hidden;
+
+  > svg {
+    height: var(--hive-header-menu-chevron-height);
+  }
+
+  .menuRow[data-focused] &,
+  .menuRow[data-hovered] & {
+    visibility: visible;
+  }
+}
+
+/// The Mobile frame's bar ("Frame 1330", line 5480): 71px, the brand at the
+/// start and the navigation button at the end, 16px in from either edge
+/// ("Icon/List" right 16px; "Frame 1329" left 16px).
+.mobileBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-4);
+  min-height: var(--hive-header-bar-height-mobile);
+  padding-inline: var(--hive-header-bar-padding-x-mobile);
+  background: var(--hive-color-surface);
+}
+
+/// The navigation button: the 24px "Icon/List" in Grey-900, with the
+/// library's focus ring.
+.navButton {
+  display: flex;
+  flex: none;
+  padding: 0;
+  color: var(--hive-color-gray-900);
+  background: none;
+  border: 0;
+  border-radius: var(--hive-radius);
+  outline: none;
+  cursor: pointer;
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+/// The 24px "Icon/List" glyph (Mobile frame, line 5489).
+.listIcon {
+  width: var(--hive-header-list-icon-size);
+  height: var(--hive-header-list-icon-size);
+}

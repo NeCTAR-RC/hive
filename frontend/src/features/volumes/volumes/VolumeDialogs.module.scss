@@ -1,59 +1,67 @@
+@use "mixins" as *;
+
+/// The quota meters inside their grey `Card`, 16px apart (DERIVED-SPACING,
+/// inter-field row gap).
 .quota {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-3);
-  background: var(--hive-color-page);
-  border-radius: var(--hive-radius);
+  gap: var(--hive-space-4);
 }
 
-.attachments {
+/// The attachments dialog's groups (what the volume is attached to, the
+/// attach form) 24px apart, without rules (DERIVED-SPACING, fieldset to
+/// fieldset).
+.groups {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
+  gap: var(--hive-space-6);
 }
 
+/// One group: its heading, then its content 16px apart (DERIVED-SPACING,
+/// inter-field row gap).
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+}
+
+/// A group's heading in Heading/H5 Grey-900 (typography spec).
 .subheading {
-  margin: 0;
-  font-size: var(--hive-font-size-base);
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
 }
 
+/// The attachments, each a grey `Card`, 12px apart (library
+/// `content-block-card-column`).
 .attachmentList {
-  list-style: none;
+  @include content-block-card-column;
+
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-
-  li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--hive-space-2);
-    padding: var(--hive-space-2) var(--hive-space-3);
-    border: var(--hive-border-width) solid var(--hive-color-rule);
-    border-radius: var(--hive-radius);
-  }
+  list-style: none;
 }
 
+/// Inside an attachment's card: its label and its detach control at either
+/// end, 12px apart when they wrap.
+.attachment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-3);
+}
+
+/// "Detach?" and its two buttons in a row, 12px apart (content blocks
+/// "Frame 1400"); an inline confirmation (gap "Inline confirmation").
 .confirmDetach {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--hive-space-2);
-}
-
-.attachForm {
-  display: flex;
-  flex-direction: column;
   gap: var(--hive-space-3);
-  padding-top: var(--hive-space-2);
-  border-top: var(--hive-border-width) solid var(--hive-color-rule);
 }
 
+/// Notes in the dialog: Body/14 Grey-500, the library field helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }

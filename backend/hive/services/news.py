@@ -5,11 +5,11 @@ from html.parser import HTMLParser
 from defusedxml import ElementTree
 import httpx
 
-from hive.cache.redis import Cache, CacheResult
+from hive.cache import policy
+from hive.cache.redis import CacheResult
 from hive.errors import UpstreamError, UpstreamTimeout
+from hive.services.context import Context
 
-TTL = 3600
-STALE_TTL = 86400
 MAX_ITEMS = 10
 NS = {
     "media": "http://search.yahoo.com/mrss/",
@@ -63,12 +63,14 @@ def parse_feed(xml: bytes | str) -> list[dict]:
     return items
 
 
-async def ardc_news(
-    http: httpx.AsyncClient, cache: Cache, url: str
-) -> CacheResult:
+async def ardc_news(ctx: Context) -> CacheResult:
+    """The ARDC news feed (``HIVE_RSS_URL``), shared by every user."""
+
     async def fetch():
         try:
-            resp = await http.get(url, timeout=httpx.Timeout(10.0))
+            resp = await ctx.http.get(
+                ctx.settings.rss_url, timeout=httpx.Timeout(10.0)
+            )
         except httpx.TimeoutException as exc:
             raise UpstreamTimeout(
                 "news feed timed out", service="rss"
@@ -90,10 +92,4 @@ async def ardc_news(
                 "news feed is not valid XML", service="rss"
             ) from exc
 
-    return await cache.get_or_fetch(
-        cache.global_key("news", "ardc"),
-        fetch,
-        ttl=TTL,
-        stale_ttl=STALE_TTL,
-        name="news",
-    )
+    return await ctx.cached(policy.NEWS, fetch)

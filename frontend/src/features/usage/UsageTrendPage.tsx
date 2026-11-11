@@ -2,68 +2,61 @@
 // service, by instance, per day, and per instance in a table.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { parseDate } from "@internationalized/date";
-import {
-  Alert,
-  DateRangePicker,
-  Label,
-  ToggleButtonGroup,
-  ToggleButtonGroupItem,
-} from "@ardc-ui/react";
+import { getRouteApi } from "@tanstack/react-router";
+import { Alert, Button } from "@ardc-ui/react";
 import { BarList } from "../../components/Charts/BarList";
 import { ChartFigure } from "../../components/Charts/ChartFigure";
 import { LazyDailyLineChart } from "../../components/Charts/LazyDailyLineChart";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../components/DataTable/DataTable";
+import { DataTable } from "../../components/DataTable/DataTable";
+import { useQueryTable } from "../../components/DataTable/useQueryTable";
 import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { Panel } from "../../components/Panel/Panel";
 import { Skeleton, SkeletonLines } from "../../components/Skeleton/Skeleton";
-import type { UsageInstance } from "../../lib/api/types";
-import {
-  formatCalendarDate,
-  formatDate,
-  formatNumber,
-  formatSu,
-} from "../../lib/format";
+import { downloadText } from "../../lib/download";
+import { formatCalendarDate, formatNumber, formatSu } from "../../lib/format";
+import { useProjectId } from "../../lib/hooks/useProjectId";
 import { allocationQuery, meQuery, usageQuery } from "../../lib/queries";
-import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
-import { usageTrendRoute } from "../../app/router";
 import { dailyPoints, peak } from "../compute/overview/usage";
 import { usageInstancesQuery, usageOptionsQuery } from "./api";
+import { usageCsv, usageCsvName } from "./csv";
+import { RangeControls } from "./RangeControls";
 import {
-  activePreset,
   dailyGuide,
-  daysAgo,
-  isoDate,
+  localToday,
   mostUsedItems,
-  PRESETS,
   resolveRange,
   typeItems,
 } from "./transform";
+import { usageInstanceColumns } from "./usageInstanceColumns";
 import styles from "./UsageTrendPage.module.scss";
+
+const usageTrendRoute = getRouteApi("/app/usage/trend");
 
 const TREND_COLUMNS = [
   { id: "date", label: "Date" },
   { id: "value", label: "Service units", numeric: true },
 ];
 
+/**
+ * The project's service unit use over a chosen range: the total, the split
+ * by service and by instance, the daily line against the allocation's
+ * daily guide, and a table of every instance that ran, which downloads as
+ * CSV. The range lives in the URL search.
+ */
 export function UsageTrendPage() {
   const projectId = useProjectId();
   const { data: me } = useQuery(meQuery);
   const search = usageTrendRoute.useSearch();
-  const navigate = useNavigate({ from: usageTrendRoute.fullPath });
+  const navigate = usageTrendRoute.useNavigate();
   const options = useQuery(usageOptionsQuery);
   const dataFrom = options.data?.data_from ?? "2022-01-01";
+  const today = localToday();
   const range = useMemo(
-    () => resolveRange(search, dataFrom),
-    [search, dataFrom],
+    () => resolveRange(search, dataFrom, today),
+    [search, dataFrom, today],
   );
   const { begin, end } = range;
-  const preset = activePreset(begin, end, dataFrom);
 
   const instances = useQuery(usageInstancesQuery(projectId, begin, end));
   const byType = useQuery(
@@ -91,121 +84,35 @@ export function UsageTrendPage() {
     value: formatNumber(point.value),
   }));
 
-  const columns = useMemo<ColumnDef<UsageInstance>[]>(
-    () => [
-      {
-        id: "name",
-        label: "Instance",
-        isRowHeader: true,
-        cell: (row) => (
-          <span>
-            {row.name}
-            {row.display_name && (
-              <span className={styles.muted}>
-                {" "}
-                <code>{row.id}</code>
-              </span>
-            )}
-          </span>
-        ),
-        sortValue: (row) => row.name,
-        textValue: (row) => `${row.name} ${row.id}`,
-      },
-      {
-        id: "started",
-        label: "Started",
-        cell: (row) => formatDate(row.started_at),
-        sortValue: (row) => row.started_at ?? "",
-        hideBelow: "md",
-      },
-      {
-        id: "ended",
-        label: "Ended",
-        cell: (row) => (row.ended_at ? formatDate(row.ended_at) : "Running"),
-        sortValue: (row) => row.ended_at ?? "9999",
-        hideBelow: "md",
-      },
-      {
-        id: "zone",
-        label: "Availability zone",
-        cell: (row) => row.availability_zone ?? "",
-        sortValue: (row) => row.availability_zone ?? "",
-        hideBelow: "lg",
-      },
-      {
-        id: "flavor",
-        label: "Flavour",
-        cell: (row) => row.flavor_name ?? "",
-        sortValue: (row) => row.flavor_name ?? "",
-        textValue: (row) => row.flavor_name ?? "",
-        hideBelow: "lg",
-      },
-      {
-        id: "hours",
-        label: "Instance hours",
-        cell: (row) => formatNumber(row.qty),
-        sortValue: (row) => row.qty ?? 0,
-        hideBelow: "md",
-      },
-      {
-        id: "su",
-        label: "SU",
-        cell: (row) => formatSu(row.rate),
-        sortValue: (row) => row.rate,
-      },
-    ],
-    [],
-  );
-
   const empty =
     instances.data && instances.data.items.length === 0 && points.length === 0;
+  const downloadCsv = () => {
+    if (!instances.data) return;
+    downloadText(
+      usageCsvName(me?.project.name ?? projectId, begin, end),
+      usageCsv(instances.data.items),
+      "text/csv",
+    );
+  };
+  const instancesTable = useQueryTable(instances, {
+    noun: "usage rows",
+    emptyTitle: empty ? "No instances ran in this range" : "No usage rows",
+    refresh: false,
+  });
 
   return (
     <>
       <PageHeader
-        title="Usage Trend"
+        title="Usage trend"
         crumbs={[{ label: "Project" }, { label: "Usage" }]}
       >
-        <div className={styles.controls}>
-          <DateRangePicker
-            value={{ start: parseDate(begin), end: parseDate(end) }}
-            onChange={(value) => {
-              if (value) {
-                setRange({
-                  begin: value.start.toString(),
-                  end: value.end.toString(),
-                });
-              }
-            }}
-            minValue={parseDate(dataFrom)}
-            maxValue={parseDate(isoDate(new Date()))}
-            className={styles.range}
-          >
-            <Label>Date range</Label>
-          </DateRangePicker>
-          <ToggleButtonGroup
-            selectionMode="single"
-            selectedKeys={preset ? new Set([preset]) : new Set()}
-            onSelectionChange={(keys) => {
-              const [key] = keys;
-              const chosen = PRESETS.find((p) => p.id === key);
-              if (chosen) {
-                setRange({
-                  begin: daysAgo(chosen.days),
-                  end: isoDate(new Date()),
-                });
-              }
-            }}
-            aria-label="Date range presets"
-            className={styles.presets}
-          >
-            {PRESETS.map((item) => (
-              <ToggleButtonGroupItem key={item.id} id={item.id}>
-                {item.label}
-              </ToggleButtonGroupItem>
-            ))}
-          </ToggleButtonGroup>
-        </div>
+        <RangeControls
+          begin={begin}
+          end={end}
+          dataFrom={dataFrom}
+          today={today}
+          onChange={setRange}
+        />
         <p className={styles.note}>
           Service unit (SU) data is available from{" "}
           {formatCalendarDate(dataFrom)}. Figures for the current day are
@@ -215,7 +122,9 @@ export function UsageTrendPage() {
       <div className={styles.grid}>
         <Panel title="Service units used" className={styles.total}>
           {instances.isPending ? (
-            <Skeleton width="6rem" height="2.5rem" />
+            <p className={styles.totalValue}>
+              <Skeleton width="5ch" height="1lh" />
+            </p>
           ) : instances.isError ? (
             <ErrorState
               error={instances.error}
@@ -309,15 +218,18 @@ export function UsageTrendPage() {
           <DataTable
             id="usage-instances"
             label="Project usage breakdown"
-            columns={columns}
-            rows={instances.data?.items}
+            columns={usageInstanceColumns}
             getRowId={(row) => row.id}
-            isLoading={instances.isPending}
-            isFetching={instances.isFetching}
-            error={instances.error}
-            onRetry={() => void instances.refetch()}
-            emptyTitle={
-              empty ? "No instances ran in this range" : "No usage rows"
+            {...instancesTable}
+            toolbarActions={
+              <Button
+                variant="secondary"
+                size="xs"
+                onPress={downloadCsv}
+                isDisabled={!instances.data?.items.length}
+              >
+                Download CSV
+              </Button>
             }
             defaultSort={{ column: "su", direction: "descending" }}
           />

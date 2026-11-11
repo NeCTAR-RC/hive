@@ -2,12 +2,20 @@
 tree and the floating IP association, as octavia-dashboard does them."""
 
 import asyncio
+import contextlib
 import time
 
 import structlog
 
+from hive.cache.policy import LB_CHAIN
 from hive.clients.octavia import OctaviaClient
-from hive.errors import BadRequest, Conflict, HiveError, NotFound
+from hive.errors import (
+    BadRequest,
+    Conflict,
+    HiveError,
+    LoadBalancerBusy,
+    NotFound,
+)
 from hive.nectar import loadbalancer as rules
 from hive.schemas.loadbalancer import (
     L7PolicySpec,
@@ -19,35 +27,43 @@ from hive.schemas.loadbalancer import (
     PoolSpec,
 )
 from hive.schemas.network import FloatingIpAllocate
+from hive.schemas.responses.loadbalancer import (
+    HealthMonitor,
+    L7Policy,
+    L7PolicyDetail,
+    L7Rule,
+    Listener,
+    LoadBalancer,
+    LoadBalancerDetail,
+    LoadBalancerFailover,
+    LoadBalancerOptions,
+    LoadBalancerTree,
+    Member,
+    MembersReplaced,
+    Pool,
+)
+from hive.schemas.responses.network import FloatingIp
+from hive.services.concurrency import bounded_gather
 from hive.services.context import Context
 from hive.services import network as network_service
+from hive.times import to_utc_iso
 
 log = structlog.get_logger("hive.loadbalancer")
 
 POLL_SECONDS = 2.5
 POLL_LIMIT = 240  # ten minutes
-CHAIN_TTL = 1800
-FAN_OUT = 8
 
 
 def _octavia(ctx: Context) -> OctaviaClient:
     return OctaviaClient(ctx.http, ctx.settings, ctx.scoped)
 
 
-def _chain_key(ctx: Context, lb_id: str) -> str:
-    return ctx.cache.project_key(ctx.project_id, "lb-chain", lb_id)
-
-
 async def _set_chain(ctx: Context, lb_id: str, state: dict) -> None:
-    await ctx.cache.set_json(_chain_key(ctx, lb_id), state, ttl=CHAIN_TTL)
+    await ctx.remember(LB_CHAIN, state, lb_id)
 
 
 async def chain_state(ctx: Context, lb_id: str) -> dict | None:
-    state = await ctx.cache.get_json(_chain_key(ctx, lb_id))
-    return state if isinstance(state, dict) else None
-
-
-# --- summaries -----------------------------------------------------------------
+    return await ctx.recall(LB_CHAIN, lb_id)
 
 
 def lb_summary(lb: dict, floating: dict | None = None) -> dict:
@@ -75,8 +91,8 @@ def lb_summary(lb: dict, floating: dict | None = None) -> dict:
             if floating
             else None
         ),
-        "created_at": lb.get("created_at"),
-        "updated_at": lb.get("updated_at"),
+        "created_at": to_utc_iso(lb.get("created_at")),
+        "updated_at": to_utc_iso(lb.get("updated_at")),
         "can_delete": rules.can_delete(lb),
         "is_transitional": rules.is_transitional(lb),
     }
@@ -107,8 +123,8 @@ def listener_summary(listener: dict) -> dict:
         "sni_container_refs": listener.get("sni_container_refs") or [],
         "tls_ciphers": listener.get("tls_ciphers"),
         "l7policies": [i.get("id") for i in listener.get("l7policies") or []],
-        "created_at": listener.get("created_at"),
-        "updated_at": listener.get("updated_at"),
+        "created_at": to_utc_iso(listener.get("created_at")),
+        "updated_at": to_utc_iso(listener.get("updated_at")),
     }
 
 
@@ -131,8 +147,8 @@ def pool_summary(pool: dict) -> dict:
             (i.get("id") for i in pool.get("loadbalancers") or []), None
         ),
         "members": [i.get("id") for i in pool.get("members") or []],
-        "created_at": pool.get("created_at"),
-        "updated_at": pool.get("updated_at"),
+        "created_at": to_utc_iso(pool.get("created_at")),
+        "updated_at": to_utc_iso(pool.get("updated_at")),
     }
 
 
@@ -150,8 +166,8 @@ def member_summary(member: dict) -> dict:
         "provisioning_status": member.get("provisioning_status"),
         "operating_status": member.get("operating_status"),
         "admin_state_up": member.get("admin_state_up"),
-        "created_at": member.get("created_at"),
-        "updated_at": member.get("updated_at"),
+        "created_at": to_utc_iso(member.get("created_at")),
+        "updated_at": to_utc_iso(member.get("updated_at")),
     }
 
 
@@ -171,8 +187,8 @@ def monitor_summary(monitor: dict) -> dict:
         "operating_status": monitor.get("operating_status"),
         "admin_state_up": monitor.get("admin_state_up"),
         "pools": [i.get("id") for i in monitor.get("pools") or []],
-        "created_at": monitor.get("created_at"),
-        "updated_at": monitor.get("updated_at"),
+        "created_at": to_utc_iso(monitor.get("created_at")),
+        "updated_at": to_utc_iso(monitor.get("updated_at")),
     }
 
 
@@ -191,8 +207,8 @@ def policy_summary(policy: dict) -> dict:
         "operating_status": policy.get("operating_status"),
         "admin_state_up": policy.get("admin_state_up"),
         "rules": [i.get("id") for i in policy.get("rules") or []],
-        "created_at": policy.get("created_at"),
-        "updated_at": policy.get("updated_at"),
+        "created_at": to_utc_iso(policy.get("created_at")),
+        "updated_at": to_utc_iso(policy.get("updated_at")),
     }
 
 
@@ -210,9 +226,6 @@ def rule_summary(rule: dict) -> dict:
     }
 
 
-# --- load balancers ------------------------------------------------------------
-
-
 async def _floating_by_port(ctx: Context) -> dict[str, dict]:
     try:
         fips = await ctx.neutron.floatingips(project_id=ctx.project_id)
@@ -221,7 +234,7 @@ async def _floating_by_port(ctx: Context) -> dict[str, dict]:
     return {f["port_id"]: f for f in fips if f.get("port_id")}
 
 
-async def list_load_balancers(ctx: Context) -> dict:
+async def list_load_balancers(ctx: Context) -> list[LoadBalancer]:
     octavia = _octavia(ctx)
     lbs, floating = await asyncio.gather(
         octavia.load_balancers(project_id=ctx.project_id),
@@ -231,20 +244,20 @@ async def list_load_balancers(ctx: Context) -> dict:
         lb_summary(lb, floating.get(lb.get("vip_port_id") or "")) for lb in lbs
     ]
     items.sort(key=lambda lb: (lb["name"] or "").lower())
-    return {"items": items}
+    return [LoadBalancer.model_validate(item) for item in items]
 
 
-async def get_load_balancer(ctx: Context, lb_id: str) -> dict:
+async def get_load_balancer(ctx: Context, lb_id: str) -> LoadBalancerDetail:
     octavia = _octavia(ctx)
     lb, floating = await asyncio.gather(
         octavia.load_balancer(lb_id), _floating_by_port(ctx)
     )
     summary = lb_summary(lb, floating.get(lb.get("vip_port_id") or ""))
     summary["chain"] = await chain_state(ctx, lb_id)
-    return summary
+    return LoadBalancerDetail.model_validate(summary)
 
 
-async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
+async def load_balancer_tree(ctx: Context, lb_id: str) -> LoadBalancerTree:
     """The listeners, pools, members, monitors and L7 policies of one load
     balancer, in one call."""
     octavia = _octavia(ctx)
@@ -259,25 +272,24 @@ async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
     pools = rules.pools_of(pools, lb_id)
     pool_ids = {p.get("id") for p in pools}
     listener_ids = {listener.get("id") for listener in listeners}
-    semaphore = asyncio.Semaphore(FAN_OUT)
 
     async def members_of(pool: dict) -> list[dict]:
-        async with semaphore:
-            try:
-                return [
-                    member_summary(m)
-                    for m in await octavia.members(pool["id"])
-                ]
-            except HiveError:
-                return []
+        try:
+            return [
+                member_summary(m) for m in await octavia.members(pool["id"])
+            ]
+        except HiveError:
+            return []
 
-    member_lists = await asyncio.gather(*(members_of(p) for p in pools))
+    member_lists = await bounded_gather(
+        pools, members_of, ctx.settings.upstream_fan_out
+    )
     pool_rows = []
     for pool, members in zip(pools, member_lists, strict=True):
         row = pool_summary(pool)
         row["member_rows"] = members
         pool_rows.append(row)
-    return {
+    tree = {
         "load_balancer": lb_summary(
             lb, floating.get(lb.get("vip_port_id") or "")
         ),
@@ -295,11 +307,12 @@ async def load_balancer_tree(ctx: Context, lb_id: str) -> dict:
             if p.get("listener_id") in listener_ids
         ],
     }
+    return LoadBalancerTree.model_validate(tree)
 
 
 async def _wait_active(octavia: OctaviaClient, lb_id: str) -> dict:
-    """Poll until the load balancer is ACTIVE. Only background chains call
-    this; requests use ``_require_active`` instead."""
+    """Poll until the load balancer is ACTIVE. Only background chains wait;
+    a request uses ``_require_active`` instead."""
     for _ in range(POLL_LIMIT):
         lb = await octavia.load_balancer(lb_id)
         status = lb.get("provisioning_status")
@@ -317,30 +330,29 @@ async def _require_active(octavia: OctaviaClient, lb_id: str) -> dict:
     lb = await octavia.load_balancer(lb_id)
     status = lb.get("provisioning_status")
     if status != "ACTIVE":
-        raise Conflict(
+        raise LoadBalancerBusy(
             f"The load balancer is {status}; try again once it is ACTIVE.",
-            code="load_balancer_busy",
             extra={"provisioning_status": status},
         )
     return lb
 
 
-# --- background chains ----------------------------------------------------------
-#
-# A chain creates sub-resources one after another, waiting for the load
-# balancer to be ACTIVE before each step and recording progress under the
-# load balancer's chain key for the detail page. ``ids`` carries what
-# earlier steps (or the caller) produced: listener_id, listener_protocol,
-# pool_id.
+# What earlier chain steps (or the caller) produced: ``listener_id``,
+# ``listener_protocol`` and ``pool_id``.
+type ChainIds = dict[str, str | None]
 
 
-async def _step_listener(octavia, lb_id: str, spec: dict, ids: dict):
+async def _step_listener(
+    octavia: OctaviaClient, lb_id: str, spec: dict, ids: ChainIds
+) -> None:
     created = await octavia.create_listener(rules.listener_fields(spec, lb_id))
     ids["listener_id"] = created.get("id")
     ids["listener_protocol"] = spec.get("protocol")
 
 
-async def _step_pool(octavia, lb_id: str, spec: dict, ids: dict):
+async def _step_pool(
+    octavia: OctaviaClient, lb_id: str, spec: dict, ids: ChainIds
+) -> None:
     created = await octavia.create_pool(
         rules.pool_fields(
             spec,
@@ -352,25 +364,29 @@ async def _step_pool(octavia, lb_id: str, spec: dict, ids: dict):
     ids["pool_id"] = created.get("id")
 
 
-def _pool_id(ids: dict) -> str:
+def _pool_id(ids: ChainIds) -> str:
     pool_id = ids.get("pool_id")
     if not pool_id:
         raise Conflict("the pool for this step was not created")
     return pool_id
 
 
-async def _step_member(octavia, lb_id: str, spec: dict, ids: dict):
+async def _step_member(
+    octavia: OctaviaClient, _lb_id: str, spec: dict, ids: ChainIds
+) -> None:
     await octavia.create_member(_pool_id(ids), rules.member_fields(spec))
 
 
-async def _step_delete_member(octavia, lb_id: str, spec: dict, ids: dict):
-    try:
+async def _step_delete_member(
+    octavia: OctaviaClient, _lb_id: str, spec: dict, ids: ChainIds
+) -> None:
+    with contextlib.suppress(NotFound):
         await octavia.delete_member(_pool_id(ids), spec["id"])
-    except NotFound:
-        pass
 
 
-async def _step_monitor(octavia, lb_id: str, spec: dict, ids: dict):
+async def _step_monitor(
+    octavia: OctaviaClient, _lb_id: str, spec: dict, ids: ChainIds
+) -> None:
     await octavia.create_health_monitor(
         rules.monitor_fields(spec, _pool_id(ids))
     )
@@ -385,32 +401,47 @@ STEPS = {
 }
 
 
-async def _record(ctx: Context, lb_id: str, state: dict) -> None:
-    """Best effort: a failure to record must not hide the chain's own
-    error."""
-    try:
-        await _set_chain(ctx, lb_id, state)
-    except Exception:  # noqa: BLE001 - logged, the chain state is advisory
-        log.exception("load balancer chain state not saved", lb_id=lb_id)
-
-
 async def _run_chain(
     ctx: Context,
     lb_id: str,
     steps: list[tuple[str, dict]],
-    ids: dict | None = None,
+    ids: ChainIds | None = None,
 ) -> None:
-    """Run ``steps`` (names from ``STEPS``) in order. Any failure, or a
-    cancellation at shutdown, ends the chain with ``error`` set rather
-    than leaving it "in progress" until the key expires."""
+    """Run ``steps`` (names from ``STEPS``) one after another, each once
+    the load balancer is ACTIVE again, recording progress for the detail
+    page.
+
+    A chain can start at the load balancer (listener first), at a new
+    listener (pool first, ``listener_id`` and ``listener_protocol`` in
+    ``ids``) or at a pool (members and monitor, ``pool_id`` in ``ids``).
+    Every way it can stop early is recorded with the step it stopped at:
+    an upstream error, a bug, or Hive shutting down mid-chain.
+    """
     octavia = _octavia(ctx)
     ids = dict(ids or {})
-    state = {
-        "steps": [s[0] for s in steps],
+    state: dict = {
+        "steps": [name for name, _spec in steps],
         "done": [],
         "error": None,
         "started": time.time(),
     }
+
+    async def record() -> None:
+        """Best effort once the chain has failed: a failing state write
+        must not hide the chain's own error."""
+        try:
+            await _set_chain(ctx, lb_id, state)
+        except Exception:
+            log.exception("load balancer chain state not saved", lb_id=lb_id)
+
+    async def fail(error: str) -> None:
+        position = len(state["done"])
+        state["error"] = error
+        state["failed_step"] = (
+            steps[position][0] if position < len(steps) else None
+        )
+        await record()
+
     try:
         await _set_chain(ctx, lb_id, state)
         for name, spec in steps:
@@ -418,48 +449,26 @@ async def _run_chain(
             await STEPS[name](octavia, lb_id, spec, ids)
             state["done"].append(name)
             await _set_chain(ctx, lb_id, state)
-    except asyncio.CancelledError:
-        state["error"] = "interrupted: the dashboard restarted mid-way"
-        await _record(ctx, lb_id, state)
-        raise
     except HiveError as exc:
-        state["error"] = f"{exc.code}: {exc.message}"
-        await _record(ctx, lb_id, state)
+        await fail(f"{exc.code}: {exc.message}")
         log.warning(
             "load balancer chain failed",
             lb_id=lb_id,
-            step=len(state["done"]),
+            step=state["failed_step"],
             code=exc.code,
         )
-    except Exception:  # noqa: BLE001 - background task must not die silently
-        state["error"] = "internal error"
-        await _record(ctx, lb_id, state)
+    except asyncio.CancelledError:
+        await fail("cancelled: the dashboard restarted before it finished")
+        log.warning(
+            "load balancer chain cancelled",
+            lb_id=lb_id,
+            step=state["failed_step"],
+        )
+        raise
+    except Exception:
+        # A background task has no caller: record any failure, bug or not.
+        await fail("internal error")
         log.exception("load balancer chain crashed", lb_id=lb_id)
-
-
-# Running chains. ``drain`` is for the application lifespan to await on
-# shutdown so a restart records an interrupted chain instead of leaving it
-# "in progress".
-_background: set[asyncio.Task] = set()
-
-
-def _spawn(coro) -> None:
-    task = asyncio.create_task(coro)
-    _background.add(task)
-    task.add_done_callback(_background.discard)
-
-
-async def drain(timeout: float = 10.0) -> None:
-    """Wait up to ``timeout`` seconds for running chains, then cancel the
-    rest; each cancelled chain records that it was interrupted."""
-    tasks = set(_background)
-    if not tasks:
-        return
-    _done, pending = await asyncio.wait(tasks, timeout=timeout)
-    for task in pending:
-        task.cancel()
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _child_steps(
@@ -467,16 +476,13 @@ def _child_steps(
     members: list[MemberSpec],
     monitor: MonitorSpec | None,
 ) -> list[tuple[str, dict]]:
-    """Members and monitor behind a pool, the monitor checked first."""
+    """The chain steps for a pool (when it is new), then its members and
+    monitor, which run against the pool's id."""
     steps: list[tuple[str, dict]] = []
     if pool:
         steps.append(("pool", pool.model_dump()))
-    for member in members:
-        steps.append(("member", member.model_dump()))
+    steps.extend(("member", member.model_dump()) for member in members)
     if monitor:
-        problem = rules.validate_monitor(monitor.model_dump())
-        if problem:
-            raise BadRequest(problem)
         steps.append(("monitor", monitor.model_dump()))
     return steps
 
@@ -487,6 +493,10 @@ def _steps(
     members: list[MemberSpec],
     monitor: MonitorSpec | None,
 ) -> list[tuple[str, dict]]:
+    """The wizard's chain behind a new load balancer or listener. A part
+    that cannot be created (a pool with no listener and no protocol,
+    members or a monitor with no pool) is refused before anything is
+    created, rather than silently left out."""
     steps: list[tuple[str, dict]] = []
     if listener:
         steps.append(("listener", listener.model_dump()))
@@ -499,13 +509,9 @@ def _steps(
     return steps
 
 
-async def create_load_balancer(ctx: Context, data: LoadBalancerCreate) -> dict:
-    if data.vip_address and not rules.valid_ip(data.vip_address):
-        raise BadRequest("The IP address is not valid.")
-    if data.listener:
-        problem = rules.valid_cidrs(data.listener.allowed_cidrs)
-        if problem:
-            raise BadRequest(problem)
+async def create_load_balancer(
+    ctx: Context, data: LoadBalancerCreate
+) -> LoadBalancer:
     steps = _steps(data.listener, data.pool, data.members, data.monitor)
     fields: dict = {
         "vip_subnet_id": data.vip_subnet_id,
@@ -524,14 +530,23 @@ async def create_load_balancer(ctx: Context, data: LoadBalancerCreate) -> dict:
             fields[key] = value
     lb = await _octavia(ctx).create_load_balancer(fields)
     if steps and lb.get("id"):
-        _spawn(_run_chain(ctx, lb["id"], steps))
-    return lb_summary(lb)
+        ctx.background.spawn(_run_chain(ctx, lb["id"], steps))
+    return LoadBalancer.model_validate(lb_summary(lb))
 
 
-async def update_load_balancer(ctx: Context, lb_id: str, fields: dict) -> dict:
-    clean = _changes(fields)
-    lb = await _octavia(ctx).update_load_balancer(lb_id, clean)
-    return lb_summary(lb)
+def _changes(fields: dict, nullable: tuple[str, ...] = ()) -> dict:
+    """The fields of an update body (dumped with ``exclude_unset``) to send
+    on. ``None`` means "not changed", except for the ``nullable`` keys,
+    where an explicit null clears the value upstream; so a null can never
+    reach Octavia for a field it cannot clear."""
+    return {k: v for k, v in fields.items() if v is not None or k in nullable}
+
+
+async def update_load_balancer(
+    ctx: Context, lb_id: str, fields: dict
+) -> LoadBalancer:
+    lb = await _octavia(ctx).update_load_balancer(lb_id, _changes(fields))
+    return LoadBalancer.model_validate(lb_summary(lb))
 
 
 async def delete_load_balancer(ctx: Context, lb_id: str) -> None:
@@ -544,11 +559,14 @@ async def delete_load_balancer(ctx: Context, lb_id: str) -> None:
     await octavia.delete_load_balancer(lb_id, cascade=True)
 
 
-async def failover_load_balancer(ctx: Context, lb_id: str) -> None:
+async def failover_load_balancer(
+    ctx: Context, lb_id: str
+) -> LoadBalancerFailover:
     await _octavia(ctx).failover_load_balancer(lb_id)
+    return LoadBalancerFailover(id=lb_id)
 
 
-async def options(ctx: Context) -> dict:
+async def options(ctx: Context) -> LoadBalancerOptions:
     """Pickers for the wizard: VIP and member subnets (the project's
     bootable networks), flavours, zones, member candidates and quota."""
     octavia = _octavia(ctx)
@@ -557,30 +575,26 @@ async def options(ctx: Context) -> dict:
         octavia.flavors(),
         octavia.availability_zones(),
         octavia.quota(ctx.project_id),
-        ctx.nova.servers_brief(limit=1000),
+        ctx.nova.servers_brief(),
         ctx.neutron.ports(project_id=ctx.project_id),
     )
-    subnets = []
-    for network in networks:
-        for subnet in network.get("subnets") or []:
-            if isinstance(subnet, dict) and subnet.get("id"):
-                subnets.append(
-                    {
-                        "id": subnet["id"],
-                        "name": subnet.get("name"),
-                        "cidr": subnet.get("cidr"),
-                        "network_id": network.get("id"),
-                        "network_name": network.get("name"),
-                        "ip_version": subnet.get("ip_version"),
-                    }
-                )
+    subnets = [
+        {
+            "id": subnet.id,
+            "name": subnet.name,
+            "cidr": subnet.cidr,
+            "network_id": network.id,
+            "network_name": network.name,
+            "ip_version": subnet.ip_version,
+        }
+        for network in networks
+        for subnet in network.subnets
+    ]
     subnet_ids = {s["id"] for s in subnets}
     # octavia-dashboard hides TERMINATED_HTTPS when Barbican is not
     # deployed (listener.html:57); the service catalog says whether it is.
-    barbican = any(
-        service.get("type") == "key-manager" for service in ctx.scoped.catalog
-    )
-    return {
+    barbican = "key-manager" in ctx.scoped.endpoints
+    choices = {
         "subnets": subnets,
         "flavors": [
             {
@@ -613,14 +627,12 @@ async def options(ctx: Context) -> dict:
         "l7_rule_types": list(rules.L7_RULE_TYPES),
         "l7_compare_types": list(rules.L7_COMPARE),
     }
-
-
-# --- floating IPs on the VIP ----------------------------------------------------
+    return LoadBalancerOptions.model_validate(choices)
 
 
 async def associate_floating_ip(
     ctx: Context, lb_id: str, floating_ip_id: str | None, pool_id: str | None
-) -> dict:
+) -> FloatingIp:
     """Associate a floating IP with the VIP port, allocating one from
     ``pool_id`` first when no IP is named. A just-allocated IP is released
     again when the association fails, so a failure costs no quota; if the
@@ -640,38 +652,28 @@ async def associate_floating_ip(
     )
     try:
         return await network_service.associate_floating_ip(
-            ctx, allocated["id"], port, lb.get("vip_address")
+            ctx, allocated.id, port, lb.get("vip_address")
         )
     except HiveError as exc:
         try:
-            await ctx.neutron.delete_floatingip(allocated["id"])
+            await ctx.neutron.delete_floatingip(allocated.id)
         except HiveError:
             log.warning(
                 "allocated floating IP not released",
                 lb_id=lb_id,
-                floating_ip_id=allocated["id"],
+                floating_ip_id=allocated.id,
             )
-            exc.extra = {**exc.extra, "floating_ip_id": allocated["id"]}
+            exc.extra = {**exc.extra, "floating_ip_id": allocated.id}
         raise
 
 
-async def disassociate_floating_ip(ctx: Context, lb_id: str) -> dict:
+async def disassociate_floating_ip(ctx: Context, lb_id: str) -> FloatingIp:
     lb = await _octavia(ctx).load_balancer(lb_id)
     floating = await _floating_by_port(ctx)
     fip = floating.get(lb.get("vip_port_id") or "")
     if not fip:
         raise NotFound("The load balancer has no floating IP.")
     return await network_service.disassociate_floating_ip(ctx, fip["id"])
-
-
-# --- listeners, pools, members, monitors, L7 -------------------------------------
-
-
-def _changes(fields: dict, nullable: tuple[str, ...] = ()) -> dict:
-    """The fields of a PATCH body (dumped with ``exclude_unset``) to send
-    on: ``None`` means "not changed" except for ``nullable`` keys, where an
-    explicit null clears the value upstream."""
-    return {k: v for k, v in fields.items() if v is not None or k in nullable}
 
 
 async def create_listener(
@@ -681,20 +683,17 @@ async def create_listener(
     pool: PoolSpec | None,
     members: list[MemberSpec],
     monitor: MonitorSpec | None,
-) -> dict:
-    problem = rules.valid_cidrs(spec.allowed_cidrs)
-    if problem:
-        raise BadRequest(problem)
-    steps = _child_steps(pool, members, monitor) if pool else []
+) -> Listener:
     if not pool and (members or monitor):
         raise BadRequest("Members and a health monitor need a pool.")
+    steps = _child_steps(pool, members, monitor) if pool else []
     octavia = _octavia(ctx)
     await _require_active(octavia, lb_id)
     created = await octavia.create_listener(
         rules.listener_fields(spec.model_dump(), lb_id)
     )
     if steps and created.get("id"):
-        _spawn(
+        ctx.background.spawn(
             _run_chain(
                 ctx,
                 lb_id,
@@ -705,24 +704,22 @@ async def create_listener(
                 },
             )
         )
-    return listener_summary(created)
+    return Listener.model_validate(listener_summary(created))
 
 
 async def update_listener(
     ctx: Context, listener_id: str, fields: dict
-) -> dict:
+) -> Listener:
     """``default_pool_id: null`` detaches the default pool."""
     clean = _changes(fields, ("default_pool_id",))
-    if "allowed_cidrs" in clean:
-        problem = rules.valid_cidrs(clean["allowed_cidrs"])
-        if problem:
-            raise BadRequest(problem)
-    if "insert_headers" in clean:
+    if clean.get("insert_headers") is not None:
         clean["insert_headers"] = {
             k: "true" for k, v in clean["insert_headers"].items() if v
         }
-    return listener_summary(
-        await _octavia(ctx).update_listener(listener_id, clean)
+    return Listener.model_validate(
+        listener_summary(
+            await _octavia(ctx).update_listener(listener_id, clean)
+        )
     )
 
 
@@ -737,11 +734,11 @@ async def create_pool(
     spec: PoolSpec,
     members: list[MemberSpec],
     monitor: MonitorSpec | None,
-) -> dict:
-    octavia = _octavia(ctx)
+) -> Pool:
     if not listener_id and not spec.protocol:
         raise BadRequest("A pool without a listener needs a protocol.")
     steps = _child_steps(None, members, monitor)
+    octavia = _octavia(ctx)
     protocol = None
     if listener_id:
         protocol = (await octavia.listener(listener_id)).get("protocol")
@@ -755,11 +752,13 @@ async def create_pool(
         )
     )
     if steps and created.get("id"):
-        _spawn(_run_chain(ctx, lb_id, steps, {"pool_id": created["id"]}))
-    return pool_summary(created)
+        ctx.background.spawn(
+            _run_chain(ctx, lb_id, steps, {"pool_id": created["id"]})
+        )
+    return Pool.model_validate(pool_summary(created))
 
 
-async def update_pool(ctx: Context, pool_id: str, fields: dict) -> dict:
+async def update_pool(ctx: Context, pool_id: str, fields: dict) -> Pool:
     """``session_persistence: null`` (or one without a type) turns
     persistence off."""
     clean = _changes(fields, ("session_persistence",))
@@ -773,7 +772,9 @@ async def update_pool(ctx: Context, pool_id: str, fields: dict) -> dict:
             clean["session_persistence"] = entry
         else:
             clean["session_persistence"] = None
-    return pool_summary(await _octavia(ctx).update_pool(pool_id, clean))
+    return Pool.model_validate(
+        pool_summary(await _octavia(ctx).update_pool(pool_id, clean))
+    )
 
 
 async def delete_pool(ctx: Context, pool_id: str) -> None:
@@ -782,7 +783,7 @@ async def delete_pool(ctx: Context, pool_id: str) -> None:
 
 async def replace_members(
     ctx: Context, lb_id: str, pool_id: str, members: list[MemberSpec]
-) -> dict:
+) -> MembersReplaced:
     """Delete members that are gone and add the new ones, one at a time
     with the load balancer ACTIVE in between (``lbaasv2.py:661-696``).
     The load balancer must be ACTIVE now; the changes run as a background
@@ -804,35 +805,43 @@ async def replace_members(
         if (member.address, member.protocol_port) not in present
     )
     if steps:
-        _spawn(_run_chain(ctx, lb_id, steps, {"pool_id": pool_id}))
-    return {
-        "items": [member_summary(m) for m in existing],
-        "pending": len(steps),
-    }
+        ctx.background.spawn(
+            _run_chain(ctx, lb_id, steps, {"pool_id": pool_id})
+        )
+    return MembersReplaced.model_validate(
+        {
+            "items": [member_summary(m) for m in existing],
+            "pending": len(steps),
+        }
+    )
 
 
 async def add_member(
     ctx: Context, lb_id: str, pool_id: str, member: MemberSpec
-) -> dict:
+) -> Member:
     octavia = _octavia(ctx)
     await _require_active(octavia, lb_id)
-    return member_summary(
-        await octavia.create_member(
-            pool_id, rules.member_fields(member.model_dump())
+    return Member.model_validate(
+        member_summary(
+            await octavia.create_member(
+                pool_id, rules.member_fields(member.model_dump())
+            )
         )
     )
 
 
 async def update_member(
     ctx: Context, pool_id: str, member_id: str, fields: dict
-) -> dict:
+) -> Member:
     """``monitor_address`` and ``monitor_port`` set to null (or an empty
     address) go back to monitoring the member's own address and port."""
     if fields.get("monitor_address") == "":
         fields = {**fields, "monitor_address": None}
     clean = _changes(fields, ("monitor_address", "monitor_port"))
-    return member_summary(
-        await _octavia(ctx).update_member(pool_id, member_id, clean)
+    return Member.model_validate(
+        member_summary(
+            await _octavia(ctx).update_member(pool_id, member_id, clean)
+        )
     )
 
 
@@ -842,17 +851,16 @@ async def delete_member(ctx: Context, pool_id: str, member_id: str) -> None:
 
 async def create_monitor(
     ctx: Context, pool_id: str, spec: MonitorSpec
-) -> dict:
-    problem = rules.validate_monitor(spec.model_dump())
-    if problem:
-        raise BadRequest(problem)
+) -> HealthMonitor:
     created = await _octavia(ctx).create_health_monitor(
         rules.monitor_fields(spec.model_dump(), pool_id)
     )
-    return monitor_summary(created)
+    return HealthMonitor.model_validate(monitor_summary(created))
 
 
-async def update_monitor(ctx: Context, monitor_id: str, fields: dict) -> dict:
+async def update_monitor(
+    ctx: Context, monitor_id: str, fields: dict
+) -> HealthMonitor:
     octavia = _octavia(ctx)
     current = await octavia.health_monitor(monitor_id)
     clean = _changes(fields)
@@ -860,11 +868,9 @@ async def update_monitor(ctx: Context, monitor_id: str, fields: dict) -> dict:
         for key in ("http_method", "url_path", "expected_codes"):
             clean.pop(key, None)
     merged = {**current, **clean, "type": current.get("type")}
-    problem = rules.validate_monitor(merged)
-    if problem:
-        raise BadRequest(problem)
-    return monitor_summary(
-        await octavia.update_health_monitor(monitor_id, clean)
+    rules.validate_monitor(merged)
+    return HealthMonitor.model_validate(
+        monitor_summary(await octavia.update_health_monitor(monitor_id, clean))
     )
 
 
@@ -874,7 +880,7 @@ async def delete_monitor(ctx: Context, monitor_id: str) -> None:
 
 async def create_l7_policy(
     ctx: Context, listener_id: str, spec: L7PolicySpec
-) -> dict:
+) -> L7Policy:
     data = spec.model_dump()
     if data["action"] == "REDIRECT_TO_URL" and not data.get("redirect_url"):
         raise BadRequest("A redirect URL is required.")
@@ -887,13 +893,15 @@ async def create_l7_policy(
     created = await _octavia(ctx).create_l7_policy(
         rules.l7_policy_fields(data, listener_id)
     )
-    return policy_summary(created)
+    return L7Policy.model_validate(policy_summary(created))
 
 
-async def update_l7_policy(ctx: Context, policy_id: str, fields: dict) -> dict:
+async def update_l7_policy(
+    ctx: Context, policy_id: str, fields: dict
+) -> L7Policy:
     clean = _changes(fields)
-    return policy_summary(
-        await _octavia(ctx).update_l7_policy(policy_id, clean)
+    return L7Policy.model_validate(
+        policy_summary(await _octavia(ctx).update_l7_policy(policy_id, clean))
     )
 
 
@@ -901,19 +909,19 @@ async def delete_l7_policy(ctx: Context, policy_id: str) -> None:
     await _octavia(ctx).delete_l7_policy(policy_id)
 
 
-async def get_l7_policy(ctx: Context, policy_id: str) -> dict:
+async def get_l7_policy(ctx: Context, policy_id: str) -> L7PolicyDetail:
     octavia = _octavia(ctx)
     policy, l7rules = await asyncio.gather(
         octavia.l7_policy(policy_id), octavia.l7_rules(policy_id)
     )
     summary = policy_summary(policy)
     summary["rule_rows"] = [rule_summary(r) for r in l7rules]
-    return summary
+    return L7PolicyDetail.model_validate(summary)
 
 
 async def create_l7_rule(
     ctx: Context, policy_id: str, spec: L7RuleSpec
-) -> dict:
+) -> L7Rule:
     data = spec.model_dump()
     if data["type"] in ("HEADER", "COOKIE") and not data.get("key"):
         raise BadRequest("Header and cookie rules need a key.")
@@ -924,19 +932,24 @@ async def create_l7_rule(
         raise BadRequest(
             "File type rules compare with REGEX or EQUAL_TO only."
         )
-    return rule_summary(
-        await _octavia(ctx).create_l7_rule(
-            policy_id, rules.l7_rule_fields(data)
+    return L7Rule.model_validate(
+        rule_summary(
+            await _octavia(ctx).create_l7_rule(
+                policy_id, rules.l7_rule_fields(data)
+            )
         )
     )
 
 
 async def update_l7_rule(
     ctx: Context, policy_id: str, rule_id: str, fields: dict
-) -> dict:
-    clean = _changes(fields)
-    return rule_summary(
-        await _octavia(ctx).update_l7_rule(policy_id, rule_id, clean)
+) -> L7Rule:
+    """``key: null`` clears the key when the rule's new type has none."""
+    clean = _changes(fields, ("key",))
+    return L7Rule.model_validate(
+        rule_summary(
+            await _octavia(ctx).update_l7_rule(policy_id, rule_id, clean)
+        )
     )
 
 

@@ -1,0 +1,13 @@
+{
+  "id": "net-priv",
+  "name": "private",
+  "project_id": "p1",
+  "shared": false,
+  "router:external": false,
+  "status": "ACTIVE",
+  "admin_state_up": true,
+  "mtu": 1500,
+  "subnets": [
+    "sub-priv"
+  ]
+}

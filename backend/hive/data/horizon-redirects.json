@@ -105,7 +105,7 @@
   {"from": "/auth/logout/", "to": "/auth/signed-out", "kind": "page"},
   {"from": "/auth/switch/:id/", "to": "/auth/switch/:id", "kind": "page"},
   {"from": "/terms/", "to": "/terms", "kind": "page"},
-  {"from": "/allocation/", "to": "", "kind": "linkout"},
+  {"from": "/allocation/*", "to": "/allocation/*", "kind": "horizon", "preserveQuery": true},
   {"from": "/app-catalog/", "to": "", "kind": "gone"},
   {"from": "/app-catalog/catalog/", "to": "", "kind": "gone"},
   {"from": "/project/reservations/:id/extend/", "to": "/reservations/:id?extend=true", "kind": "page"},
@@ -114,9 +114,17 @@
   {"from": "/identity/lookup/view/:id/", "to": "/identity/users/:id", "kind": "page"},
   {"from": "/identity/application_credentials/create/", "to": "/identity/application-credentials?create=true", "kind": "page"},
   {"from": "/identity/application_credentials/:id/detail/", "to": "/identity/application-credentials/:id", "kind": "page"},
-  {"from": "/identity/credentials/create/", "to": "/identity/credentials?create=true", "kind": "page"},
+  {"from": "/identity/credentials/create/", "to": "/identity/credentials", "kind": "page"},
   {"from": "/project/api_access/view_credentials/", "to": "/api-access", "kind": "page"},
   {"from": "/project/api_access/recreate_ec2_credentials/", "to": "/identity/credentials", "kind": "page"},
   {"from": "/project/clusters/create/", "to": "/kubernetes/clusters/new", "kind": "page"},
-  {"from": "/project/load_balancer/create/", "to": "/load-balancers/new", "kind": "page"}
+  {"from": "/project/load_balancer/create/", "to": "/load-balancers/new", "kind": "page"},
+  {"from": "/ngdetails/OS::Glance::Image/:id", "to": "/compute/images/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Nova::Keypair/:name", "to": "/compute/key-pairs/:name", "kind": "page"},
+  {"from": "/ngdetails/OS::Nova::ServerGroup/:id", "to": "/compute/server-groups/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Neutron::Trunk/:id", "to": "/network/trunks/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Octavia::LoadBalancer/:id", "to": "/load-balancers/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Magnum::Cluster/:id", "to": "/kubernetes/clusters/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Magnum::ClusterTemplate/:id", "to": "/kubernetes/cluster-templates/:id", "kind": "page"},
+  {"from": "/ngdetails/OS::Designate::Zone/:id", "to": "/dns/zones/:id", "kind": "page"}
 ]

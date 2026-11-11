@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sub-priv",
+    "name": "private",
+    "network_id": "net-priv",
+    "cidr": "192.168.1.0/24",
+    "ip_version": 4,
+    "gateway_ip": "192.168.1.1",
+    "enable_dhcp": true,
+    "allocation_pools": [
+      {
+        "start": "192.168.1.20",
+        "end": "192.168.1.200"
+      }
+    ],
+    "dns_nameservers": [
+      "1.1.1.1",
+      "1.0.0.1"
+    ],
+    "host_routes": []
+  },
+  {
+    "id": "sub-float",
+    "name": "floating",
+    "network_id": "net-float",
+    "cidr": "203.0.113.0/24",
+    "ip_version": 4,
+    "gateway_ip": "203.0.113.1"
+  }
+]

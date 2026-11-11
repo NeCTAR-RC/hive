@@ -1,0 +1,46 @@
+---
+features:
+  - |
+    Load balancers: L7 rules can be edited, and a rule's comparison
+    offers only what its type allows.
+  - |
+    Kubernetes: Create cluster asks for an optional key pair and can
+    turn on worker autoscaling with the fewest and most workers. A
+    cluster template has "Create cluster", which pre-fills its version,
+    zone and network driver, and links its image and upgrade targets by
+    name; a cluster links its template.
+  - |
+    Orchestration: a parameter whose constraint names key pairs,
+    flavours, images, networks, subnets or volumes is a choice of what
+    the project can use, and its help text says what it must be in
+    words. A resource's physical ID links to its page in Hive, and
+    Change template opens on the stack's current template and
+    environment.
+  - |
+    Wizards (Launch instance, Create load balancer, Launch stack) have a
+    Cancel button, which asks before leaving with unsaved input.
+fixes:
+  - |
+    A load balancer member's address must be an IP address on its chosen
+    subnet, in the create wizard and the Add member dialog; the VIP
+    address is checked against its subnet on the wizard's first step.
+  - |
+    Load balancer, listener, pool, member, health monitor, policy and
+    rule actions are disabled with "Wait until the load balancer is
+    Active" while Octavia is applying a change, instead of failing with
+    a 409.
+  - |
+    Create cluster checks the control plane and workers against the
+    project's instance, vCPU and RAM quota before sending the request,
+    and shows what is left under the worker count.
+  - |
+    A cluster being created can be deleted.
+  - |
+    Text fields over their length limit say "Use 255 characters or
+    fewer" (with their own limit), instead of the schema library's
+    wording. A field's message clears as soon as the field is valid,
+    also when the form fills it in.
+  - |
+    A stack that is being created says so ("while it is being created")
+    as the reason its Suspend action is disabled, and a missing cluster
+    template's page links back to the templates.

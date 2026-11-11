@@ -1,4 +1,6 @@
+/// A fingerprint in the table cell's Body/14 (library
+/// `$table-cell-font-size`), in the body face. It is one long token, so it
+/// breaks anywhere rather than widening the column.
 .fingerprint {
-  font-size: var(--hive-font-size-xs);
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }

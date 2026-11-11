@@ -1,0 +1,42 @@
+@use "mixins" as *;
+
+/// A page that is a short message (not found, signed out, the terms): the
+/// content blocks' "Simple text - 75" band (content-blocks spec, line
+/// 1601) through the library `content-block-band`, with no fill of its own
+/// on the white surface it sits on (the page panel, or the signed-out frame).
+.band {
+  @include content-block-band;
+}
+
+/// The band's text column (library `content-block-text-75`): 64px above and
+/// below and 120px either side, 20px once the band is narrower than 768px;
+/// the text runs the column's width (gap "Reading measure"). Its parts
+/// start-align, as the frame draws them (`align-items: flex-start`).
+.text {
+  @include content-block-text-75;
+
+  justify-items: start;
+}
+
+/// The message, then its action 32px under it, the gap the content blocks
+/// leave between copy and its buttons (Frame 274; library
+/// `content-block-stack`).
+.copy {
+  @include content-block-stack;
+
+  justify-items: start;
+}
+
+/// "Frame 519": the page title (Heading/H1, the page's own) over Body/16
+/// Grey-700 paragraphs, 12px apart (library `content-block-intro`).
+.intro {
+  @include content-block-intro;
+
+  h1 {
+    color: var(--hive-color-text-heading);
+  }
+
+  p {
+    color: var(--hive-color-gray-700);
+  }
+}

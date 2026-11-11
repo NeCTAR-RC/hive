@@ -1,62 +1,117 @@
 @use "mixins" as *;
 
+/// Sam's login page (review 73411), kept as he and the designer settled it
+/// (Hakkim, 2026-11-11). Every measure below is the nectar-dashboard
+/// theme's, theme/_styles.scss "Login Page" (#login_content): the
+/// honeycomb artwork fills the page from the left and the form sits
+/// centred in the right half of a Bootstrap container; phones get no
+/// artwork. Not a design-system frame (gap: a login page frame).
 .page {
+  position: relative;
   flex: 1;
-  display: grid;
-  min-height: 100%;
-
-  @include up($bp-md) {
-    grid-template-columns: 1fr 1fr;
-  }
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--hive-color-white);
 }
 
-.brand {
+/// The honeycomb illustration (theme #login_bg): hidden on phones, from
+/// 768px an absolutely placed picture at least 63.75rem wide covering the
+/// page from its top left; between 768px and 1200px it is centred, and up
+/// to 1400px shifted a tenth to the left, as the theme's media queries do.
+.background {
   display: none;
-  background:
-    radial-gradient(
-      circle at 20% 20%,
-      var(--hive-color-brand-blue) 0,
-      transparent 40%
-    ),
-    radial-gradient(
-      circle at 80% 70%,
-      var(--hive-color-brand-pink) 0,
-      transparent 45%
-    ),
-    var(--hive-color-brand-purple);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-width: 63.75rem;
+  height: 100%;
+  object-fit: cover;
+  object-position: left top;
+  pointer-events: none;
 
   @include up($bp-md) {
     display: block;
   }
+
+  @media (width < 75rem) {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  @media (75rem <= width <= 87.5rem) {
+    transform: translateX(-10%);
+  }
 }
 
-.card {
-  display: grid;
-  align-content: center;
-  gap: var(--hive-space-4);
-  max-width: 32rem;
+/// The theme's Bootstrap container (73.125rem, the page gutter at the
+/// sides), split in two equal columns from 768px (theme .row and
+/// .col-md-6).
+.container {
+  position: relative;
+  flex: 1;
   width: 100%;
+  max-width: 73.125rem;
   margin: 0 auto;
-  padding: var(--hive-space-8) var(--hive-gutter);
+  padding: 0 var(--hive-gutter);
+
+  @include up($bp-md) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
+/// The form takes the right column, centred (theme .col-md-offset-6).
+.column {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  @include up($bp-md) {
+    grid-column: 2;
+  }
+}
+
+/// The form block (theme #login_content .login): centred text, the
+/// theme's 100px above and below, the elements a 24px step apart.
+.login {
+  display: grid;
+  justify-items: center;
+  gap: var(--hive-space-4);
+  width: 100%;
+  padding: 100px 0;
+  text-align: center;
+
+  /// The welcome heading in the heading colour (theme h1 in #login_content).
+  h1 {
+    color: var(--hive-color-text-heading);
+  }
+
+  /// Paragraphs carry no margin of their own; the grid gap spaces them
+  /// (theme .login p).
+  p {
+    margin: 0;
+  }
+}
+
+/// The splash logo fills the form column, with the theme's 24px under it
+/// (theme templates/auth/_splash.html, .login-logo).
 .logo {
-  width: 14rem;
+  width: 100%;
+  margin-bottom: var(--hive-space-4);
 }
 
-.title {
-  color: var(--hive-color-text-heading);
-}
-
+/// The login button row (theme _login_form.html .login-buttons), centred
+/// with an 8px step above.
 .buttons {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-3);
+  justify-content: center;
   margin-top: var(--hive-space-2);
 }
 
-.help,
-.terms {
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-muted);
+/// The help link below the button (theme _login_form.html .login-help),
+/// padded 24px all round.
+.help {
+  padding: var(--hive-space-4);
 }

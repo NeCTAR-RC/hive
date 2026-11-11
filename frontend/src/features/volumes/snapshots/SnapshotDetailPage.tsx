@@ -1,19 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import { RowActionsMenu } from "../../../components/DataTable/DataTable";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { getRouteApi } from "@tanstack/react-router";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { ApiError } from "../../../lib/api/client";
+import { toRowActions } from "../../../lib/actions";
 import { formatDateTime, formatGb } from "../../../lib/format";
-import { useProjectId } from "../../../lib/useProject";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { snapshotRoute } from "../../../app/router";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
 import { snapshotQuery } from "../api";
-import { availableSnapshotActions, statusLabel, statusTone } from "../status";
+import { MetadataList } from "../MetadataList";
+import { availableSnapshotActions } from "../status";
+import { StatusMeta } from "../StatusMeta";
 import { useSnapshotActions } from "./SnapshotActions";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+
+const snapshotRoute = getRouteApi("/app/storage/snapshots/$snapshotId");
 
 const CRUMBS = [
   { label: "Project" },
@@ -21,98 +22,68 @@ const CRUMBS = [
   { label: "Snapshots", href: "/storage/snapshots" },
 ];
 
+/**
+ * One volume snapshot: its status under the title, its overview with its
+ * metadata, and its actions in the header menu.
+ */
 export function SnapshotDetailPage() {
   const projectId = useProjectId();
   const { snapshotId } = snapshotRoute.useParams();
   const snapshot = useQuery(snapshotQuery(projectId, snapshotId));
-  const { run, dialogs } = useSnapshotActions(projectId);
+  const { run, dialogs } = useSnapshotActions();
 
-  if (snapshot.isError) {
-    const notFound =
-      snapshot.error instanceof ApiError && snapshot.error.status === 404;
-    return (
-      <>
-        <PageHeader
-          title={notFound ? "Snapshot not found" : "Snapshot"}
-          crumbs={CRUMBS}
-        />
-        {notFound ? (
-          <p>
-            There is no volume snapshot <code>{snapshotId}</code> in this
-            project.{" "}
-            <RouteLink to="/storage/snapshots" search={{}}>
-              Back to snapshots
-            </RouteLink>
-          </p>
-        ) : (
-          <ErrorState
-            error={snapshot.error}
-            onRetry={() => void snapshot.refetch()}
-          />
-        )}
-      </>
-    );
-  }
-
-  const data = snapshot.data;
   return (
     <>
-      <PageHeader
-        title={data ? data.name || data.id : "Snapshot"}
+      <DetailPage
+        query={snapshot}
+        noun="volume snapshot"
+        id={snapshotId}
         crumbs={CRUMBS}
-        actions={
-          data && (
-            <RowActionsMenu
-              actions={availableSnapshotActions(data).map((action) => ({
-                id: action.id,
-                label: action.label,
-                onAction: () => run(data, action.id),
-                isDisabled: action.isDisabled,
-                ...(action.disabledReason
-                  ? { disabledReason: action.disabledReason }
-                  : {}),
-                ...(action.tone ? { tone: action.tone } : {}),
-              }))}
-            />
-          )
-        }
-      />
-      <Panel title="Overview">
-        {!data ? (
-          <SkeletonLines lines={7} />
-        ) : (
-          <KeyValueList
-            items={[
-              { label: "Name", value: data.name },
-              { label: "ID", value: <code>{data.id}</code> },
-              { label: "Description", value: data.description },
-              {
-                label: "Status",
-                value: (
-                  <StatusPill tone={statusTone(data.status)}>
-                    {statusLabel(data.status)}
-                  </StatusPill>
-                ),
-              },
-              { label: "Size", value: formatGb(data.size_gb) },
-              {
-                label: "Volume",
-                value: data.volume_id ? (
-                  <RouteLink
-                    to="/storage/volumes/$volumeId"
-                    params={{ volumeId: data.volume_id }}
-                  >
-                    {data.volume_name || data.volume_id}
-                  </RouteLink>
-                ) : null,
-              },
-              { label: "Progress", value: data.progress },
-              { label: "Created", value: formatDateTime(data.created_at) },
-              { label: "Updated", value: formatDateTime(data.updated_at) },
-            ]}
+        backTo={{ label: "snapshots", href: "/storage/snapshots" }}
+        title={(data) => data.name || data.id}
+        actions={(data) => (
+          <RowActionsMenu
+            actions={toRowActions(availableSnapshotActions(data), (id) =>
+              run(id, [data]),
+            )}
           />
         )}
-      </Panel>
+        meta={(data) => <StatusMeta status={data.status} />}
+      >
+        {(data) => (
+          <Panel title="Overview">
+            <KeyValueList
+              items={[
+                { label: "Name", value: data.name },
+                { label: "ID", value: <code>{data.id}</code> },
+                { label: "Description", value: data.description },
+                { label: "Size", value: formatGb(data.size_gb) },
+                {
+                  label: "Volume",
+                  value: data.volume_id ? (
+                    <AppLink
+                      to="/storage/volumes/$volumeId"
+                      params={{ volumeId: data.volume_id }}
+                    >
+                      {data.volume_name || data.volume_id}
+                    </AppLink>
+                  ) : null,
+                },
+                { label: "Progress", value: data.progress },
+                { label: "Created", value: formatDateTime(data.created_at) },
+                { label: "Updated", value: formatDateTime(data.updated_at) },
+                {
+                  label: "Metadata",
+                  value:
+                    Object.keys(data.metadata).length === 0 ? null : (
+                      <MetadataList metadata={data.metadata} />
+                    ),
+                },
+              ]}
+            />
+          </Panel>
+        )}
+      </DetailPage>
       {dialogs}
     </>
   );

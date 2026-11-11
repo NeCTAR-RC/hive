@@ -1,0 +1,25 @@
+{
+  "id": "p-1",
+  "name": "web-pool",
+  "protocol": "HTTP",
+  "lb_algorithm": "ROUND_ROBIN",
+  "provisioning_status": "ACTIVE",
+  "operating_status": "ONLINE",
+  "admin_state_up": true,
+  "healthmonitor_id": "hm-1",
+  "listeners": [
+    {
+      "id": "l-1"
+    }
+  ],
+  "loadbalancers": [
+    {
+      "id": "lb-1"
+    }
+  ],
+  "members": [
+    {
+      "id": "m-1"
+    }
+  ]
+}

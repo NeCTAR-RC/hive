@@ -1,0 +1,27 @@
+{
+  "network": {
+    "used": 1,
+    "limit": 5,
+    "reserved": 0
+  },
+  "subnet": {
+    "used": 1,
+    "limit": 10,
+    "reserved": 0
+  },
+  "router": {
+    "used": 1,
+    "limit": 2,
+    "reserved": 0
+  },
+  "floatingip": {
+    "used": 2,
+    "limit": 2,
+    "reserved": 0
+  },
+  "port": {
+    "used": 3,
+    "limit": -1,
+    "reserved": 0
+  }
+}

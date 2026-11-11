@@ -1,38 +1,51 @@
 @use "mixins" as *;
 
+// The availability chart has no spec frame (gap "Availability chart"): its
+// drawing is Hive's own, on library tokens. Each selector names the tokens
+// it draws with.
+
+/// The chart and its legend, 12px apart (DERIVED-SPACING, 12px).
 .wrap {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-3);
 }
 
+/// The chart's frame: a Grey-100 rule at the small radius on white,
+/// scrolling both ways after `--hive-timeline-max-height`. The sticky
+/// headers and labels layer inside the chart only, never over a dialog or
+/// the page header.
 .scroller {
   position: relative;
-  // The sticky headers and labels layer inside the chart only, never over
-  // a dialog or the dashboard bar.
   isolation: isolate;
-  max-height: 32rem;
+  max-height: var(--hive-timeline-max-height);
   overflow: auto;
   border: var(--hive-border-width) solid var(--hive-color-rule);
   border-radius: var(--hive-radius-sm);
   background: var(--hive-color-surface);
 }
 
+/// The grid: the sticky label column (`--hive-timeline-label`, narrower
+/// below 768px) then one 20px column per day, as wide as a bar is high so a
+/// one-day slot is square. Day and month labels take the library's 12px
+/// chart label size (Body/12), as the usage charts' axes do.
 .grid {
-  --gantt-label: 12.5rem;
-  --gantt-day: 1.25rem;
-  --gantt-month-height: 1.5rem;
+  --gantt-label: var(--hive-timeline-label);
+  --gantt-day: var(--hive-space-5);
+  --gantt-month-height: var(--hive-space-6);
 
   display: grid;
   min-width: max-content;
-  font-size: var(--hive-font-size-xs);
+  font: var(--hive-text-body-12);
 
   @include down($bp-md) {
-    --gantt-label: 9.5rem;
+    --gantt-label: var(--hive-timeline-label-compact);
   }
 }
 
-// Layers inside the chart: bars 1-2, row labels 3, headers 4, corner 5.
+/// The top start corner over the label column, above everything as the
+/// chart scrolls. Layers inside the chart: bars 1 and 2, row labels 3,
+/// headers 4, this corner 5.
 .corner {
   position: sticky;
   top: 0;
@@ -44,16 +57,19 @@
   border-right: var(--hive-border-width) solid var(--hive-color-rule);
 }
 
+/// A month's header across its days, 24px high, alternating Grey-100 and
+/// Grey-300 with Grey-900 text; sticks to the top.
 .month {
   position: sticky;
   top: 0;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   grid-row: 1;
   height: var(--gantt-month-height);
   overflow: hidden;
   padding: 0 var(--hive-space-2);
-  line-height: var(--gantt-month-height);
-  text-align: center;
   white-space: nowrap;
   color: var(--hive-color-gray-900);
   background: var(--hive-color-gray-100);
@@ -63,25 +79,31 @@
   }
 }
 
+/// A day's number under its month: white on Grey-900, ruled in Grey-700;
+/// today in Purple-500. Sticks under the month row.
 .day {
   position: sticky;
   top: var(--gantt-month-height);
   z-index: 4;
+  grid-row: 2;
   padding: var(--hive-space-1) 0;
   text-align: center;
   color: var(--hive-color-white);
   background: var(--hive-color-gray-900);
   border-right: var(--hive-border-width) solid var(--hive-color-gray-700);
+
+  &[data-today] {
+    background: var(--hive-color-brand-purple);
+  }
 }
 
-.day.today {
-  background: var(--hive-color-brand-purple);
-}
-
+/// A flavour's row: its label and track sit in the chart's grid directly.
 .row {
   display: contents;
 }
 
+/// The flavour's label cell, sticky at the start: Blue-100 behind it, ruled
+/// in Grey-100, 8px padding.
 .label {
   position: sticky;
   left: 0;
@@ -93,105 +115,119 @@
   border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
 }
 
-.chevron,
-.chevronOpen {
-  flex: none;
-  width: 1rem;
-  height: 1rem;
-  transition: transform var(--hive-transition-fast);
+/// The disclosure trigger (mixin `disclosure-toggle`, the library
+/// `Accordion`'s anatomy): the flavour name across the label column with the
+/// accordion's plus or minus at its end.
+.toggle {
+  @include disclosure-toggle;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.chevronOpen {
-  transform: rotate(180deg);
+/// The plus and minus glyphs (mixin `disclosure-icon`).
+.icon {
+  @include disclosure-icon;
 }
 
+/// The flavour's details 8px under its name, as the shared `KeyValueList`.
 .details {
-  margin: var(--hive-space-2) 0 0;
-  font-size: var(--hive-font-size-sm);
+  margin-top: var(--hive-space-2);
 }
 
+/// A flavour's track: twice a bar's height with the bar centred, ruled in
+/// Grey-100; every other row on Grey-50.
 .track {
   position: relative;
   display: grid;
   grid-column: 2 / -1;
   align-items: center;
-  min-height: 2.5rem;
+  min-height: calc(2 * var(--hive-space-5));
   border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
+
+  &[data-alternate] {
+    background: var(--hive-color-gray-50);
+  }
 
   > * {
     grid-row: 1;
   }
 }
 
+/// The note on a flavour's track when it has no free slot: Body/14 Grey-500,
+/// the helper text style, held beside the label column while the chart
+/// scrolls so it stays in view.
 .noSlots {
+  position: sticky;
+  left: calc(var(--gantt-label) + var(--hive-space-2));
+  z-index: 1;
   grid-column: 1 / -1;
-  padding: 0 var(--hive-space-2);
+  justify-self: start;
+  width: max-content;
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.trackAlt {
-  background: var(--hive-color-gray-50);
-}
-
+/// Today's column down the track, in Purple-50.
 .todayColumn {
   align-self: stretch;
   background: var(--hive-color-purple-50);
 }
 
-.bar {
+/// A free slot: a 20px bar in the chart's green (`--hive-chart-4`) at the
+/// small radius; half opacity when it cannot be reserved; the library focus
+/// ring on keyboard focus.
+.slot {
   position: relative;
   z-index: 1;
-  height: 1.25rem;
+  height: var(--hive-space-5);
   margin: 0;
   padding: 0;
   overflow: hidden;
   border: 0;
   border-radius: var(--hive-radius-sm);
-}
-
-.free {
   background: var(--hive-chart-4);
   cursor: pointer;
+  outline: none;
 
-  &:disabled {
+  &[data-disabled] {
     cursor: not-allowed;
     opacity: 0.5;
   }
 
-  &:focus-visible {
+  &[data-focus-visible] {
     @include focus-ring;
   }
 }
 
-.maintenance {
-  z-index: 2;
-  height: 0.75rem;
-  background: var(--hive-color-orange);
-  cursor: not-allowed;
-}
-
+/// The proposed days, a white wash over the bar while it is pointed at or
+/// has keyboard focus; always in place, since it anchors the tooltip.
 .shade {
   position: absolute;
   top: 0;
   height: 100%;
   background: var(--hive-color-white);
-  opacity: 0.5;
+  opacity: 0;
   pointer-events: none;
+
+  .slot[data-hovered] &,
+  .slot[data-focus-visible] & {
+    opacity: 0.5;
+  }
 }
 
-.tooltip {
-  position: fixed;
-  z-index: var(--hive-z-toast);
-  max-width: 18rem;
-  padding: var(--hive-space-2) var(--hive-space-3);
+/// A maintenance window: a 12px bar in Orange-500 at the small radius. A
+/// plain focusable span (not React Aria), so the global ring draws its
+/// keyboard focus.
+.maintenance {
+  position: relative;
+  z-index: 2;
+  height: var(--hive-space-3);
   border-radius: var(--hive-radius-sm);
-  background: var(--hive-color-gray-900);
-  color: var(--hive-color-white);
-  font-size: var(--hive-font-size-xs);
-  pointer-events: none;
+  background: var(--hive-color-orange);
+  cursor: not-allowed;
 }
 
+/// The legend under the chart: Body/14 Grey-500 entries, 8px by 16px apart.
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -199,7 +235,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 
   li {
@@ -209,23 +245,24 @@
   }
 }
 
-// Plain blocks, not the bar classes: a flex item honours z-index even when
-// static, and the bars' layers would then compete with dialogs.
+/// A legend swatch, 16 by 12px at the small radius, in its bar's colour.
+/// Plain blocks, not the bar classes: a flex item honours z-index even when
+/// static, and the bars' layers would then compete with dialogs.
 .swatch {
   display: inline-block;
-  width: 1rem;
-  height: 0.75rem;
+  width: var(--hive-space-4);
+  height: var(--hive-space-3);
   border-radius: var(--hive-radius-sm);
-}
 
-.swatchFree {
-  background: var(--hive-chart-4);
-}
+  &[data-kind="free"] {
+    background: var(--hive-chart-4);
+  }
 
-.swatchMaintenance {
-  background: var(--hive-color-orange);
-}
+  &[data-kind="maintenance"] {
+    background: var(--hive-color-orange);
+  }
 
-.swatchToday {
-  background: var(--hive-color-brand-purple);
+  &[data-kind="today"] {
+    background: var(--hive-color-brand-purple);
+  }
 }

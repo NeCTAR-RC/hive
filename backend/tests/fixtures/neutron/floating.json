@@ -1,0 +1,14 @@
+{
+  "id": "net-float",
+  "name": "ardctest-artm",
+  "project_id": "admin",
+  "shared": false,
+  "router:external": true,
+  "status": "ACTIVE",
+  "subnets": [
+    "sub-float"
+  ],
+  "tags": [
+    "nectar:floating"
+  ]
+}

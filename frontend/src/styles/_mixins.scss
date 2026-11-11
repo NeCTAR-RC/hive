@@ -1,3 +1,13 @@
+@use "@ardc-ui/react/styles/variables" as ardc;
+@use "@ardc-ui/react/styles/sidebar-blocks";
+
+// The library's block and band mixins (sidebar-blocks and content-blocks
+// specs), so a Hive module draws a spec block with `@include sidebar-block-list`
+// rather than restating its geometry. They emit compiled values only; the
+// arguments a module passes stay --hive-* custom properties.
+@forward "@ardc-ui/react/styles/sidebar-blocks";
+@forward "@ardc-ui/react/styles/content-blocks";
+
 // Breakpoints shared by every Hive module. Phone is the default; `up()` adds
 // behaviour as the viewport grows.
 $bp-sm: 480px;
@@ -5,6 +15,18 @@ $bp-md: 768px;
 $bp-lg: 1024px;
 $bp-xl: 1280px;
 $bp-xxl: 1440px;
+
+// Container widths, for a grid that counts its columns by the width of the
+// column it sits in rather than the window (from 768px the docked sidebar
+// and its gap take 306px of the window). Two span-2 columns and the gap
+// between them (span 4, 384px): the narrowest list that fits two
+// label-over-value pairs to a row. Two columns from span 6 of the grid
+// (588px: two span-3 columns, the narrowest the card spec draws a card, and
+// the gap); the full count from the library's narrow edge (768px, below
+// which its content blocks stack their columns).
+$cq-pair-narrow: 384px;
+$cq-pair: 588px;
+$cq-wide: ardc.$content-block-stack-below;
 
 @mixin up($bp) {
   @media (width >= $bp) {
@@ -35,9 +57,89 @@ $bp-xxl: 1440px;
   outline-offset: var(--hive-focus-ring-offset);
 }
 
-// A white panel with a rule, the Horizon "panel" users know.
+/// The 1200px content column of the grid, centred, with the page gutter
+/// either side once the viewport is narrower than that.
+@mixin content-container {
+  width: min(100% - 2 * var(--hive-gutter), var(--hive-content-max));
+  margin-inline: auto;
+}
+
+/// The sidebar's small label over a project fact, after Darcelle's 15 Oct
+/// 2026 dashboard mockup ("RESOURCE BUNDLE", "PROJECT USAGE"): Body/14/Bold
+/// Grey-500, uppercase, tracked 0.5px. The design system has no uppercase
+/// label style (gap "Small uppercase label"); this mixin is the one place
+/// Hive sets uppercase text, which `check:tokens` rejects in a module.
+@mixin small-label {
+  font: var(--hive-text-body-14-bold);
+  color: var(--hive-color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: var(--hive-label-tracking);
+}
+
+/// The "Info - Sidebar" block (sidebar-blocks spec, line 120): the sidebar
+/// block chrome with its children 20px apart, the gap its labelled pairs
+/// stack at.
+@mixin info-block {
+  @include sidebar-blocks.sidebar-block(ardc.$spacing-5);
+}
+
+/// The sidebar-blocks spec's block (Events - Sidebar, line 1970) through the
+/// library's sidebar-block mixin: a white surface ruled in Grey-100 at the
+/// 4px radius, 24px padding with 16px at the foot, children stacked 8px
+/// apart. Hive's panels, and every feature surface that includes this, are
+/// that block.
 @mixin panel {
-  background: var(--hive-color-surface);
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius);
+  @include sidebar-blocks.sidebar-block;
+}
+
+/// The chrome of `panel` alone (the sidebar block's white surface, Grey-100
+/// rule and 4px radius, from the library's own tokens) for a surface that
+/// brings its own layout and padding: the page panel in the app frame, whose
+/// content is the routed page and must not be stacked or spaced by the
+/// block's flex column.
+@mixin panel-surface {
+  border: ardc.$sidebar-block-border-width solid
+    ardc.$sidebar-block-border-color;
+  border-radius: ardc.$sidebar-block-radius;
+  background-color: ardc.$sidebar-block-bg;
+}
+
+/// A compact disclosure trigger (React Aria `Disclosure`, as the library
+/// `Accordion` builds on, without the accordion's H4 row): its label in
+/// Body/14/Bold in the accordion title's Grey-900, the accordion's plus or
+/// minus 8px after it, the library focus ring on keyboard focus. Include
+/// `disclosure-icon` on the glyph's frame.
+@mixin disclosure-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--hive-radius-sm);
+  background: none;
+  font: var(--hive-text-body-14-bold);
+  color: var(--hive-color-gray-900);
+  text-align: start;
+  cursor: pointer;
+  outline: none;
+
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+}
+
+/// The accordion's plus and minus glyphs (library `Plus`, `Minus`) in the
+/// accordion icon's Grey-700, in a 16px frame, the library's small icon
+/// frame.
+@mixin disclosure-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--hive-color-gray-700);
+  width: var(--hive-button-icon-size-xs);
+  height: var(--hive-button-icon-size-xs);
+
+  > svg {
+    width: 100%;
+    height: 100%;
+  }
 }

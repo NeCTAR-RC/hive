@@ -1,0 +1,18 @@
+{
+  "id": "u1",
+  "first_name": "Sam",
+  "surname": "Example",
+  "displayname": "Sam Example",
+  "email": "sam@example.edu",
+  "organisation": "Example University",
+  "affiliation": "staff",
+  "phone_number": null,
+  "mobile_number": "0400 000 000",
+  "orcid": null,
+  "external_ids": [
+    {
+      "idp": "https://idp.example.edu",
+      "last_login": "2026-10-09"
+    }
+  ]
+}

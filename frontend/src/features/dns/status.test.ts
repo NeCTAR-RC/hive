@@ -1,36 +1,111 @@
 import { describe, expect, it } from "vitest";
-import { recordSetUpdateBody, splitRecords } from "./status";
+import type { ActionOffer } from "../../lib/actions";
+import type { RecordSet, Zone } from "../../lib/api/types/dns";
+import {
+  availableRecordSetActions,
+  availableZoneActions,
+  statusLabel,
+  statusTone,
+} from "./status";
 
-describe("splitRecords", () => {
-  it("takes one record per non-blank line", () => {
-    expect(splitRecords(" 203.0.113.1 \n\n203.0.113.2\n")).toEqual([
-      "203.0.113.1",
-      "203.0.113.2",
-    ]);
+describe("zone and record status", () => {
+  it.each([
+    { status: "ACTIVE", action: null, tone: "success", label: "Active" },
+    {
+      status: "PENDING",
+      action: "CREATE",
+      tone: "progress",
+      label: "Pending (create)",
+    },
+    { status: "PENDING", action: "NONE", tone: "progress", label: "Pending" },
+    { status: "PENDING", action: null, tone: "progress", label: "Pending" },
+    { status: "ERROR", action: "UPDATE", tone: "danger", label: "Error" },
+    { status: "DELETED", action: null, tone: "neutral", label: "Deleted" },
+    { status: null, action: null, tone: "neutral", label: "Unknown" },
+  ])("$status/$action is $label ($tone)", ({ status, action, tone, label }) => {
+    expect(statusTone(status)).toBe(tone);
+    expect(statusLabel(status, action)).toBe(label);
   });
 });
 
-describe("recordSetUpdateBody", () => {
-  it("sends a blank TTL as null so the zone default applies", () => {
-    const body = recordSetUpdateBody({
-      records: "203.0.113.1",
-      ttl: undefined,
-      description: "",
+const zone = (overrides: Partial<Zone> = {}): Zone => ({
+  id: "z1",
+  name: "example.com.",
+  type: "PRIMARY",
+  email: "admin@example.com",
+  ttl: 3600,
+  serial: 1,
+  description: null,
+  status: "ACTIVE",
+  action: "NONE",
+  masters: [],
+  shared: false,
+  created_at: null,
+  updated_at: null,
+  is_transitional: false,
+  ...overrides,
+});
+
+const recordSet = (overrides: Partial<RecordSet> = {}): RecordSet => ({
+  id: "r1",
+  zone_id: "z1",
+  name: "www.example.com.",
+  type: "A",
+  ttl: null,
+  description: null,
+  records: ["203.0.113.10"],
+  status: "ACTIVE",
+  action: "NONE",
+  created_at: null,
+  updated_at: null,
+  is_transitional: false,
+  can_edit: true,
+  ...overrides,
+});
+
+/** The offers as `id: reason` pairs, with "" for an enabled action. */
+const reasons = (offers: ActionOffer<string>[]) =>
+  Object.fromEntries(offers.map((o) => [o.id, o.disabledReason ?? ""]));
+
+describe("zone actions", () => {
+  it("lists edit and delete, enabled on a settled zone", () => {
+    expect(reasons(availableZoneActions(zone()))).toEqual({
+      edit: "",
+      delete: "",
     });
-    expect(body).toEqual({
-      records: ["203.0.113.1"],
-      ttl: null,
-      description: "",
-    });
-    expect(JSON.stringify(body)).toContain('"ttl":null');
   });
 
-  it("sends a TTL the user entered", () => {
+  it("disables both while a change is pending", () => {
     expect(
-      recordSetUpdateBody({ records: "a", ttl: 300, description: "x" }).ttl,
-    ).toBe(300);
-    expect(
-      recordSetUpdateBody({ records: "a", ttl: 0, description: "x" }).ttl,
-    ).toBe(0);
+      reasons(availableZoneActions(zone({ is_transitional: true }))),
+    ).toEqual({
+      edit: "Wait for the pending change to finish",
+      delete: "Wait for the pending change to finish",
+    });
+  });
+});
+
+describe("record set actions", () => {
+  it("lists edit and delete, enabled on an editable record set", () => {
+    expect(reasons(availableRecordSetActions(recordSet()))).toEqual({
+      edit: "",
+      delete: "",
+    });
+  });
+
+  it("disables both on a record set Designate manages", () => {
+    const managed = recordSet({ can_edit: false, is_transitional: true });
+    expect(reasons(availableRecordSetActions(managed))).toEqual({
+      edit: "This record set is managed by the DNS service",
+      delete: "This record set is managed by the DNS service",
+    });
+  });
+
+  it("disables both while a change is pending", () => {
+    const pending = recordSet({ is_transitional: true });
+    expect(reasons(availableRecordSetActions(pending))).toEqual({
+      edit: "Wait for the pending change to finish",
+      delete: "Wait for the pending change to finish",
+    });
   });
 });

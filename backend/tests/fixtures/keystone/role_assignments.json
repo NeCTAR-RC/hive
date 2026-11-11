@@ -1,0 +1,49 @@
+{
+  "role_assignments": [
+    {
+      "user": {
+        "id": "u1",
+        "name": "sam@example.edu"
+      },
+      "role": {
+        "id": "r-member",
+        "name": "member"
+      },
+      "scope": {
+        "project": {
+          "id": "p2"
+        }
+      }
+    },
+    {
+      "user": {
+        "id": "u2",
+        "name": "ann@example.edu"
+      },
+      "role": {
+        "id": "r-tm",
+        "name": "tenantmanager"
+      },
+      "scope": {
+        "project": {
+          "id": "p2"
+        }
+      }
+    },
+    {
+      "user": {
+        "id": "u3",
+        "name": "bot"
+      },
+      "role": {
+        "id": "r-bot",
+        "name": "reservation_bot"
+      },
+      "scope": {
+        "project": {
+          "id": "p2"
+        }
+      }
+    }
+  ]
+}

@@ -1,14 +1,41 @@
+/// The upload's progress bar, its note and "Cancel upload", 12px apart (the
+/// library dialog body gap).
 .progress {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
+  gap: var(--hive-dialog-body-gap);
 }
 
+/// Helper text: Body/14 Grey-500, the library field helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.cancel {
-  align-self: flex-start;
+/// The properties group, its parts 16px apart as the dialog's fields
+/// (DERIVED-SPACING inter-field gap).
+.properties {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+}
+
+/// The group's label and helper, 4px apart, as the library heads a single
+/// field (text-input spec, Input Field with Labels).
+.groupHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+/// The group label: Body/16/Bold Grey-700, the library field label.
+.groupLabel {
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
+}
+
+/// The group's helper: Body/14 Grey-500, the library field helper style.
+.hint {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
 }

@@ -1,9 +1,4 @@
-// An ordered list the reader rearranges by dragging a row, with the pointer
-// or from the keyboard: each row's drag handle lifts it on Enter or Space,
-// the arrow keys move the drop point, and Enter drops it. React Aria owns
-// the drag and drop and announces every move. The design system defers drag
-// and drop (ruling 59), so this composes the React Aria primitives the
-// design system itself builds on, drawn with Hive's tokens.
+import { useEffect, useRef } from "react";
 import {
   Button,
   DropIndicator,
@@ -14,63 +9,105 @@ import {
 import { reorderKeys } from "./reorder";
 import styles from "./ReorderList.module.scss";
 
+/**
+ * How long after the new order appears focus is restored: past the 50ms in
+ * which React Aria moves focus itself after a drop.
+ */
+const FOCUS_AFTER_DROP_MS = 100;
+
+/** One row of a `ReorderList`. */
 export interface ReorderItem {
   id: string;
   label: string;
 }
 
+/** The drag handle's glyph: two columns of three dots. */
 function GripIcon() {
-  // Two columns of three dots, the usual drag-handle glyph.
   return (
     <svg
-      width="12"
-      height="16"
-      viewBox="0 0 12 16"
+      className={styles.grip}
+      viewBox="0 0 16 16"
       fill="currentColor"
       aria-hidden="true"
       focusable="false"
     >
-      <circle cx="3.5" cy="3" r="1.5" />
-      <circle cx="8.5" cy="3" r="1.5" />
-      <circle cx="3.5" cy="8" r="1.5" />
-      <circle cx="8.5" cy="8" r="1.5" />
-      <circle cx="3.5" cy="13" r="1.5" />
-      <circle cx="8.5" cy="13" r="1.5" />
+      <circle cx="5.5" cy="3" r="1.5" />
+      <circle cx="10.5" cy="3" r="1.5" />
+      <circle cx="5.5" cy="8" r="1.5" />
+      <circle cx="10.5" cy="8" r="1.5" />
+      <circle cx="5.5" cy="13" r="1.5" />
+      <circle cx="10.5" cy="13" r="1.5" />
     </svg>
   );
 }
 
+/**
+ * An ordered list the user rearranges by dragging a row, with the pointer
+ * or the keyboard: Enter or Space on a row's handle lifts it, the arrow
+ * keys move the drop point, Enter drops it and Escape cancels. React Aria's
+ * `GridList` and `useDragAndDrop` own the interaction and announce every
+ * move; the design system has no drag and drop (gap "Reorderable list").
+ * Each row shows its position, so the order reads without dragging.
+ * `onReorder` gets every id in the new order; the caller owns the list.
+ */
 export function ReorderList({
   items,
   onReorder,
   "aria-label": ariaLabel,
 }: {
   items: ReorderItem[];
-  /** Called with the ids in their new order. */
   onReorder: (ids: string[]) => void;
   "aria-label": string;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const moved = useRef<string | null>(null);
+  const ids = items.map((item) => item.id);
+  const order = items.map((item) => `${item.id}:${item.label}`).join("\n");
+
+  // A keyboard drop removes the focused drop point and leaves focus on the
+  // page body. Once the new order is on screen, and React Aria's own focus
+  // update after a drop (a 50ms window) is over, focus goes back to the
+  // moved row, so the user carries on from where the row now is. Focus on a
+  // control outside the list is left alone.
+  useEffect(() => {
+    const key = moved.current;
+    if (key === null) return;
+    moved.current = null;
+    const timer = setTimeout(() => {
+      const list = listRef.current;
+      const active = document.activeElement;
+      if (!list || (active !== document.body && !list.contains(active))) return;
+      list
+        .querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)
+        ?.focus();
+    }, FOCUS_AFTER_DROP_MS);
+    return () => clearTimeout(timer);
+  }, [order]);
+
   const { dragAndDropHooks } = useDragAndDrop({
     getItems: (keys) =>
       [...keys].map((key) => ({
         "text/plain": items.find((i) => i.id === key)?.label ?? String(key),
       })),
-    onReorder: (event) =>
-      onReorder(
-        reorderKeys(
-          items.map((i) => i.id),
-          event.keys,
-          event.target,
-        ),
-      ),
+    onReorder: (event) => {
+      const next = reorderKeys(ids, event.keys, event.target);
+      // A drop that leaves the order as it was has nothing to focus.
+      if (next.join("\n") === ids.join("\n")) return;
+      moved.current = String([...event.keys][0]);
+      onReorder(next);
+    },
     renderDropIndicator: (target) => (
       <DropIndicator target={target} className={styles.dropIndicator} />
     ),
   });
   return (
     <GridList
+      ref={listRef}
       aria-label={ariaLabel}
       items={items}
+      // A row's position number is read from `items`, outside the row's
+      // own item, so every row renders again when the order changes.
+      dependencies={[order]}
       selectionMode="none"
       dragAndDropHooks={dragAndDropHooks}
       className={styles.list}

@@ -1,124 +1,169 @@
 @use "mixins" as *;
 
+/// The table and its footer, 32px apart: the design system's card row to
+/// pagination gap (paddings-and-margins spec; DERIVED-SPACING, 32px).
 .wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-8);
+  min-width: 0;
+}
+
+/// Toolbar, notices and table, 12px apart: the design system's gap between
+/// controls (DERIVED-SPACING, 12px).
+.main {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-3);
   min-width: 0;
 }
 
+/// The toolbar row (gap "Table toolbar"): fields at the start, actions at
+/// the end, every control 12px from the next, wrapping when short of room.
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--hive-space-2) var(--hive-space-3);
+  gap: var(--hive-space-3);
 }
 
-.toolbarLeft,
-.toolbarRight {
+/// The toolbar's fields (search and filters) at its start, 12px apart (gap
+/// "Table toolbar").
+.fields {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-3);
   min-width: 0;
 }
 
-.toolbarLeft {
-  flex: 1 1 16rem;
-}
-
+/// The search box grows from span 2 to span 4 of the grid (gap "Table
+/// toolbar"); the library field inside fills this cell as shipped.
 .search {
-  flex: 1 1 12rem;
-  max-width: 24rem;
+  flex: 1 1 var(--hive-toolbar-search-min);
+  max-width: var(--hive-toolbar-search-max);
+  min-width: 0;
 }
 
-.batchBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-2) var(--hive-space-3);
-  background: var(--hive-color-purple-50);
-  border-radius: var(--hive-radius);
-}
-
-.batchCount {
-  font-weight: var(--hive-font-weight-semibold);
-  margin-right: var(--hive-space-2);
-}
-
-.table {
-  width: 100%;
-}
-
-.actionsCell {
-  position: relative;
-  width: 1%;
-  white-space: nowrap;
-  text-align: right;
-}
-
-.dangerItem {
-  color: var(--hive-color-danger-strong);
-}
-
-.reason {
-  display: block;
-  font-size: var(--hive-font-size-xs);
-  font-weight: var(--hive-font-weight-normal);
-  color: var(--hive-color-text-muted);
-}
-
-.skeleton {
-  display: flex;
-  flex-direction: column;
+/// Each filter field is a cell: stacked full width on phones, then span 3
+/// of the grid each, side by side (gap "Table toolbar").
+.filters {
+  display: grid;
+  flex: 1 1 100%;
   gap: var(--hive-space-3);
-  padding: var(--hive-space-3) 0;
-  width: 100%;
-}
 
-.skeletonRow {
-  display: flex;
-  gap: var(--hive-space-4);
-  min-height: 1.5rem;
-  align-items: center;
-
-  > * {
-    flex: 1;
+  @include up($bp-md) {
+    flex: 0 0 auto;
+    grid-auto-flow: column;
+    grid-auto-columns: var(--hive-toolbar-filter);
   }
 }
 
-.footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--hive-space-2) var(--hive-space-4);
-}
-
-.footerRight {
+/// The toolbar's actions (the page's own, "With selected", the column
+/// chooser and refresh) at its end, 12px apart (gap "Table toolbar").
+.actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hive-space-3);
 }
 
-.count {
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-muted);
+/// The refresh glyph at the extra small button's icon size (library
+/// `$btn-content-icon-size-xs`), turning at the library loading pace while
+/// a refetch runs; still with reduced motion.
+.refreshIcon {
+  width: var(--hive-button-icon-size-xs);
+  height: var(--hive-button-icon-size-xs);
 }
 
-.pageSize {
-  min-width: 9rem;
-}
-
-.spinning {
-  animation: spin 1s linear infinite;
+/// The refresh glyph turns once per library loading cycle
+/// (`$loading-spin-duration`) while a refetch runs, unless motion is reduced.
+@media (prefers-reduced-motion: no-preference) {
+  .refreshIcon[data-spinning] {
+    animation: spin var(--hive-loading-duration) linear infinite;
+  }
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/// The actions column names itself for screen readers only. The hidden text
+/// is absolutely positioned, so this gives it a containing block inside the
+/// table's scroll container; otherwise it would widen the page.
+.hiddenLabel {
+  position: relative;
+}
+
+/// A disabled row action with its reason: the row's label over the reason
+/// 4px apart, as the header spec's "Mega Menu Nav Links Mobile" row pairs a
+/// title with its description (line 35765).
+.disabledAction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+/// The reason in that row's description style: Body/14 in Grey-700.
+.reason {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+}
+
+/// The footer (gap "Table footer"): the library `Pagination` centred in the
+/// table's width (pagination spec, line 2427), the row count at the start
+/// and the page size at the end. On a phone the pagination takes its own
+/// line above the other two.
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hive-space-3);
+
+  @include up($bp-md) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+}
+
+/// The library `Pagination` centred in the table's width (pagination spec,
+/// line 2427); on a phone it takes its own line above the count and page
+/// size.
+.pager {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: center;
+  order: -1;
+
+  @include up($bp-md) {
+    grid-column: 2;
+    order: 0;
+  }
+}
+
+/// The row count in the caption style: Body/14 in Grey-500 (typography
+/// spec, line 86).
+.count {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
+
+  @include up($bp-md) {
+    grid-column: 1;
+  }
+}
+
+/// "Per page" beside its select, span 2 of the grid wide (gap "Table
+/// footer").
+.pageSize {
+  width: var(--hive-page-size-field);
+
+  @include up($bp-md) {
+    grid-column: 3;
+    justify-self: end;
   }
 }

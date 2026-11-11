@@ -1,14 +1,33 @@
-.meter {
+/// The library `Meter` fills the width it is given; this gives it the full
+/// column and keeps the over-quota alert as far below the track as the
+/// meter's label sits above it (the meter's 12px group gap).
+.quota {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-meter-group-gap);
   width: 100%;
 }
 
+/// An unlimited quota has no bar, only the library meter's header row
+/// (progress-label-row): label and readout at either end on one baseline,
+/// at least 16px apart.
 .unlimited {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  gap: var(--hive-space-2);
-  font-size: var(--hive-font-size-sm);
+  gap: var(--hive-meter-header-gap);
 }
 
+/// The meter's label (progress-label): Body/16/Bold in Grey-700.
 .label {
-  color: var(--hive-color-text-muted);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
+}
+
+/// The meter's readout (progress-value): Body/14 in Grey-700, on one line.
+.value {
+  flex: none;
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+  white-space: nowrap;
 }

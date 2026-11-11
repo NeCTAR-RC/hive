@@ -1,21 +1,21 @@
 @use "mixins" as *;
 
+/// Positions the library link only: hidden until focused, then fixed at the
+/// viewport's top start corner, a gutter in, over the page. Its look is the
+/// library primary button's, untouched.
 .skip {
   @include visually-hidden;
 
-  &:focus {
+  &:has([data-focused]) {
     position: fixed;
-    top: var(--hive-space-2);
-    left: var(--hive-space-2);
+    top: var(--hive-gutter);
+    left: var(--hive-gutter);
     z-index: var(--hive-z-toast);
     width: auto;
     height: auto;
     margin: 0;
-    padding: var(--hive-space-2) var(--hive-space-4);
+    overflow: visible;
     clip-path: none;
-    background: var(--hive-color-surface);
-    color: var(--hive-color-link);
-    border-radius: var(--hive-radius);
-    box-shadow: var(--hive-shadow-sm);
+    white-space: normal;
   }
 }

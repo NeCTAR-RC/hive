@@ -1,41 +1,42 @@
 // Reservations (warre-dashboard content/reservation): the project's
 // reservations with the limits shown as days and reservations used.
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { Tooltip, TooltipTrigger } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../components/ConfirmDialog/ConfirmDialog";
+import { AppLink } from "../../components/AppLink/AppLink";
 import {
   DataTable,
   type ColumnDef,
 } from "../../components/DataTable/DataTable";
-import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
+import { useQueryTable } from "../../components/DataTable/useQueryTable";
 import { Panel } from "../../components/Panel/Panel";
-import { RouteLink } from "../../components/RouteLink/RouteLink";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { StatusPill } from "../../components/StatusPill/StatusPill";
-import type { Reservation } from "../../lib/api/types";
-import { downloadUrl } from "../../lib/download";
-import { formatDateTime } from "../../lib/format";
-import { notify } from "../../lib/notify";
-import { useProjectId } from "../../lib/useProject";
+import { allows, toRowActions } from "../../lib/actions";
+import type { Reservation } from "../../lib/api/types/reservations";
+import { useProjectId } from "../../lib/hooks/useProjectId";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
-import { reservationsQuery, useDeleteReservation } from "./api";
+import { reservationsQuery } from "./api";
+import { formatReservedDays } from "./days";
+import { Limits } from "./Limits";
+import { useReservationActions } from "./ReservationActions";
 import {
+  availableReservationActions,
   flavorSize,
   RESERVATIONS_HELP,
   statusLabel,
   statusTone,
 } from "./status";
-import { ReservationLimits } from "./ReservationLimits";
 import styles from "./ReservationsPage.module.scss";
 
 export function ReservationsPage() {
   const projectId = useProjectId();
-  const navigate = useNavigate();
   const reservations = useQuery(reservationsQuery(projectId));
-  const remove = useDeleteReservation(projectId);
-  const [deleting, setDeleting] = useState<Reservation[]>([]);
+  const reservationsTable = useQueryTable(reservations, {
+    noun: "reservations",
+    emptyTitle: "No reservations yet",
+  });
+  const { run, dialogs, tableProps } = useReservationActions();
   const limits = reservations.data?.limits;
   const canCreate = limits?.can_create ?? true;
 
@@ -46,12 +47,13 @@ export function ReservationsPage() {
         label: "ID",
         isRowHeader: true,
         cell: (row) => (
-          <RouteLink
+          <AppLink
+            size="sm"
             to="/reservations/$reservationId"
             params={{ reservationId: row.id }}
           >
             <code>{row.id}</code>
-          </RouteLink>
+          </AppLink>
         ),
         sortValue: (row) => row.id,
         textValue: (row) => row.id,
@@ -70,16 +72,9 @@ export function ReservationsPage() {
       },
       {
         id: "start",
-        label: "Start",
-        cell: (row) => formatDateTime(row.start),
+        label: "Reserved (UTC days)",
+        cell: (row) => formatReservedDays(row.start, row.end),
         sortValue: (row) => row.start ?? "",
-      },
-      {
-        id: "end",
-        label: "End",
-        cell: (row) => formatDateTime(row.end),
-        sortValue: (row) => row.end ?? "",
-        hideBelow: "md",
       },
       {
         id: "status",
@@ -95,25 +90,6 @@ export function ReservationsPage() {
     [],
   );
 
-  const confirmDelete = async () => {
-    const results = await Promise.allSettled(
-      deleting.map((row) => remove.mutateAsync(row.id)),
-    );
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed === 0) {
-      notify.success(
-        deleting.length === 1
-          ? `Reservation ${deleting[0]?.id} deleted.`
-          : `${deleting.length} reservations deleted.`,
-      );
-    } else {
-      notify.danger(
-        `Could not delete ${failed} of ${deleting.length} reservations.`,
-      );
-    }
-    setDeleting([]);
-  };
-
   return (
     <>
       <PageHeader
@@ -121,14 +97,14 @@ export function ReservationsPage() {
         crumbs={[{ label: "Project" }, { label: "Compute" }]}
         actions={
           canCreate ? (
-            <RouteLink variant="primary" size="sm" to="/reservations/new">
+            <AppLink variant="primary" size="sm" to="/reservations/new">
               Create reservation
-            </RouteLink>
+            </AppLink>
           ) : (
             <TooltipTrigger>
-              <RouteLink variant="primary" size="sm" to="/reservations/new">
+              <AppLink variant="primary" size="sm" to="/reservations/new">
                 Create reservation (quota exceeded)
-              </RouteLink>
+              </AppLink>
               <Tooltip>
                 Your project has no reservation days or reservations left.
               </Tooltip>
@@ -139,9 +115,9 @@ export function ReservationsPage() {
         <p className={styles.intro}>
           Reserve a flavour for a period so an instance of that size is
           guaranteed when you need it. Read{" "}
-          <ExternalLink href={RESERVATIONS_HELP}>
+          <AppLink href={RESERVATIONS_HELP} newTab>
             the reservation guide
-          </ExternalLink>{" "}
+          </AppLink>{" "}
           first. GPU flavours are not available to Auckland users. Times are
           shown in your browser&apos;s time zone; reservations run in UTC.
         </p>
@@ -151,101 +127,44 @@ export function ReservationsPage() {
           {reservations.isPending ? (
             <SkeletonLines lines={2} />
           ) : limits ? (
-            <ReservationLimits limits={limits} />
+            <div className={styles.limits}>
+              <Limits limits={limits} />
+            </div>
           ) : null}
         </Panel>
         <DataTable
           id="reservations"
           label="Reservations"
           columns={columns}
-          rows={reservations.data?.items}
           getRowId={(row) => row.id}
-          isLoading={reservations.isPending}
-          isFetching={reservations.isFetching}
-          error={reservations.error}
-          onRetry={() => void reservations.refetch()}
-          onRefresh={() => void reservations.refetch()}
-          emptyTitle="No reservations yet"
+          {...reservationsTable}
+          {...tableProps}
           emptyBody={
             <p>
               Create a reservation to hold a flavour for the days you need it.
             </p>
           }
           defaultSort={{ column: "start", direction: "descending" }}
-          rowActions={(row) => [
-            {
-              id: "launch",
-              label: "Launch instance",
-              isDisabled: !row.actions.includes("launch"),
-              disabledReason: "The reservation is not active yet.",
-              onAction: () =>
-                void navigate({
-                  to: "/compute/instances/launch",
-                  search: { flavor: row.compute_flavor ?? "" },
-                }),
-            },
-            {
-              id: "extend",
-              label: "Extend reservation",
-              isDisabled: !row.actions.includes("extend"),
-              disabledReason:
-                "Only active reservations with days left can be extended.",
-              onAction: () =>
-                void navigate({
-                  to: "/reservations/$reservationId",
-                  params: { reservationId: row.id },
-                  search: { extend: true },
-                }),
-            },
-            {
-              id: "calendar",
-              label: "Add to calendar (.ics)",
-              isDisabled: !row.actions.includes("calendar"),
-              disabledReason:
-                "Only allocated or active reservations have a calendar entry.",
-              onAction: () =>
-                downloadUrl(
-                  `/api/reservations/${row.id}/calendar.ics`,
-                  `nectar-reservation-${row.id}.ics`,
-                ),
-            },
-            {
-              id: "delete",
-              label: "Delete reservation",
-              tone: "danger",
-              isDisabled: !row.actions.includes("delete"),
-              disabledReason:
-                "A reservation still being created cannot be deleted.",
-              onAction: () => setDeleting([row]),
-            },
-          ]}
+          rowActions={(row) =>
+            toRowActions(availableReservationActions(row), (id) =>
+              run(id, [row]),
+            )
+          }
           batchActions={[
             {
               id: "delete",
               label: "Delete",
               tone: "danger",
               isDisabled: (rows) =>
-                rows.every((r) => !r.actions.includes("delete")),
-              onAction: (rows) =>
-                setDeleting(rows.filter((r) => r.actions.includes("delete"))),
+                !rows.some((r) =>
+                  allows(availableReservationActions(r), "delete"),
+                ),
+              onAction: (rows) => run("delete", rows),
             },
           ]}
         />
       </div>
-      <ConfirmDialog
-        isOpen={deleting.length > 0}
-        onOpenChange={(open) => !open && setDeleting([])}
-        title={
-          deleting.length === 1
-            ? `Delete reservation ${deleting[0]?.id}?`
-            : `Delete ${deleting.length} reservations?`
-        }
-        confirmLabel="Delete"
-        isPending={remove.isPending}
-        onConfirm={() => void confirmDelete()}
-      >
-        <p>Deleted reservations are not recoverable.</p>
-      </ConfirmDialog>
+      {dialogs}
     </>
   );
 }

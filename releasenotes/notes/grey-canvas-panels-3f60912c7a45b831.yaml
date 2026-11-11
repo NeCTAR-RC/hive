@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    The navigation sidebar and the page are each a white panel on the
+    dashboard's light grey canvas. No rule marks the header's foot or the
+    sidebar's end: the canvas does. The agency footer closes the content
+    column below the page's panel. The login page, the signed-out pages
+    and the whole-page error sit outside the frame and stay on white.

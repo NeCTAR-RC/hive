@@ -1,37 +1,32 @@
 @use "mixins" as *;
 
+/// The sidebar block (sidebar-blocks spec, Events - Sidebar line 1970) via
+/// the `panel` mixin: title, actions and content stack 8px apart, the gap
+/// the CTA - Sidebar block keeps between its H4 and its text (Frame 246,
+/// line 24).
 .panel {
   @include panel;
 
-  display: flex;
-  flex-direction: column;
   min-width: 0;
 }
 
-.head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-3) var(--hive-space-4);
-  border-bottom: var(--hive-border-width) solid var(--hive-color-rule);
-}
-
+/// Heading/H4 in Grey-900, the CTA - Sidebar block's title (line 42).
 .title {
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--hive-color-text-muted);
+  font: var(--hive-text-h4);
+  color: var(--hive-color-text-heading);
 }
 
+/// The block's action row (library `sidebar-block-actions` mixin): one row,
+/// 8px apart, wrapping on a narrow block.
 .actions {
-  display: flex;
-  gap: var(--hive-space-2);
+  @include sidebar-block-actions;
+
+  flex-wrap: wrap;
 }
 
+/// The content fills the rest of the block, so panels side by side in a
+/// grid row end level.
 .body {
-  padding: var(--hive-space-4);
   flex: 1;
+  min-width: 0;
 }

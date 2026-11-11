@@ -2,12 +2,12 @@
 and their port forwardings, trunks, the topology payload, and the security
 groups compute shares."""
 
-from fastapi import APIRouter, Depends, Response
+from typing import Literal
 
-from hive.deps import get_context
-from hive.errors import BadRequest, NotFound
-from hive.nectar import secgroups as secgroup_rules
-from hive.nectar.networks import PURPOSE_ANY, PURPOSE_BOOT, PURPOSE_ROUTER
+from fastapi import APIRouter, Request, Response
+
+from hive.deps import ContextDep
+from hive.nectar.networks import PURPOSE_ANY, PURPOSE_BOOT
 from hive.schemas.compute import (
     RuleCreate,
     SecurityGroupCreate,
@@ -15,6 +15,7 @@ from hive.schemas.compute import (
 )
 from hive.schemas.network import (
     AddInterface,
+    AllowedAddressPairs,
     FloatingIpAllocate,
     FloatingIpAssociate,
     NetworkCreate,
@@ -34,302 +35,306 @@ from hive.schemas.network import (
     TrunkCreate,
     TrunkUpdate,
 )
-from hive.services.context import Context
+from hive.schemas.responses import Items
+from hive.schemas.responses.network import (
+    AddInterfaceResult,
+    AttachablePort,
+    FloatingIp,
+    FloatingIpTarget,
+    InterfaceCandidate,
+    MyAddress,
+    Network,
+    NetworkDetail,
+    NetworkExtensions,
+    NetworkOptions,
+    NetworkQuota,
+    Port,
+    PortForwarding,
+    Router,
+    RouterDetail,
+    RulePresets,
+    SecurityGroup,
+    SecurityGroupDetail,
+    SecurityGroupRule,
+    SubnetDetail,
+    Topology,
+    Trunk,
+    TrunkOptions,
+)
 from hive.services import network
 
 router = APIRouter(prefix="/network", tags=["network"])
 
-PURPOSES = {PURPOSE_BOOT, PURPOSE_ROUTER, PURPOSE_ANY}
-
-
-# --- reference data ------------------------------------------------------------
+# Which networks a picker wants (``nectar.networks``).
+Purpose = Literal["boot", "router", "any"]
 
 
 @router.get("/options")
-async def options(ctx: Context = Depends(get_context)):
+async def options(ctx: ContextDep) -> NetworkOptions:
     return await network.options(ctx)
 
 
 @router.get("/extensions")
-async def extensions(ctx: Context = Depends(get_context)):
+async def extensions(ctx: ContextDep) -> NetworkExtensions:
     return await network.extension_flags(ctx)
 
 
 @router.get("/quota")
-async def quota(ctx: Context = Depends(get_context)):
+async def quota(ctx: ContextDep) -> NetworkQuota:
     return await network.quota(ctx)
 
 
+@router.get("/my-address")
+async def my_address(
+    request: Request,
+    ctx: ContextDep,  # noqa: ARG001 - signed-in users only
+) -> MyAddress:
+    """The browser's address as the ingress reports it (uvicorn reads
+    X-Forwarded-For from ``HIVE_FORWARDED_ALLOW_IPS``), for the rule form's
+    "Use my address"."""
+    return network.my_address(request.client.host if request.client else None)
+
+
 @router.get("/topology")
-async def topology(ctx: Context = Depends(get_context)):
+async def topology(ctx: ContextDep) -> Topology:
     return await network.topology(ctx)
-
-
-# --- networks ------------------------------------------------------------------
 
 
 @router.get("/networks")
 async def list_networks(
-    purpose: str = PURPOSE_ANY,
-    external: bool = False,
-    ctx: Context = Depends(get_context),
-):
-    if purpose not in PURPOSES:
-        raise BadRequest(f"purpose must be one of {sorted(PURPOSES)}")
-    return {
-        "items": await network.networks_for_purpose(
-            ctx, purpose, include_external=external
-        )
-    }
+    ctx: ContextDep, purpose: Purpose = PURPOSE_ANY, external: bool = False
+) -> Items[Network]:
+    # ``external`` is the Networks panel's listing, which also needs to
+    # know which networks still hold ports.
+    items = await network.networks_for_purpose(
+        ctx, purpose, include_external=external, count_ports=external
+    )
+    return Items[Network](items=items)
 
 
 @router.post("/networks", status_code=201)
-async def create_network(
-    body: NetworkCreate, ctx: Context = Depends(get_context)
-):
+async def create_network(body: NetworkCreate, ctx: ContextDep) -> Network:
     return await network.create_network(ctx, body)
 
 
 @router.get("/networks/{network_id}")
-async def get_network(network_id: str, ctx: Context = Depends(get_context)):
+async def get_network(network_id: str, ctx: ContextDep) -> NetworkDetail:
     return await network.get_network(ctx, network_id)
 
 
 @router.patch("/networks/{network_id}")
 async def update_network(
-    network_id: str, body: NetworkUpdate, ctx: Context = Depends(get_context)
-):
-    fields = body.model_dump(exclude_none=True)
-    if not fields:
-        raise BadRequest("nothing to update")
-    return await network.update_network(ctx, network_id, fields)
+    network_id: str, body: NetworkUpdate, ctx: ContextDep
+) -> Network:
+    return await network.update_network(ctx, network_id, body)
 
 
 @router.delete("/networks/{network_id}", status_code=204)
-async def delete_network(network_id: str, ctx: Context = Depends(get_context)):
-    await ctx.neutron.delete_network(network_id)
+async def delete_network(network_id: str, ctx: ContextDep) -> Response:
+    await network.delete_network(ctx, network_id)
     return Response(status_code=204)
 
 
-# --- subnets -------------------------------------------------------------------
-
-
 @router.post("/subnets", status_code=201)
-async def create_subnet(
-    body: SubnetCreate, ctx: Context = Depends(get_context)
-):
+async def create_subnet(body: SubnetCreate, ctx: ContextDep) -> SubnetDetail:
     return await network.create_subnet(ctx, body)
 
 
 @router.get("/subnets/{subnet_id}")
-async def get_subnet(subnet_id: str, ctx: Context = Depends(get_context)):
-    return network.subnet_summary(await ctx.neutron.subnet(subnet_id))
+async def get_subnet(subnet_id: str, ctx: ContextDep) -> SubnetDetail:
+    return await network.get_subnet(ctx, subnet_id)
 
 
 @router.patch("/subnets/{subnet_id}")
 async def update_subnet(
-    subnet_id: str, body: SubnetUpdate, ctx: Context = Depends(get_context)
-):
+    subnet_id: str, body: SubnetUpdate, ctx: ContextDep
+) -> SubnetDetail:
     return await network.update_subnet(ctx, subnet_id, body)
 
 
 @router.delete("/subnets/{subnet_id}", status_code=204)
-async def delete_subnet(subnet_id: str, ctx: Context = Depends(get_context)):
-    await ctx.neutron.delete_subnet(subnet_id)
+async def delete_subnet(subnet_id: str, ctx: ContextDep) -> Response:
+    await network.delete_subnet(ctx, subnet_id)
     return Response(status_code=204)
-
-
-# --- ports ---------------------------------------------------------------------
 
 
 @router.get("/ports")
 async def list_ports(
-    purpose: str = PURPOSE_BOOT, ctx: Context = Depends(get_context)
-):
-    if purpose != PURPOSE_BOOT:
-        raise BadRequest("only purpose=boot is supported")
-    return {"items": await network.attachable_ports(ctx)}
+    ctx: ContextDep,
+    purpose: Literal["boot"] = PURPOSE_BOOT,  # noqa: ARG001 - the only one
+) -> Items[AttachablePort]:
+    return Items[AttachablePort](items=await network.attachable_ports(ctx))
 
 
 @router.post("/ports", status_code=201)
-async def create_port(body: PortCreate, ctx: Context = Depends(get_context)):
+async def create_port(body: PortCreate, ctx: ContextDep) -> Port:
     return await network.create_port(ctx, body)
 
 
 @router.get("/ports/{port_id}")
-async def get_port(port_id: str, ctx: Context = Depends(get_context)):
+async def get_port(port_id: str, ctx: ContextDep) -> Port:
     return await network.get_port(ctx, port_id)
 
 
 @router.patch("/ports/{port_id}")
-async def update_port(
-    port_id: str, body: PortUpdate, ctx: Context = Depends(get_context)
-):
+async def update_port(port_id: str, body: PortUpdate, ctx: ContextDep) -> Port:
     return await network.update_port(ctx, port_id, body)
 
 
+@router.put("/ports/{port_id}/allowed-address-pairs")
+async def set_allowed_address_pairs(
+    port_id: str, body: AllowedAddressPairs, ctx: ContextDep
+) -> Port:
+    return await network.set_allowed_address_pairs(
+        ctx, port_id, [p.model_dump() for p in body.pairs]
+    )
+
+
 @router.delete("/ports/{port_id}", status_code=204)
-async def delete_port(port_id: str, ctx: Context = Depends(get_context)):
-    await ctx.neutron.delete_port(port_id)
+async def delete_port(port_id: str, ctx: ContextDep) -> Response:
+    await network.delete_port(ctx, port_id)
     return Response(status_code=204)
 
 
-# --- routers -------------------------------------------------------------------
-
-
 @router.get("/routers")
-async def list_routers(ctx: Context = Depends(get_context)):
-    return {"items": await network.list_routers(ctx)}
+async def list_routers(ctx: ContextDep) -> Items[Router]:
+    return Items[Router](items=await network.list_routers(ctx))
 
 
 @router.post("/routers", status_code=201)
-async def create_router(
-    body: RouterCreate, ctx: Context = Depends(get_context)
-):
+async def create_router(body: RouterCreate, ctx: ContextDep) -> Router:
     return await network.create_router(ctx, body)
 
 
 @router.get("/routers/{router_id}")
-async def get_router(router_id: str, ctx: Context = Depends(get_context)):
+async def get_router(router_id: str, ctx: ContextDep) -> RouterDetail:
     return await network.get_router(ctx, router_id)
 
 
 @router.patch("/routers/{router_id}")
 async def update_router(
-    router_id: str, body: RouterUpdate, ctx: Context = Depends(get_context)
-):
-    fields = body.model_dump(exclude_none=True)
-    if not fields:
-        raise BadRequest("nothing to update")
-    return await network.update_router(ctx, router_id, fields)
+    router_id: str, body: RouterUpdate, ctx: ContextDep
+) -> Router:
+    return await network.update_router(ctx, router_id, body)
 
 
 @router.delete("/routers/{router_id}", status_code=204)
-async def delete_router(router_id: str, ctx: Context = Depends(get_context)):
+async def delete_router(router_id: str, ctx: ContextDep) -> Response:
     await network.delete_router(ctx, router_id)
     return Response(status_code=204)
 
 
 @router.put("/routers/{router_id}/gateway")
 async def set_gateway(
-    router_id: str, body: SetGateway, ctx: Context = Depends(get_context)
-):
+    router_id: str, body: SetGateway, ctx: ContextDep
+) -> Router:
     return await network.set_gateway(ctx, router_id, body.network_id)
 
 
 @router.delete("/routers/{router_id}/gateway")
-async def clear_gateway(router_id: str, ctx: Context = Depends(get_context)):
+async def clear_gateway(router_id: str, ctx: ContextDep) -> Router:
     return await network.clear_gateway(ctx, router_id)
 
 
 @router.get("/routers/{router_id}/interface-candidates")
 async def interface_candidates(
-    router_id: str, ctx: Context = Depends(get_context)
-):
-    return {"items": await network.interface_candidates(ctx, router_id)}
+    router_id: str, ctx: ContextDep
+) -> Items[InterfaceCandidate]:
+    return Items[InterfaceCandidate](
+        items=await network.interface_candidates(ctx, router_id)
+    )
 
 
 @router.post("/routers/{router_id}/interfaces", status_code=202)
 async def add_interface(
-    router_id: str, body: AddInterface, ctx: Context = Depends(get_context)
-):
+    router_id: str, body: AddInterface, ctx: ContextDep
+) -> AddInterfaceResult:
     return await network.add_interface(ctx, router_id, body)
 
 
 @router.delete("/routers/{router_id}/interfaces/{port_id}", status_code=204)
 async def remove_interface(
-    router_id: str, port_id: str, ctx: Context = Depends(get_context)
-):
+    router_id: str, port_id: str, ctx: ContextDep
+) -> Response:
     await network.remove_interface(ctx, router_id, port_id)
     return Response(status_code=204)
 
 
 @router.put("/routers/{router_id}/routes")
 async def set_routes(
-    router_id: str, body: StaticRoutes, ctx: Context = Depends(get_context)
-):
+    router_id: str, body: StaticRoutes, ctx: ContextDep
+) -> Router:
     return await network.set_routes(
         ctx, router_id, [r.model_dump() for r in body.routes]
     )
 
 
-# --- floating IPs --------------------------------------------------------------
-
-
 @router.get("/floating-ips")
-async def list_floating_ips(ctx: Context = Depends(get_context)):
-    return {"items": await network.list_floating_ips(ctx)}
+async def list_floating_ips(ctx: ContextDep) -> Items[FloatingIp]:
+    return Items[FloatingIp](items=await network.list_floating_ips(ctx))
 
 
 @router.post("/floating-ips", status_code=201)
 async def allocate_floating_ip(
-    body: FloatingIpAllocate, ctx: Context = Depends(get_context)
-):
+    body: FloatingIpAllocate, ctx: ContextDep
+) -> FloatingIp:
     return await network.allocate_floating_ip(ctx, body)
 
 
 @router.get("/floating-ips/targets")
 async def floating_ip_targets(
-    instance_id: str | None = None, ctx: Context = Depends(get_context)
-):
-    return {"items": await network.floating_ip_targets(ctx, instance_id)}
+    ctx: ContextDep, instance_id: str | None = None
+) -> Items[FloatingIpTarget]:
+    return Items[FloatingIpTarget](
+        items=await network.floating_ip_targets(ctx, instance_id)
+    )
 
 
 @router.get("/floating-ips/{fip_id}")
-async def get_floating_ip(fip_id: str, ctx: Context = Depends(get_context)):
+async def get_floating_ip(fip_id: str, ctx: ContextDep) -> FloatingIp:
     return await network.get_floating_ip(ctx, fip_id)
 
 
 @router.post("/floating-ips/{fip_id}/associate")
 async def associate_floating_ip(
-    fip_id: str, body: FloatingIpAssociate, ctx: Context = Depends(get_context)
-):
+    fip_id: str, body: FloatingIpAssociate, ctx: ContextDep
+) -> FloatingIp:
     return await network.associate_floating_ip(
         ctx, fip_id, body.port_id, body.fixed_ip_address
     )
 
 
 @router.post("/floating-ips/{fip_id}/disassociate")
-async def disassociate_floating_ip(
-    fip_id: str, ctx: Context = Depends(get_context)
-):
+async def disassociate_floating_ip(fip_id: str, ctx: ContextDep) -> FloatingIp:
     return await network.disassociate_floating_ip(ctx, fip_id)
 
 
 @router.delete("/floating-ips/{fip_id}", status_code=204)
-async def release_floating_ip(
-    fip_id: str, ctx: Context = Depends(get_context)
-):
-    await ctx.neutron.delete_floatingip(fip_id)
+async def release_floating_ip(fip_id: str, ctx: ContextDep) -> Response:
+    await network.release_floating_ip(ctx, fip_id)
     return Response(status_code=204)
-
-
-# --- port forwardings ----------------------------------------------------------
 
 
 @router.get("/port-forwardings")
 async def list_port_forwardings(
-    floating_ip_id: str | None = None, ctx: Context = Depends(get_context)
-):
-    return {"items": await network.list_port_forwardings(ctx, floating_ip_id)}
+    ctx: ContextDep, floating_ip_id: str | None = None
+) -> Items[PortForwarding]:
+    return Items[PortForwarding](
+        items=await network.list_port_forwardings(ctx, floating_ip_id)
+    )
 
 
 @router.post("/floating-ips/{fip_id}/port-forwardings", status_code=201)
 async def create_port_forwarding(
-    fip_id: str,
-    body: PortForwardingCreate,
-    ctx: Context = Depends(get_context),
-):
+    fip_id: str, body: PortForwardingCreate, ctx: ContextDep
+) -> PortForwarding:
     return await network.create_port_forwarding(ctx, fip_id, body)
 
 
 @router.patch("/floating-ips/{fip_id}/port-forwardings/{rule_id}")
 async def update_port_forwarding(
-    fip_id: str,
-    rule_id: str,
-    body: PortForwardingUpdate,
-    ctx: Context = Depends(get_context),
-):
+    fip_id: str, rule_id: str, body: PortForwardingUpdate, ctx: ContextDep
+) -> PortForwarding:
     return await network.update_port_forwarding(ctx, fip_id, rule_id, body)
 
 
@@ -337,136 +342,108 @@ async def update_port_forwarding(
     "/floating-ips/{fip_id}/port-forwardings/{rule_id}", status_code=204
 )
 async def delete_port_forwarding(
-    fip_id: str, rule_id: str, ctx: Context = Depends(get_context)
-):
-    await ctx.neutron.delete_port_forwarding(fip_id, rule_id)
+    fip_id: str, rule_id: str, ctx: ContextDep
+) -> Response:
+    await network.delete_port_forwarding(ctx, fip_id, rule_id)
     return Response(status_code=204)
 
 
-# --- trunks --------------------------------------------------------------------
-
-
 @router.get("/trunks")
-async def list_trunks(ctx: Context = Depends(get_context)):
-    return {"items": await network.list_trunks(ctx)}
+async def list_trunks(ctx: ContextDep) -> Items[Trunk]:
+    return Items[Trunk](items=await network.list_trunks(ctx))
 
 
 @router.post("/trunks", status_code=201)
-async def create_trunk(body: TrunkCreate, ctx: Context = Depends(get_context)):
+async def create_trunk(body: TrunkCreate, ctx: ContextDep) -> Trunk:
     return await network.create_trunk(ctx, body)
 
 
 @router.get("/trunks/options")
-async def trunk_options(ctx: Context = Depends(get_context)):
+async def trunk_options(ctx: ContextDep) -> TrunkOptions:
     return await network.trunk_options(ctx)
 
 
 @router.get("/trunks/{trunk_id}")
-async def get_trunk(trunk_id: str, ctx: Context = Depends(get_context)):
+async def get_trunk(trunk_id: str, ctx: ContextDep) -> Trunk:
     return await network.get_trunk(ctx, trunk_id)
 
 
 @router.patch("/trunks/{trunk_id}")
 async def update_trunk(
-    trunk_id: str, body: TrunkUpdate, ctx: Context = Depends(get_context)
-):
-    fields = body.model_dump(exclude_none=True)
-    if not fields:
-        raise BadRequest("nothing to update")
-    return await network.update_trunk(ctx, trunk_id, fields)
+    trunk_id: str, body: TrunkUpdate, ctx: ContextDep
+) -> Trunk:
+    return await network.update_trunk(ctx, trunk_id, body)
 
 
 @router.delete("/trunks/{trunk_id}", status_code=204)
-async def delete_trunk(trunk_id: str, ctx: Context = Depends(get_context)):
-    await ctx.neutron.delete_trunk(trunk_id)
+async def delete_trunk(trunk_id: str, ctx: ContextDep) -> Response:
+    await network.delete_trunk(ctx, trunk_id)
     return Response(status_code=204)
 
 
 @router.post("/trunks/{trunk_id}/subports")
 async def add_subports(
-    trunk_id: str, body: Subports, ctx: Context = Depends(get_context)
-):
+    trunk_id: str, body: Subports, ctx: ContextDep
+) -> Trunk:
     return await network.add_subports(ctx, trunk_id, body.sub_ports)
 
 
 @router.post("/trunks/{trunk_id}/subports/remove")
 async def remove_subports(
-    trunk_id: str, body: SubportIds, ctx: Context = Depends(get_context)
-):
+    trunk_id: str, body: SubportIds, ctx: ContextDep
+) -> Trunk:
     return await network.remove_subports(ctx, trunk_id, body.port_ids)
 
 
-# --- security groups -----------------------------------------------------------
-
-
 @router.get("/security-group-presets")
-async def presets():
-    return {
-        "items": secgroup_rules.PRESETS,
-        "default_remote_cidr": secgroup_rules.DEFAULT_REMOTE_CIDR,
-    }
+async def presets() -> RulePresets:
+    return network.rule_presets()
 
 
 @router.get("/security-groups")
-async def list_security_groups(ctx: Context = Depends(get_context)):
-    return {"items": await network.list_security_groups(ctx)}
+async def list_security_groups(ctx: ContextDep) -> Items[SecurityGroup]:
+    return Items[SecurityGroup](items=await network.list_security_groups(ctx))
 
 
 @router.post("/security-groups", status_code=201)
 async def create_security_group(
-    body: SecurityGroupCreate, ctx: Context = Depends(get_context)
-):
-    group = await ctx.neutron.create_security_group(
-        {"name": body.name, "description": body.description}
-    )
-    return network.security_group_summary(group)
+    body: SecurityGroupCreate, ctx: ContextDep
+) -> SecurityGroupDetail:
+    return await network.create_security_group(ctx, body)
 
 
 @router.get("/security-groups/{group_id}")
 async def get_security_group(
-    group_id: str, ctx: Context = Depends(get_context)
-):
+    group_id: str, ctx: ContextDep
+) -> SecurityGroupDetail:
     return await network.get_security_group(ctx, group_id)
 
 
 @router.patch("/security-groups/{group_id}")
 async def update_security_group(
-    group_id: str,
-    body: SecurityGroupUpdate,
-    ctx: Context = Depends(get_context),
-):
-    fields = body.model_dump(exclude_none=True)
-    if not fields:
-        raise BadRequest("nothing to update")
-    group = await ctx.neutron.update_security_group(group_id, fields)
-    return network.security_group_summary(group)
+    group_id: str, body: SecurityGroupUpdate, ctx: ContextDep
+) -> SecurityGroupDetail:
+    return await network.update_security_group(ctx, group_id, body)
 
 
 @router.delete("/security-groups/{group_id}", status_code=204)
-async def delete_security_group(
-    group_id: str, ctx: Context = Depends(get_context)
-):
-    await ctx.neutron.delete_security_group(group_id)
+async def delete_security_group(group_id: str, ctx: ContextDep) -> Response:
+    await network.delete_security_group(ctx, group_id)
     return Response(status_code=204)
 
 
 @router.post("/security-groups/{group_id}/rules", status_code=201)
 async def create_rule(
-    group_id: str, body: RuleCreate, ctx: Context = Depends(get_context)
-):
-    payload = network.neutron_rule(group_id, body.model_dump())
-    rule = await ctx.neutron.create_security_group_rule(payload)
-    return network.rule_summary(rule)
+    group_id: str, body: RuleCreate, ctx: ContextDep
+) -> SecurityGroupRule:
+    return await network.create_rule(ctx, group_id, body)
 
 
 @router.delete("/security-groups/{group_id}/rules/{rule_id}", status_code=204)
 async def delete_rule(
-    group_id: str, rule_id: str, ctx: Context = Depends(get_context)
-):
-    group = await ctx.neutron.security_group(group_id)
-    if not any(
-        r.get("id") == rule_id for r in group.get("security_group_rules") or []
-    ):
-        raise NotFound("the rule is not in this security group")
-    await ctx.neutron.delete_security_group_rule(rule_id)
+    group_id: str,
+    rule_id: str,
+    ctx: ContextDep,
+) -> Response:
+    await network.delete_rule(ctx, group_id, rule_id)
     return Response(status_code=204)

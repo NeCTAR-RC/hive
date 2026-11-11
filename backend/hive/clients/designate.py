@@ -1,99 +1,68 @@
-"""Designate (DNS) v2 client with link-following pagination. Every
-caller-supplied id goes through ``seg``."""
+"""Designate (DNS) v2 client. Zones and record sets are not enveloped;
+lists name their next page in ``links.next``."""
 
-from hive.clients.base import seg, ServiceClient
+from typing import Any, override
 
-MAX_PAGES = 20
+from hive.clients.base import path, ServiceClient
 
 
 class DesignateClient(ServiceClient):
     service_type = "dns"
     service_name = "designate"
 
-    async def _paged(self, path: str, key: str, params: dict | None) -> list:
-        items: list[dict] = []
-        url: str | None = path
-        query = params
-        for _ in range(MAX_PAGES):
-            if not url:
-                break
-            body = await self.get_json(url, params=query) or {}
-            items.extend(body.get(key) or [])
-            url = (body.get("links") or {}).get("next")
-            query = None
-            if url and not url.startswith("http"):
-                url = None
-            if url:
-                # Designate links carry the public URL; use the path only so
-                # the endpoint override still applies.
-                url = url[url.find("/v2/") :] if "/v2/" in url else url
-        return items
+    @override
+    def next_link(self, body: Any, key: str) -> str | None:
+        if not isinstance(body, dict):
+            return None
+        return (body.get("links") or {}).get("next")
 
     async def zones(self, **params) -> list[dict]:
-        return await self._paged("/v2/zones", "zones", params or None)
+        return await self.list_all("/v2/zones", "zones", **params)
 
     async def zone(self, zone_id: str) -> dict:
-        return await self.get_json(f"/v2/zones/{seg(zone_id)}") or {}
+        return await self.get(path("v2", "zones", zone_id))
 
     async def create_zone(self, fields: dict) -> dict:
-        resp = await self.request(
-            "POST", "/v2/zones", json=fields, ok=(201, 202)
-        )
-        return resp.json() if resp.content else {}
+        return await self.create("/v2/zones", None, fields)
 
     async def update_zone(self, zone_id: str, fields: dict) -> dict:
-        resp = await self.request(
-            "PATCH", f"/v2/zones/{seg(zone_id)}", json=fields, ok=(200, 202)
+        return await self.update(
+            path("v2", "zones", zone_id), None, fields, method="PATCH"
         )
-        return resp.json() if resp.content else {}
 
     async def delete_zone(self, zone_id: str) -> dict:
-        resp = await self.request(
-            "DELETE", f"/v2/zones/{seg(zone_id)}", ok=(202, 204)
-        )
+        """Designate answers the zone, now ``PENDING`` delete."""
+        resp = await self.request("DELETE", path("v2", "zones", zone_id))
         return resp.json() if resp.content else {}
 
     async def recordsets(self, zone_id: str, **params) -> list[dict]:
-        return await self._paged(
-            f"/v2/zones/{seg(zone_id)}/recordsets",
-            "recordsets",
-            params or None,
+        return await self.list_all(
+            path("v2", "zones", zone_id, "recordsets"), "recordsets", **params
         )
 
     async def recordset(self, zone_id: str, recordset_id: str) -> dict:
-        return (
-            await self.get_json(
-                f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}"
-            )
-            or {}
+        return await self.get(
+            path("v2", "zones", zone_id, "recordsets", recordset_id)
         )
 
     async def create_recordset(self, zone_id: str, fields: dict) -> dict:
-        resp = await self.request(
-            "POST",
-            f"/v2/zones/{seg(zone_id)}/recordsets",
-            json=fields,
-            ok=(201, 202),
+        return await self.create(
+            path("v2", "zones", zone_id, "recordsets"), None, fields
         )
-        return resp.json() if resp.content else {}
 
     async def update_recordset(
         self, zone_id: str, recordset_id: str, fields: dict
     ) -> dict:
-        resp = await self.request(
-            "PUT",
-            f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}",
-            json=fields,
-            ok=(200, 202),
+        return await self.update(
+            path("v2", "zones", zone_id, "recordsets", recordset_id),
+            None,
+            fields,
         )
-        return resp.json() if resp.content else {}
 
     async def delete_recordset(self, zone_id: str, recordset_id: str) -> None:
-        await self.request(
-            "DELETE",
-            f"/v2/zones/{seg(zone_id)}/recordsets/{seg(recordset_id)}",
-            ok=(202, 204),
+        await self.delete(
+            path("v2", "zones", zone_id, "recordsets", recordset_id)
         )
 
     async def quotas(self) -> dict:
-        return await self.get_json("/v2/quotas") or {}
+        return await self.get("/v2/quotas")

@@ -1,25 +1,42 @@
 // Instance status presentation and the action availability rules, ported
 // from Horizon's project/instances/tables.py so the row menu offers what
 // Horizon offers.
-import type { Instance } from "../../../lib/api/types";
+import type { Instance } from "../../../lib/api/types/compute";
 import type { StatusTone } from "../../../components/StatusPill/StatusPill";
+import {
+  offerActions,
+  type ActionCheck,
+  type ActionOffer,
+  type ActionTable,
+} from "../../../lib/actions";
+import { defineStatus, enumLabel, humanise } from "../../../lib/status";
 
-const TRANSITIONAL = new Set([
-  "BUILD",
-  "REBUILD",
-  "RESIZE",
-  "REVERT_RESIZE",
-  "REBOOT",
-  "HARD_REBOOT",
-  "MIGRATING",
-  "PASSWORD",
-  "DELETED",
-]);
+const readers = defineStatus({
+  transitional: [
+    "BUILD",
+    "REBUILD",
+    "RESIZE",
+    "REVERT_RESIZE",
+    "REBOOT",
+    "HARD_REBOOT",
+    "MIGRATING",
+    "PASSWORD",
+    "DELETED",
+  ],
+  success: ["ACTIVE"],
+  warning: ["PAUSED", "SUSPENDED", "RESCUE", "VERIFY_RESIZE"],
+  danger: ["ERROR"],
+  neutral: ["SHUTOFF", "SHELVED", "SHELVED_OFFLOADED"],
+  otherwise: "info",
+});
 
+/** Busy while Nova runs a task on it or its status is a transitional one. */
 export function isTransitional(
   instance: Pick<Instance, "status" | "task_state">,
 ) {
-  return Boolean(instance.task_state) || TRANSITIONAL.has(instance.status);
+  return (
+    Boolean(instance.task_state) || readers.isTransitional(instance.status)
+  );
 }
 
 export function isDeleting(instance: Pick<Instance, "task_state">) {
@@ -29,47 +46,31 @@ export function isDeleting(instance: Pick<Instance, "task_state">) {
 export function statusTone(
   instance: Pick<Instance, "status" | "task_state">,
 ): StatusTone {
-  if (isTransitional(instance)) return "progress";
-  switch (instance.status) {
-    case "ACTIVE":
-      return "success";
-    case "ERROR":
-      return "danger";
-    case "SHUTOFF":
-    case "SHELVED":
-    case "SHELVED_OFFLOADED":
-      return "neutral";
-    case "PAUSED":
-    case "SUSPENDED":
-    case "RESCUE":
-    case "VERIFY_RESIZE":
-      return "warning";
-    default:
-      return "info";
-  }
+  return isTransitional(instance) ? "progress" : readers.tone(instance.status);
 }
 
-/** The word shown in the Status column: the task while there is one. */
+/**
+ * The words in the Status column, in Nova's own case as Horizon shows
+ * them: the task while there is one.
+ */
 export function statusLabel(instance: Instance): string {
-  if (instance.task_state) {
-    return instance.task_state.replace(/_/g, " ");
-  }
-  return instance.status.replace(/_/g, " ");
+  return enumLabel(instance.task_state || instance.status);
 }
 
-// Horizon's POWER_DISPLAY_CHOICES (project/instances/tables.py) for the
-// two-word states; the rest (RUNNING, PAUSED, BLOCKED, CRASHED, SUSPENDED,
-// FAILED, BUILDING) read as the capitalised word.
-const POWER_LABELS: Record<string, string> = {
+/**
+ * Horizon's wording for the two-word power states (`POWER_DISPLAY_CHOICES`
+ * in project/instances/tables.py); `humanise` would run them together
+ * ("Shutoff"). The one-word states read as the capitalised word.
+ */
+const POWER_LABELS: Readonly<Record<string, string>> = {
   "NO STATE": "No state",
   SHUTDOWN: "Shut down",
   SHUTOFF: "Shut off",
 };
 
 export function powerStateLabel(instance: Pick<Instance, "power_state">) {
-  const state = instance.power_state;
-  if (!state) return POWER_LABELS["NO STATE"]!;
-  return POWER_LABELS[state] ?? state.charAt(0) + state.slice(1).toLowerCase();
+  const state = instance.power_state || "NO STATE";
+  return POWER_LABELS[state] ?? humanise(state);
 }
 
 export type InstanceActionId =
@@ -82,10 +83,13 @@ export type InstanceActionId =
   | "detach-interface"
   | "associate-fip"
   | "disassociate-fip"
+  | "attach-volume"
+  | "detach-volume"
   | "snapshot"
   | "resize"
   | "confirm-resize"
   | "revert-resize"
+  | "rebuild"
   | "start"
   | "stop"
   | "soft-reboot"
@@ -96,171 +100,346 @@ export type InstanceActionId =
   | "resume"
   | "shelve"
   | "unshelve"
-  | "lock"
-  | "unlock"
   | "rescue"
   | "unrescue"
-  | "rebuild"
+  | "lock"
+  | "unlock"
   | "delete";
 
-export interface ActionRule {
-  id: InstanceActionId;
-  label: string;
-  tone?: "danger";
-  /** Which statuses allow the action; omitted means any status. */
-  statuses?: string[];
-  /** A predicate on top of the status check. */
-  when?: (instance: Instance) => boolean;
-  /** Shown instead of the action when it is unavailable. */
-  reason?: string;
+/** What the instance rules read beyond the instance itself. */
+export interface InstanceActionContext {
+  /**
+   * The instances with a port a floating IP can reach (behind a router
+   * with a gateway to a floating network), once known.
+   */
+  floatingTargets?: ReadonlySet<string> | undefined;
 }
 
 const ACTIVE_OR_SHUTOFF = ["ACTIVE", "SHUTOFF"];
 
-// The order is Horizon's row menu order.
-export const ACTION_RULES: ActionRule[] = [
-  { id: "console", label: "Console", statuses: ["ACTIVE", "RESCUE"] },
-  { id: "log", label: "View log" },
-  { id: "edit", label: "Edit instance" },
-  { id: "security-groups", label: "Edit security groups" },
-  { id: "metadata", label: "Update metadata" },
-  {
-    id: "attach-interface",
-    label: "Attach interface",
-    statuses: ACTIVE_OR_SHUTOFF,
-  },
-  {
-    id: "detach-interface",
-    label: "Detach interface",
-    statuses: ACTIVE_OR_SHUTOFF,
-  },
-  // Horizon's AssociateIP and DisassociateIP: the second only once the
-  // instance has a floating address.
-  { id: "associate-fip", label: "Associate floating IP" },
-  {
-    id: "disassociate-fip",
-    label: "Disassociate floating IP",
-    when: (i) => i.addresses.some((a) => a.type === "floating"),
-  },
-  {
-    id: "snapshot",
-    label: "Create snapshot",
-    statuses: ["ACTIVE", "SHUTOFF", "PAUSED", "SUSPENDED"],
-  },
-  { id: "resize", label: "Resize instance", statuses: ACTIVE_OR_SHUTOFF },
-  {
-    id: "confirm-resize",
-    label: "Confirm resize",
-    statuses: ["VERIFY_RESIZE"],
-  },
-  { id: "revert-resize", label: "Revert resize", statuses: ["VERIFY_RESIZE"] },
-  { id: "start", label: "Start instance", statuses: ["SHUTOFF", "CRASHED"] },
-  { id: "stop", label: "Shut off instance", statuses: ["ACTIVE", "ERROR"] },
-  { id: "soft-reboot", label: "Soft reboot", statuses: ACTIVE_OR_SHUTOFF },
-  { id: "hard-reboot", label: "Hard reboot", statuses: ACTIVE_OR_SHUTOFF },
-  { id: "pause", label: "Pause instance", statuses: ["ACTIVE"] },
-  { id: "unpause", label: "Resume instance", statuses: ["PAUSED"] },
-  { id: "suspend", label: "Suspend instance", statuses: ["ACTIVE"] },
-  { id: "resume", label: "Resume instance", statuses: ["SUSPENDED"] },
-  {
-    id: "shelve",
-    label: "Shelve instance",
-    statuses: ["ACTIVE", "SHUTOFF", "PAUSED", "SUSPENDED"],
-  },
-  {
-    id: "unshelve",
-    label: "Unshelve instance",
-    statuses: ["SHELVED", "SHELVED_OFFLOADED"],
-  },
-  { id: "lock", label: "Lock instance", when: (i) => !i.locked },
-  { id: "unlock", label: "Unlock instance", when: (i) => i.locked },
-  { id: "rescue", label: "Rescue instance", statuses: ACTIVE_OR_SHUTOFF },
-  { id: "unrescue", label: "Unrescue instance", statuses: ["RESCUE"] },
-  {
-    id: "rebuild",
-    label: "Rebuild instance",
-    statuses: ACTIVE_OR_SHUTOFF,
-    when: (i) => !i.boot_from_volume,
-    reason: "Instances booted from a volume cannot be rebuilt",
-  },
-  { id: "delete", label: "Delete instance", tone: "danger" },
-];
+/** Actions a running task leaves available: watching it, or deleting. */
+const ALLOWED_WHILE_BUSY = new Set<InstanceActionId>([
+  "console",
+  "log",
+  "delete",
+]);
 
-export interface AvailableAction {
-  id: InstanceActionId;
+type InstanceCheck = ActionCheck<Instance, InstanceActionContext>;
+
+/**
+ * Nova refuses most actions on a locked instance to anyone but an admin
+ * (its `check_instance_lock` guard), so they say how to proceed. It
+ * runs after the status, which unlocking would not change.
+ */
+const unlockFirst: InstanceCheck = (instance) =>
+  instance.locked && "Unlock the instance first";
+
+/**
+ * The row menu, grouped into sections, from Horizon's
+ * project/instances/tables.py. A deleting instance offers nothing; a task
+ * in progress leaves only the console, the log and delete.
+ */
+const INSTANCE_ACTIONS: ActionTable<
+  InstanceActionId,
+  Instance,
+  InstanceActionContext
+> = {
+  statusOf: (instance) => instance.status,
+  statusLabel,
+  guard: (instance, id) => {
+    if (isDeleting(instance)) return "The instance is being deleted";
+    if (isTransitional(instance) && !ALLOWED_WHILE_BUSY.has(id)) {
+      return "Wait for the current task to finish";
+    }
+    return null;
+  },
+  rules: [
+    {
+      id: "console",
+      label: "Console (opens in a new tab)",
+      group: "View",
+      statuses: ["ACTIVE", "RESCUE"],
+    },
+    { id: "log", label: "View log", group: "View" },
+    { id: "edit", label: "Edit instance", group: "Edit" },
+    { id: "security-groups", label: "Edit security groups", group: "Edit" },
+    {
+      id: "metadata",
+      label: "Update metadata",
+      group: "Edit",
+      checks: [unlockFirst],
+    },
+    {
+      id: "attach-interface",
+      label: "Attach interface",
+      group: "Network",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "detach-interface",
+      label: "Detach interface",
+      group: "Network",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    // Horizon's AssociateIP and DisassociateIP: the first needs a port a
+    // floating IP can reach, the second a floating address.
+    {
+      id: "associate-fip",
+      label: "Associate floating IP",
+      group: "Network",
+      checks: [
+        (i, context) =>
+          context.floatingTargets !== undefined &&
+          !context.floatingTargets.has(i.id) &&
+          "No port behind a router; floating IPs do not work on the classic network",
+      ],
+    },
+    {
+      id: "disassociate-fip",
+      label: "Disassociate floating IP",
+      group: "Network",
+      checks: [
+        (i) =>
+          !i.addresses.some((a) => a.type === "floating") &&
+          "The instance has no floating IP",
+      ],
+    },
+    // Horizon's AttachVolume and DetachVolume, in VOLUME_ATTACH_READY_STATES.
+    {
+      id: "attach-volume",
+      label: "Attach volume",
+      group: "Storage",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "detach-volume",
+      label: "Detach volume",
+      group: "Storage",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [
+        unlockFirst,
+        (i) => i.volumes_attached.length === 0 && "No volumes are attached",
+      ],
+    },
+    {
+      id: "snapshot",
+      label: "Create snapshot",
+      group: "Storage",
+      statuses: ["ACTIVE", "SHUTOFF", "PAUSED", "SUSPENDED"],
+    },
+    {
+      id: "resize",
+      label: "Resize instance",
+      group: "Resize",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "confirm-resize",
+      label: "Confirm resize",
+      group: "Resize",
+      statuses: ["VERIFY_RESIZE"],
+    },
+    {
+      id: "revert-resize",
+      label: "Revert resize",
+      group: "Resize",
+      statuses: ["VERIFY_RESIZE"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "rebuild",
+      label: "Rebuild instance",
+      group: "Resize",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [
+        unlockFirst,
+        (i) =>
+          i.boot_from_volume &&
+          "Instances booted from a volume cannot be rebuilt",
+      ],
+    },
+    {
+      id: "start",
+      label: "Start instance",
+      group: "Power",
+      statuses: ["SHUTOFF", "CRASHED"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "stop",
+      label: "Shut off instance",
+      group: "Power",
+      statuses: ["ACTIVE", "ERROR"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "soft-reboot",
+      label: "Soft reboot",
+      group: "Power",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "hard-reboot",
+      label: "Hard reboot",
+      group: "Power",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "pause",
+      label: "Pause instance",
+      group: "Power",
+      statuses: ["ACTIVE"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "unpause",
+      label: "Unpause instance",
+      group: "Power",
+      statuses: ["PAUSED"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "suspend",
+      label: "Suspend instance",
+      group: "Power",
+      statuses: ["ACTIVE"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "resume",
+      label: "Resume instance",
+      group: "Power",
+      statuses: ["SUSPENDED"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "shelve",
+      label: "Shelve instance",
+      group: "Power",
+      statuses: ["ACTIVE", "SHUTOFF", "PAUSED", "SUSPENDED"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "unshelve",
+      label: "Unshelve instance",
+      group: "Power",
+      statuses: ["SHELVED", "SHELVED_OFFLOADED"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "rescue",
+      label: "Rescue instance",
+      group: "Rescue",
+      statuses: ACTIVE_OR_SHUTOFF,
+      checks: [unlockFirst],
+    },
+    {
+      id: "unrescue",
+      label: "Unrescue instance",
+      group: "Rescue",
+      statuses: ["RESCUE"],
+      checks: [unlockFirst],
+    },
+    {
+      id: "lock",
+      label: "Lock instance",
+      group: "Lock",
+      checks: [(i) => i.locked && "The instance is already locked"],
+    },
+    {
+      id: "unlock",
+      label: "Unlock instance",
+      group: "Lock",
+      checks: [(i) => !i.locked && "The instance is not locked"],
+    },
+    {
+      id: "delete",
+      label: "Delete instance",
+      tone: "danger",
+      group: "Delete",
+      checks: [unlockFirst],
+    },
+  ],
+};
+
+/**
+ * The instance's row menu, every action with its availability. Without a
+ * context the rules that read one (the floating IP targets) allow the
+ * action, and its dialog explains what is missing.
+ */
+export function availableActions(
+  instance: Instance,
+  context: InstanceActionContext = {},
+): ActionOffer<InstanceActionId>[] {
+  return offerActions(INSTANCE_ACTIONS, instance, context);
+}
+
+export interface StatusFilter {
+  id: string;
   label: string;
-  tone?: "danger";
-  isDisabled: boolean;
-  disabledReason?: string;
-}
-
-/** The actions to offer for an instance, in menu order, with disabled ones
- * kept only where the reason is worth showing. */
-export function availableActions(instance: Instance): AvailableAction[] {
-  const deleting = isDeleting(instance);
-  const busy = isTransitional(instance);
-  const result: AvailableAction[] = [];
-  for (const rule of ACTION_RULES) {
-    if (rule.statuses && !rule.statuses.includes(instance.status)) continue;
-    if (rule.when && !rule.when(instance)) {
-      if (rule.reason) {
-        result.push({
-          id: rule.id,
-          label: rule.label,
-          isDisabled: true,
-          disabledReason: rule.reason,
-        });
-      }
-      continue;
-    }
-    const passive = rule.id === "log" || rule.id === "console";
-    let isDisabled = false;
-    let disabledReason: string | undefined;
-    if (deleting) {
-      isDisabled = true;
-      disabledReason = "The instance is being deleted";
-    } else if (busy && !passive && rule.id !== "delete") {
-      isDisabled = true;
-      disabledReason = "Wait for the current task to finish";
-    } else if (instance.locked && rule.id === "delete") {
-      isDisabled = true;
-      disabledReason = "Unlock the instance first";
-    }
-    const action: AvailableAction = {
-      id: rule.id,
-      label: rule.label,
-      isDisabled,
-    };
-    if (rule.tone) action.tone = rule.tone;
-    if (disabledReason) action.disabledReason = disabledReason;
-    result.push(action);
-  }
-  return result;
-}
-
-/** The instance's addresses as "10.0.0.1, 203.0.113.5 (floating)". */
-export function addressSummary(instance: Instance): string[] {
-  return instance.addresses.map((address) =>
-    address.type === "floating" ? `${address.addr} (floating)` : address.addr,
-  );
+  /** The statuses the filter shows; empty shows every instance. */
+  statuses: string[];
 }
 
 /**
- * Split a batch selection into the rows an action applies to and the rows
- * it does not. Horizon's batch actions run only on rows whose `allowed()`
- * passes (horizon/tables/actions.py BatchAction) and the table disables the
- * button when none do; this uses the same rules as the row menu.
+ * The list's status filter. A filter can cover several Nova statuses:
+ * "Shelved" covers an instance both before and after it is offloaded.
  */
-export function batchTargets<T extends Instance>(
-  rows: T[],
-  id: InstanceActionId,
-): { allowed: T[]; skipped: T[] } {
-  const allowed: T[] = [];
-  const skipped: T[] = [];
-  for (const row of rows) {
-    const action = availableActions(row).find((a) => a.id === id);
-    if (action && !action.isDisabled) allowed.push(row);
-    else skipped.push(row);
-  }
-  return { allowed, skipped };
+export const STATUS_FILTERS: StatusFilter[] = [
+  { id: "", label: "All statuses", statuses: [] },
+  { id: "ACTIVE", label: "Active", statuses: ["ACTIVE"] },
+  { id: "SHUTOFF", label: "Shut off", statuses: ["SHUTOFF"] },
+  { id: "ERROR", label: "Error", statuses: ["ERROR"] },
+  { id: "BUILD", label: "Building", statuses: ["BUILD"] },
+  { id: "PAUSED", label: "Paused", statuses: ["PAUSED"] },
+  { id: "SUSPENDED", label: "Suspended", statuses: ["SUSPENDED"] },
+  {
+    id: "SHELVED",
+    label: "Shelved",
+    statuses: ["SHELVED", "SHELVED_OFFLOADED"],
+  },
+  { id: "VERIFY_RESIZE", label: "Verify resize", statuses: ["VERIFY_RESIZE"] },
+];
+
+/**
+ * Whether an instance passes the status filter with this id. An id that is
+ * not a listed filter (an old link, say) matches that exact status.
+ */
+export function matchesStatusFilter(
+  instance: Pick<Instance, "status">,
+  filterId: string,
+): boolean {
+  const filter = STATUS_FILTERS.find((f) => f.id === filterId);
+  if (!filter) return instance.status === filterId;
+  return (
+    filter.statuses.length === 0 || filter.statuses.includes(instance.status)
+  );
+}
+
+/** One of an instance's addresses, as the list shows it. */
+export interface ListedAddress {
+  addr: string;
+  floating: boolean;
+}
+
+/**
+ * The instance's addresses, fixed ones first and then the floating ones
+ * users connect to, as Horizon's IP column lists them.
+ */
+export function listedAddresses(instance: Instance): ListedAddress[] {
+  const listed = instance.addresses.flatMap((address) =>
+    address.addr
+      ? [{ addr: address.addr, floating: address.type === "floating" }]
+      : [],
+  );
+  return [
+    ...listed.filter((address) => !address.floating),
+    ...listed.filter((address) => address.floating),
+  ];
 }

@@ -3,24 +3,47 @@ shaped for the SPA with the Nectar rules applied."""
 
 import asyncio
 import base64
+from collections.abc import AsyncIterable
 
-from hive.errors import BadRequest, HiveError, NotFound
+from hive.cache import policy
+from hive.errors import BadRequest, HiveError, NotFound, PayloadTooLarge
 from hive.nectar.flavors import PREEMPTIBLE_NOTICE
+from hive.nectar.images import ImageRules
 from hive.nectar.networks import PURPOSE_BOOT
+from hive.schemas.compute import (
+    ImageCreate,
+    ImageUpdate,
+    KeypairCreate,
+    LaunchRequest,
+    ServerGroupCreate,
+    ServerListQuery,
+    ServerUpdate,
+)
+from hive.schemas.responses import AvailabilityZone, Paginated
+from hive.schemas.responses.compute import (
+    ComputeLimits,
+    ConsoleOutput,
+    Flavor,
+    Image,
+    Instance,
+    InstanceAction,
+    InstanceDetail,
+    InstancePort,
+    InstanceVolume,
+    KeyPair,
+    KeyPairCreated,
+    KeyPairDetail,
+    LaunchOptions,
+    LaunchResult,
+    RemoteConsole,
+    ServerGroup,
+    ServerPassword,
+)
 from hive.services.context import Context
 from hive.services import network as network_service
-from hive.services import volumes as volume_service
+from hive.services import volume_types as volume_type_service
+from hive.times import to_utc_iso
 
-FLAVORS_TTL = 600
-FLAVORS_STALE = 3600
-AZ_TTL = 600
-AZ_STALE = 3600
-PUBLIC_IMAGES_TTL = 300
-PUBLIC_IMAGES_STALE = 1800
-COMMUNITY_IMAGES_TTL = 3600
-COMMUNITY_IMAGES_STALE = 21600
-PROJECT_IMAGES_TTL = 60
-PROJECT_IMAGES_STALE = 600
 
 # Horizon ``dashboards/project/instances/tables.py:58-69``.
 POWER_STATES = {
@@ -36,73 +59,19 @@ POWER_STATES = {
     9: "BUILDING",
 }
 
-# Nova server filters the SPA may pass straight through (microversion
-# 2.83+ accepts the extra attributes; the fork pinned 2.83-2.90 so these
-# work, commit d911bda0e).
-SERVER_FILTERS = {
-    "name",
-    "status",
-    "image",
-    "flavor",
-    "ip",
-    "ip6",
-    "availability_zone",
-    "key_name",
-    "power_state",
-    "task_state",
-    "vm_state",
-    "locked",
-    "changes-since",
-    "host",
-    "uuid",
-}
-SERVER_SORT_KEYS = {
-    "display_name",
-    "created_at",
-    "updated_at",
-    "status",
-    "vm_state",
-    "power_state",
-    "availability_zone",
-    "key_name",
-    "locked",
-}
-
-ACTIONS = {
-    "start": lambda b: {"os-start": None},
-    "stop": lambda b: {"os-stop": None},
-    "pause": lambda b: {"pause": None},
-    "unpause": lambda b: {"unpause": None},
-    "suspend": lambda b: {"suspend": None},
-    "resume": lambda b: {"resume": None},
-    "shelve": lambda b: {"shelve": None},
-    "unshelve": lambda b: {"unshelve": None},
-    "lock": lambda b: {"lock": None},
-    "unlock": lambda b: {"unlock": None},
-    "unrescue": lambda b: {"unrescue": None},
-    "confirm-resize": lambda b: {"confirmResize": None},
-    "revert-resize": lambda b: {"revertResize": None},
-    "reboot": lambda b: {"reboot": {"type": b.get("type") or "SOFT"}},
-}
-
-
-# --- helpers -----------------------------------------------------------------
-
 
 def _addresses(server: dict) -> list[dict]:
-    result = []
-    for network, entries in (server.get("addresses") or {}).items():
-        for entry in entries:
-            result.append(
-                {
-                    "network": network,
-                    "addr": entry.get("addr"),
-                    "version": entry.get("version"),
-                    "type": entry.get("OS-EXT-IPS:type"),
-                    "mac": entry.get("OS-EXT-IPS-MAC:mac_addr"),
-                }
-            )
-    return result
+    return [
+        {
+            "network": network,
+            "addr": entry.get("addr"),
+            "version": entry.get("version"),
+            "type": entry.get("OS-EXT-IPS:type"),
+            "mac": entry.get("OS-EXT-IPS-MAC:mac_addr"),
+        }
+        for network, entries in (server.get("addresses") or {}).items()
+        for entry in entries
+    ]
 
 
 def server_summary(
@@ -124,8 +93,8 @@ def server_summary(
         "task_state": server.get("OS-EXT-STS:task_state"),
         "vm_state": server.get("OS-EXT-STS:vm_state"),
         "availability_zone": server.get("OS-EXT-AZ:availability_zone"),
-        "created": server.get("created"),
-        "updated": server.get("updated"),
+        "created": to_utc_iso(server.get("created")),
+        "updated": to_utc_iso(server.get("updated")),
         "locked": server.get("locked", False),
         "host_id": server.get("hostId"),
         "key_name": server.get("key_name"),
@@ -155,7 +124,7 @@ def server_summary(
             {
                 "code": fault.get("code"),
                 "message": fault.get("message"),
-                "created": fault.get("created"),
+                "created": to_utc_iso(fault.get("created")),
             }
             if fault
             else None
@@ -164,54 +133,36 @@ def server_summary(
     }
 
 
-# --- cached reference data ---------------------------------------------------
-
-
-def flavors_key(ctx: Context) -> str:
-    """Per project: nova lists the private flavours a project has access
-    to, so one project's list is not another's."""
-    return ctx.cache.project_key(ctx.project_id, "flavors")
-
-
-async def flavors(ctx: Context) -> list[dict]:
-    result = await ctx.cache.get_or_fetch(
-        flavors_key(ctx),
-        ctx.nova.flavors,
-        ttl=FLAVORS_TTL,
-        stale_ttl=FLAVORS_STALE,
-        name="flavors",
-    )
+async def _flavor_summaries(ctx: Context) -> list[dict]:
+    result = await ctx.cached(policy.FLAVORS, ctx.nova.flavors)
     return [ctx.flavor_rules.summary(f) for f in result.value]
 
 
-async def availability_zones(ctx: Context) -> list[dict]:
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("nova-azs"),
-        ctx.nova.availability_zones,
-        ttl=AZ_TTL,
-        stale_ttl=AZ_STALE,
-        name="azs",
-    )
+async def flavors(ctx: Context) -> list[Flavor]:
+    return [Flavor.model_validate(f) for f in await _flavor_summaries(ctx)]
+
+
+async def availability_zones(ctx: Context) -> list[AvailabilityZone]:
+    result = await ctx.cached(policy.NOVA_AZS, ctx.nova.availability_zones)
     return [
-        {
-            "name": z.get("zoneName"),
-            "available": bool((z.get("zoneState") or {}).get("available")),
-        }
+        AvailabilityZone(
+            name=z.get("zoneName"),
+            available=bool((z.get("zoneState") or {}).get("available")),
+        )
         for z in result.value
     ]
 
 
+IMAGE_POLICIES = {
+    "public": policy.IMAGES_PUBLIC,
+    "community": policy.IMAGES_COMMUNITY,
+}
+
+
 async def _images_by_visibility(ctx: Context, visibility: str) -> list[dict]:
-    if visibility in ("public", "community"):
-        key = ctx.cache.global_key("images", visibility)
-        ttl, stale = (
-            (PUBLIC_IMAGES_TTL, PUBLIC_IMAGES_STALE)
-            if visibility == "public"
-            else (COMMUNITY_IMAGES_TTL, COMMUNITY_IMAGES_STALE)
-        )
-    else:
-        key = ctx.cache.project_key(ctx.project_id, "images", visibility)
-        ttl, stale = PROJECT_IMAGES_TTL, PROJECT_IMAGES_STALE
+    """One Glance visibility's active images. Public and community images
+    are the same for everyone; private and shared ones are the project's
+    own (``IMAGES_PROJECT``, keyed by visibility)."""
 
     async def fetch():
         params = {"visibility": visibility, "status": "active"}
@@ -219,9 +170,11 @@ async def _images_by_visibility(ctx: Context, visibility: str) -> list[dict]:
             params["owner"] = ctx.project_id
         return await ctx.glance.images(**params)
 
-    result = await ctx.cache.get_or_fetch(
-        key, fetch, ttl=ttl, stale_ttl=stale, name=f"images-{visibility}"
-    )
+    shared_policy = IMAGE_POLICIES.get(visibility)
+    if shared_policy:
+        result = await ctx.cached(shared_policy, fetch)
+    else:
+        result = await ctx.cached(policy.IMAGES_PROJECT, fetch, visibility)
     return result.value
 
 
@@ -253,68 +206,296 @@ async def image_names(ctx: Context) -> dict[str, str]:
 async def invalidate_project_images(
     ctx: Context, *visibilities: str | None
 ) -> None:
-    """Drop the project's image listings, and the global public or
+    """Drop the project's image listings, and the shared public or
     community listing too when an image enters or leaves one of them."""
-    keys = [
-        ctx.cache.project_key(ctx.project_id, "images", "private"),
-        ctx.cache.project_key(ctx.project_id, "images", "shared"),
+    shared = {IMAGE_POLICIES[v] for v in visibilities if v in IMAGE_POLICIES}
+    await asyncio.gather(
+        ctx.forget(policy.IMAGES_PROJECT, "private"),
+        ctx.forget(policy.IMAGES_PROJECT, "shared"),
+        *(ctx.forget(p) for p in shared),
+    )
+
+
+def json_pointer(key: str) -> str:
+    """A JSON Patch path for one top-level image property (RFC 6901): a
+    ``/`` or ``~`` in a property name must not address something else."""
+    return "/" + key.replace("~", "~0").replace("/", "~1")
+
+
+def image_patch(data: ImageUpdate, rules: ImageRules) -> list[dict]:
+    """The Glance JSON patch for an image edit: set fields replace, a
+    property set to ``None`` is removed, and a key that is not a custom
+    property (reserved, or a glance base attribute) is refused."""
+    patch = []
+    for key in ("name", "visibility", "min_disk", "min_ram", "protected"):
+        value = getattr(data, key)
+        if value is not None:
+            patch.append({"op": "replace", "path": f"/{key}", "value": value})
+    for key, value in (data.properties or {}).items():
+        if not rules.is_custom_property(key):
+            raise BadRequest(f"'{key}' is a reserved property")
+        pointer = json_pointer(key)
+        if value is None:
+            patch.append({"op": "remove", "path": pointer})
+        else:
+            patch.append({"op": "add", "path": pointer, "value": value})
+    if not patch:
+        raise BadRequest("nothing to update")
+    return patch
+
+
+async def list_images(
+    ctx: Context, visibility: str | None, q: str | None, snapshots: bool
+) -> list[Image]:
+    """Images (or instance snapshots) for the picker and the Images panel,
+    filtered by visibility and a name search, sorted by name."""
+    groups = await all_images(ctx)
+    rules = ctx.image_rules
+    needle = (q or "").strip().lower()
+    items = [
+        rules.summary(image, ctx.project_id)
+        for key in ([visibility] if visibility else list(groups))
+        for image in groups.get(key, [])
+        if rules.is_snapshot(image) == snapshots
+        and needle in (image.get("name") or "").lower()
+        and rules.visible_in_picker(image, ctx.project_id, bool(needle))
     ]
-    for visibility in sorted({v for v in visibilities if v}):
-        if visibility in ("public", "community"):
-            keys.append(ctx.cache.global_key("images", visibility))
-    await ctx.cache.invalidate(*keys)
+    items.sort(key=lambda i: (i["name"] or "").lower())
+    return [Image.model_validate(i) for i in items]
 
 
-# --- instances ----------------------------------------------------------------
+async def get_image(ctx: Context, image_id: str) -> Image:
+    image = await ctx.glance.image(image_id)
+    return Image.model_validate(ctx.image_rules.summary(image, ctx.project_id))
 
 
-async def list_instances(ctx: Context, query: dict) -> dict:
-    """``query`` carries the typed ``limit``, ``marker``, ``sort_key`` and
-    ``sort_dir`` from the router plus any ``SERVER_FILTERS``."""
-    params: dict = {"limit": min(int(query.get("limit") or 50), 1000)}
-    if query.get("marker"):
-        params["marker"] = query["marker"]
-    sort_key = query.get("sort_key")
-    if sort_key in SERVER_SORT_KEYS:
-        params["sort_key"] = sort_key
-        params["sort_dir"] = (
-            "asc" if query.get("sort_dir") == "asc" else "desc"
+async def create_image(ctx: Context, data: ImageCreate) -> Image:
+    """Create the image record, and start a web-download import when the
+    source is a URL (a file source is uploaded with ``upload_image_file``)."""
+    rules = ctx.image_rules
+    fields: dict = {
+        **rules.create_defaults(),
+        "name": data.name,
+        "disk_format": data.disk_format,
+        "container_format": data.container_format,
+        "min_disk": data.min_disk,
+        "min_ram": data.min_ram,
+        "protected": data.protected,
+    }
+    if data.visibility:
+        fields["visibility"] = data.visibility
+    for key, value in data.properties.items():
+        if not rules.is_custom_property(key):
+            raise BadRequest(f"'{key}' is a reserved property")
+        fields[key] = value
+    image = await ctx.glance.create_image(fields)
+    if data.source_url:
+        await ctx.glance.import_image(image["id"], data.source_url)
+    await invalidate_project_images(ctx, image.get("visibility"))
+    return Image.model_validate(rules.summary(image, ctx.project_id))
+
+
+async def upload_image_file(
+    ctx: Context,
+    image_id: str,
+    content: AsyncIterable[bytes],
+    content_length: str | None,
+) -> Image:
+    """Stream an image file from the browser to glance.
+
+    The SPA creates the image record first (``create_image`` without a
+    source URL) and then sends the bytes; glance makes the image active
+    once they land. Horizon's "File" source does the same through its own
+    web server (``HORIZON_IMAGES_UPLOAD_MODE=legacy``).
+    """
+    if not content_length or not content_length.isdigit():
+        raise BadRequest("Content-Length is required")
+    size = int(content_length)
+    limit = ctx.settings.image_upload_max_bytes
+    if size > limit:
+        raise PayloadTooLarge(
+            f"image files are limited to {limit // 1024**3} GB",
+            extra={"limit": limit},
         )
-    for key in SERVER_FILTERS:
-        if query.get(key) not in (None, ""):
-            params[key] = query[key]
+    if size == 0:
+        raise BadRequest("the file is empty")
+    await ctx.glance.upload_image_file(
+        image_id, content, size, ctx.settings.image_upload_timeout
+    )
+    await invalidate_project_images(ctx)
+    return await get_image(ctx, image_id)
+
+
+async def update_image(
+    ctx: Context, image_id: str, data: ImageUpdate
+) -> Image:
+    patch = image_patch(data, ctx.image_rules)
+    image = await ctx.glance.patch_image(image_id, patch)
+    # A visibility change moves the image between listings: drop the
+    # shared public and community ones it may have left or joined too.
+    left_or_joined = ("public", "community") if data.visibility else ()
+    await invalidate_project_images(ctx, *left_or_joined)
+    return Image.model_validate(ctx.image_rules.summary(image, ctx.project_id))
+
+
+async def delete_image(ctx: Context, image_id: str) -> None:
+    await ctx.glance.delete_image(image_id)
+    await invalidate_project_images(ctx)
+
+
+def keypair_summary(keypair: dict) -> dict:
+    return {
+        "name": keypair.get("name"),
+        "type": keypair.get("type"),
+        "fingerprint": keypair.get("fingerprint"),
+        "public_key": keypair.get("public_key"),
+    }
+
+
+async def list_keypairs(ctx: Context) -> list[KeyPair]:
+    return [
+        KeyPair.model_validate(keypair_summary(k))
+        for k in await ctx.nova.keypairs()
+    ]
+
+
+async def get_keypair(ctx: Context, name: str) -> KeyPairDetail:
+    keypair = await ctx.nova.keypair(name)
+    return KeyPairDetail.model_validate(
+        {
+            **keypair_summary(keypair),
+            "created_at": to_utc_iso(keypair.get("created_at")),
+        }
+    )
+
+
+async def create_keypair(ctx: Context, data: KeypairCreate) -> KeyPairCreated:
+    """Import a public key, or have Nova generate a pair; the private key
+    of a generated pair is in this reply only, once."""
+    fields: dict = {"name": data.name, "type": data.type}
+    if data.public_key:
+        fields["public_key"] = data.public_key
+    keypair = await ctx.nova.create_keypair(fields)
+    return KeyPairCreated.model_validate(
+        {
+            **keypair_summary(keypair),
+            "private_key": keypair.get("private_key"),
+        }
+    )
+
+
+async def delete_keypair(ctx: Context, name: str) -> None:
+    await ctx.nova.delete_keypair(name)
+
+
+def server_group_summary(group: dict) -> dict:
+    return {
+        "id": group.get("id"),
+        "name": group.get("name"),
+        "policy": group.get("policy"),
+        "members": group.get("members") or [],
+    }
+
+
+async def list_server_groups(ctx: Context) -> list[ServerGroup]:
+    return [
+        ServerGroup.model_validate(server_group_summary(g))
+        for g in await ctx.nova.server_groups()
+    ]
+
+
+async def create_server_group(
+    ctx: Context, data: ServerGroupCreate
+) -> ServerGroup:
+    group = await ctx.nova.create_server_group(
+        {"name": data.name, "policy": data.policy}
+    )
+    return ServerGroup.model_validate(server_group_summary(group))
+
+
+async def delete_server_group(ctx: Context, group_id: str) -> None:
+    await ctx.nova.delete_server_group(group_id)
+
+
+async def list_instances(
+    ctx: Context, query: ServerListQuery
+) -> Paginated[Instance]:
+    params = query.nova_params()
     body, names = await asyncio.gather(
         ctx.nova.servers(**params), image_names(ctx)
     )
     servers = body.get("servers", [])
-    items = [server_summary(ctx, s, names) for s in servers]
     next_marker = (
         servers[-1]["id"] if len(servers) >= params["limit"] else None
     )
-    return {
-        "items": items,
-        "next_marker": next_marker,
-        "has_more": bool(next_marker),
-    }
+    return Paginated[Instance](
+        items=[
+            Instance.model_validate(server_summary(ctx, s, names))
+            for s in servers
+        ],
+        next_marker=next_marker,
+        has_more=bool(next_marker),
+    )
 
 
-async def get_instance(ctx: Context, server_id: str) -> dict:
+async def get_instance(ctx: Context, server_id: str) -> InstanceDetail:
     server, names = await asyncio.gather(
         ctx.nova.server(server_id), image_names(ctx)
     )
     if not server:
         raise NotFound("instance not found", service="nova")
-    summary = server_summary(ctx, server, names)
-    # Nova returns it base64-encoded, only from microversion 2.3 on.
-    summary["user_data"] = server.get("OS-EXT-SRV-ATTR:user_data")
-    summary["os_ext_srv_attr"] = {
-        "instance_name": server.get("OS-EXT-SRV-ATTR:instance_name"),
-        "hostname": server.get("OS-EXT-SRV-ATTR:hostname"),
-    }
-    return summary
+    return InstanceDetail.model_validate(
+        {
+            **server_summary(ctx, server, names),
+            # Nova returns it base64-encoded, from microversion 2.3 on.
+            "user_data": server.get("OS-EXT-SRV-ATTR:user_data"),
+            "os_ext_srv_attr": {
+                "instance_name": server.get("OS-EXT-SRV-ATTR:instance_name"),
+                "hostname": server.get("OS-EXT-SRV-ATTR:hostname"),
+            },
+        }
+    )
 
 
-async def instance_volumes(ctx: Context, server_id: str) -> list[dict]:
+async def update_instance(
+    ctx: Context, server_id: str, data: ServerUpdate
+) -> Instance:
+    server = await ctx.nova.update_server(server_id, data.changes())
+    return Instance.model_validate(server_summary(ctx, server))
+
+
+async def delete_instance(ctx: Context, server_id: str) -> None:
+    await ctx.nova.delete_server(server_id)
+
+
+async def console_output(
+    ctx: Context, server_id: str, length: int | None
+) -> ConsoleOutput:
+    output = await ctx.nova.console_output(server_id, length)
+    return ConsoleOutput(output=output)
+
+
+async def remote_console(
+    ctx: Context, server_id: str, kind: str
+) -> RemoteConsole:
+    console = await ctx.nova.remote_console(server_id, kind)
+    return RemoteConsole(url=console.get("url"), type=console.get("type"))
+
+
+async def server_password(ctx: Context, server_id: str) -> ServerPassword:
+    """The encrypted admin password; decryption with the key pair's
+    private key happens in the browser, as in Horizon."""
+    password = await ctx.nova.server_password(server_id)
+    return ServerPassword(encrypted_password=password)
+
+
+async def limits(ctx: Context) -> ComputeLimits:
+    return ComputeLimits.model_validate(await ctx.nova.limits())
+
+
+async def instance_volumes(
+    ctx: Context, server_id: str
+) -> list[InstanceVolume]:
     attachments = await ctx.nova.volume_attachments(server_id)
 
     async def one(attachment):
@@ -322,20 +503,22 @@ async def instance_volumes(ctx: Context, server_id: str) -> list[dict]:
             volume = await ctx.cinder.volume(attachment["volumeId"])
         except HiveError:
             volume = {}
-        return {
-            "id": attachment.get("volumeId"),
-            "device": attachment.get("device"),
-            "name": volume.get("name") or attachment.get("volumeId"),
-            "size_gb": volume.get("size"),
-            "status": volume.get("status"),
-            "bootable": volume.get("bootable") == "true",
-            "volume_type": volume.get("volume_type"),
-        }
+        return InstanceVolume.model_validate(
+            {
+                "id": attachment.get("volumeId"),
+                "device": attachment.get("device"),
+                "name": volume.get("name") or attachment.get("volumeId"),
+                "size_gb": volume.get("size"),
+                "status": volume.get("status"),
+                "bootable": volume.get("bootable") == "true",
+                "volume_type": volume.get("volume_type"),
+            }
+        )
 
     return list(await asyncio.gather(*(one(a) for a in attachments)))
 
 
-async def instance_ports(ctx: Context, server_id: str) -> list[dict]:
+async def instance_ports(ctx: Context, server_id: str) -> list[InstancePort]:
     ports, fips = await asyncio.gather(
         ctx.neutron.ports(device_id=server_id),
         ctx.neutron.floatingips(project_id=ctx.project_id),
@@ -345,43 +528,55 @@ async def instance_ports(ctx: Context, server_id: str) -> list[dict]:
         if fip.get("port_id"):
             by_port.setdefault(fip["port_id"], []).append(fip)
     return [
-        {
-            "id": p.get("id"),
-            "network_id": p.get("network_id"),
-            "mac_address": p.get("mac_address"),
-            "status": p.get("status"),
-            "fixed_ips": [
-                {"ip": ip.get("ip_address"), "subnet_id": ip.get("subnet_id")}
-                for ip in p.get("fixed_ips") or []
-            ],
-            "security_groups": p.get("security_groups") or [],
-            "port_security_enabled": p.get("port_security_enabled"),
-            "floating_ips": [
-                {"id": f.get("id"), "address": f.get("floating_ip_address")}
-                for f in by_port.get(p.get("id"), [])
-            ],
-        }
+        InstancePort.model_validate(
+            {
+                "id": p.get("id"),
+                "network_id": p.get("network_id"),
+                "mac_address": p.get("mac_address"),
+                "status": p.get("status"),
+                "fixed_ips": [
+                    {
+                        "ip": ip.get("ip_address"),
+                        "subnet_id": ip.get("subnet_id"),
+                    }
+                    for ip in p.get("fixed_ips") or []
+                ],
+                "security_groups": p.get("security_groups") or [],
+                "port_security_enabled": p.get("port_security_enabled"),
+                "floating_ips": [
+                    {
+                        "id": f.get("id"),
+                        "address": f.get("floating_ip_address"),
+                    }
+                    for f in by_port.get(p.get("id") or "", [])
+                ],
+            }
+        )
         for p in ports
     ]
 
 
-async def instance_action_log(ctx: Context, server_id: str) -> list[dict]:
+async def instance_action_log(
+    ctx: Context, server_id: str
+) -> list[InstanceAction]:
     actions = await ctx.nova.instance_actions(server_id)
     return [
-        {
-            "action": a.get("action"),
-            "request_id": a.get("request_id"),
-            "user_id": a.get("user_id"),
-            "start_time": a.get("start_time"),
-            "message": a.get("message"),
-        }
+        InstanceAction.model_validate(
+            {
+                "action": a.get("action"),
+                "request_id": a.get("request_id"),
+                "user_id": a.get("user_id"),
+                "start_time": to_utc_iso(a.get("start_time")),
+                "message": a.get("message"),
+            }
+        )
         for a in actions
     ]
 
 
-async def resize_flavors(ctx: Context, server_id: str) -> list[dict]:
+async def resize_flavors(ctx: Context, server_id: str) -> list[Flavor]:
     server, all_flavors = await asyncio.gather(
-        ctx.nova.server(server_id), flavors(ctx)
+        ctx.nova.server(server_id), _flavor_summaries(ctx)
     )
     current = (server.get("flavor") or {}).get("id")
     if not current:
@@ -390,117 +585,11 @@ async def resize_flavors(ctx: Context, server_id: str) -> list[dict]:
         current = next(
             (f["id"] for f in all_flavors if f["name"] == name), None
         )
-    return ctx.flavor_rules.resize_candidates(current, all_flavors)
+    candidates = ctx.flavor_rules.resize_candidates(current, all_flavors)
+    return [Flavor.model_validate(f) for f in candidates]
 
 
-async def perform_action(
-    ctx: Context, server_id: str, action: str, body: dict
-):
-    """Run a server action; returns a small status payload."""
-    if action in ACTIONS:
-        await ctx.nova.action(server_id, ACTIONS[action](body))
-    elif action == "resize":
-        if not body.get("flavor_id"):
-            raise BadRequest("flavor_id is required")
-        await ctx.nova.action(
-            server_id, {"resize": {"flavorRef": body["flavor_id"]}}
-        )
-    elif action == "rebuild":
-        if not body.get("image_id"):
-            raise BadRequest("image_id is required")
-        rebuild: dict = {"imageRef": body["image_id"]}
-        if body.get("name"):
-            rebuild["name"] = body["name"]
-        if body.get("password"):
-            rebuild["adminPass"] = body["password"]
-        await ctx.nova.action(server_id, {"rebuild": rebuild})
-    elif action == "rescue":
-        rescue: dict = {}
-        if body.get("rescue_image_id"):
-            rescue["rescue_image_ref"] = body["rescue_image_id"]
-        await ctx.nova.action(server_id, {"rescue": rescue or None})
-    elif action == "snapshot":
-        if not body.get("name"):
-            raise BadRequest("name is required")
-        resp = await ctx.nova.action(
-            server_id,
-            {"createImage": {"name": body["name"], "metadata": {}}},
-            timeout=60,
-        )
-        await invalidate_project_images(ctx)
-        image_id = None
-        try:
-            image_id = resp.json().get("image_id")
-        except ValueError:
-            pass
-        return {"status": "accepted", "image_id": image_id}
-    elif action in ("add-security-group", "remove-security-group"):
-        if not body.get("security_group"):
-            raise BadRequest("security_group is required")
-        key = (
-            "addSecurityGroup"
-            if action.startswith("add")
-            else "removeSecurityGroup"
-        )
-        await ctx.nova.action(
-            server_id, {key: {"name": body["security_group"]}}
-        )
-    elif action == "attach-volume":
-        if not body.get("volume_id"):
-            raise BadRequest("volume_id is required")
-        await ctx.nova.attach_volume(server_id, body["volume_id"])
-    elif action == "detach-volume":
-        if not body.get("volume_id"):
-            raise BadRequest("volume_id is required")
-        await ctx.nova.detach_volume(server_id, body["volume_id"])
-    elif action == "attach-interface":
-        attachment: dict = {}
-        if body.get("port_id"):
-            attachment["port_id"] = body["port_id"]
-        elif body.get("network_id"):
-            attachment["net_id"] = body["network_id"]
-        else:
-            raise BadRequest("network_id or port_id is required")
-        await ctx.nova.attach_interface(server_id, attachment)
-    elif action == "detach-interface":
-        if not body.get("port_id"):
-            raise BadRequest("port_id is required")
-        await ctx.nova.detach_interface(server_id, body["port_id"])
-    elif action == "associate-fip":
-        if not body.get("floating_ip_id"):
-            raise BadRequest("floating_ip_id is required")
-        fields: dict = {"port_id": body.get("port_id")}
-        if not fields["port_id"]:
-            # The same IPv4, reachable-subnet targets the association
-            # dialog offers (``FloatingIpManager.list_targets``).
-            targets = await network_service.floating_ip_targets(ctx, server_id)
-            if not targets:
-                raise BadRequest("the instance has no port to associate with")
-            fields = {
-                "port_id": targets[0]["port_id"],
-                "fixed_ip_address": targets[0]["ip_address"],
-            }
-        await ctx.neutron.update_floatingip(body["floating_ip_id"], fields)
-    elif action == "disassociate-fip":
-        if not body.get("floating_ip_id"):
-            raise BadRequest("floating_ip_id is required")
-        await ctx.neutron.update_floatingip(
-            body["floating_ip_id"], {"port_id": None}
-        )
-    elif action == "update-metadata":
-        metadata = body.get("metadata")
-        if metadata is None:
-            raise BadRequest("metadata is required")
-        await ctx.nova.set_server_metadata(server_id, metadata)
-    else:
-        raise NotFound(f"unknown action '{action}'")
-    return {"status": "accepted"}
-
-
-# --- launch ------------------------------------------------------------------
-
-
-async def launch_options(ctx: Context) -> dict:
+async def launch_options(ctx: Context) -> LaunchOptions:
     """Everything the launch wizard needs, gathered in parallel; a failed
     section carries ``error`` instead of failing the whole payload."""
 
@@ -567,26 +656,6 @@ async def launch_options(ctx: Context) -> dict:
             ],
         }
 
-    async def keypairs_section():
-        return [
-            {
-                "name": k.get("name"),
-                "type": k.get("type"),
-                "fingerprint": k.get("fingerprint"),
-            }
-            for k in await ctx.nova.keypairs()
-        ]
-
-    async def server_groups_section():
-        return [
-            {
-                "id": g.get("id"),
-                "name": g.get("name"),
-                "policy": g.get("policy"),
-            }
-            for g in await ctx.nova.server_groups()
-        ]
-
     results = await asyncio.gather(
         guarded("flavors", flavors(ctx)),
         guarded("images", images_section()),
@@ -594,12 +663,12 @@ async def launch_options(ctx: Context) -> dict:
         guarded(
             "networks", network_service.networks_for_purpose(ctx, PURPOSE_BOOT)
         ),
-        guarded("key_pairs", keypairs_section()),
+        guarded("key_pairs", list_keypairs(ctx)),
         guarded("security_groups", network_service.list_security_groups(ctx)),
         guarded("availability_zones", availability_zones(ctx)),
-        guarded("server_groups", server_groups_section()),
+        guarded("server_groups", list_server_groups(ctx)),
         guarded("limits", ctx.nova.limits()),
-        guarded("volume_types", volume_service.volume_types(ctx)),
+        guarded("volume_types", volume_type_service.volume_types(ctx)),
     )
     payload: dict = {"errors": {}}
     for name, value, error in results:
@@ -616,15 +685,13 @@ async def launch_options(ctx: Context) -> dict:
             )
         else:
             payload[name] = value
-    # The new-volume type picker filters by zone the way the create volume
-    # form does (nectar/volumes.py).
-    payload["has_zoned_types"] = any(
-        t.get("zones") for t in payload.get("volume_types") or []
+    payload["has_zoned_types"] = volume_type_service.has_zoned_types(
+        payload["volume_types"]
     )
-    flavors_loaded = payload.get("flavors")
+    loaded = payload["flavors"]
     payload["flavor_classes"] = (
-        ctx.flavor_rules.flavor_classes(flavors_loaded)
-        if flavors_loaded is not None
+        ctx.flavor_rules.flavor_classes([f.model_dump() for f in loaded])
+        if loaded is not None
         else None
     )
     payload["defaults"] = {
@@ -634,31 +701,16 @@ async def launch_options(ctx: Context) -> dict:
         "classic_network_id": ctx.settings.classic_network_id,
         "preemptible_notice": PREEMPTIBLE_NOTICE,
     }
-    return payload
+    return LaunchOptions.model_validate(payload)
 
 
-def launch_body(
-    ctx: Context, req, flavor: dict | None = None
-) -> tuple[dict, dict]:
-    """Translate a LaunchRequest into nova's create-server body; ``flavor``
-    is the chosen flavour, which decides whether the zone is sent."""
-    server: dict = {
-        "name": req.name,
-        "flavorRef": req.flavor_id,
-        "min_count": req.count,
-        "max_count": req.count,
-    }
-    zone = ctx.flavor_rules.launch_zone(flavor, req.availability_zone)
-    if zone:
-        server["availability_zone"] = zone
-    if req.source.type in ("image", "snapshot") and not req.create_volume:
-        server["imageRef"] = req.source.id
-    elif req.source.type in ("image", "snapshot"):
-        # Horizon's "Create New Volume": the image (an instance snapshot
-        # is a glance image too) becomes a new bootable volume of the
-        # chosen size (launch-instance-model.service.js
-        # setFinalSpecBootImageToVolume). Horizon sends no volume type;
-        # Hive offers the zone's types (nova 2.67+).
+def _boot_source(req: LaunchRequest) -> dict:
+    """``imageRef`` and, for an instance that boots from a volume, its
+    ``block_device_mapping_v2``: an image boots directly, or onto a new
+    volume (from the image with its size, setFinalSpecBootImageToVolume;
+    the volume type is a Hive addition, nova 2.67+); a volume or volume
+    snapshot boots from the volume (setFinalSpecBootFromVolumeDevice)."""
+    if req.create_volume:
         mapping: dict = {
             "boot_index": 0,
             "uuid": req.source.id,
@@ -669,11 +721,12 @@ def launch_body(
         }
         if req.volume_type:
             mapping["volume_type"] = req.volume_type
-        server["imageRef"] = ""
-        server["block_device_mapping_v2"] = [mapping]
-    else:
-        server["imageRef"] = ""
-        server["block_device_mapping_v2"] = [
+        return {"imageRef": "", "block_device_mapping_v2": [mapping]}
+    if req.source.type in ("image", "snapshot"):
+        return {"imageRef": req.source.id}
+    return {
+        "imageRef": "",
+        "block_device_mapping_v2": [
             {
                 "boot_index": 0,
                 "uuid": req.source.id,
@@ -683,7 +736,24 @@ def launch_body(
                 "destination_type": "volume",
                 "delete_on_termination": req.delete_volume_on_termination,
             }
-        ]
+        ],
+    }
+
+
+def launch_body(req: LaunchRequest, zone: str | None) -> tuple[dict, dict]:
+    """Translate a LaunchRequest into nova's create-server body, as
+    Horizon's ``launch-instance-model.service.js`` builds it
+    (``_boot_source``). ``zone`` is the zone to send
+    (``FlavorRules.launch_zone``); without one Nova's scheduler picks."""
+    server: dict = {
+        "name": req.name,
+        "flavorRef": req.flavor_id,
+        "min_count": req.count,
+        "max_count": req.count,
+        **_boot_source(req),
+    }
+    if zone:
+        server["availability_zone"] = zone
     nics = [{"uuid": n} for n in req.networks] + [
         {"port": p} for p in req.ports
     ]
@@ -700,23 +770,31 @@ def launch_body(
         server["metadata"] = req.metadata
     if req.description:
         server["description"] = req.description
+    if req.config_drive:
+        server["config_drive"] = True
     extra: dict = {}
     if req.server_group_id:
         extra["os:scheduler_hints"] = {"group": req.server_group_id}
     return server, extra
 
 
-async def launch(ctx: Context, req) -> dict:
+async def launch(ctx: Context, req: LaunchRequest) -> LaunchResult:
+    if req.create_volume and req.volume_size_gb is not None:
+        image = await ctx.glance.image(req.source.id)
+        ctx.volume_rules.check_boot_volume(
+            req.availability_zone, req.volume_size_gb, image
+        )
     # Only a chosen zone needs the flavour, to drop it for a reservation
     # flavour; read it from nova, since a new reservation's flavour may not
     # be in the cached list yet.
     flavor = (
         await ctx.nova.flavor(req.flavor_id) if req.availability_zone else None
     )
-    server, extra = launch_body(ctx, req, flavor)
+    zone = ctx.flavor_rules.launch_zone(flavor, req.availability_zone)
+    server, extra = launch_body(req, zone)
     created = await ctx.nova.create_server(server, extra)
     if "server" in created:
         ids = [created["server"].get("id")]
     else:
         ids = [s.get("id") for s in created.get("servers", [])]
-    return {"ids": [i for i in ids if i], "status": "accepted"}
+    return LaunchResult(status="accepted", ids=[i for i in ids if i])

@@ -25,27 +25,30 @@
 
 from datetime import date, datetime, timedelta
 
+from hive.times import to_utc_iso, today_utc
+
 DATE_FORMAT = "%Y-%m-%d"
 DEFAULT_DAYS = 90
 INSTANCE_ATTRS = (
     "display_name",
     "availability_zone",
     "flavor_name",
-    "started_at",
-    "ended_at",
 )
+INSTANCE_TIMES = ("started_at", "ended_at")
 MOST_USED = 5
 SUMMARY_TYPES = frozenset({"instance"})
 SUMMARY_GROUPBY = frozenset({"id", "time-1d", "type"})
 
 
 def default_range(today: date | None = None, days: int = DEFAULT_DAYS):
-    today = today or date.today()
+    """The default date range (``nectar_dashboard/api/usage.py``)."""
+    today = today or today_utc()
     begin = today - timedelta(days=days)
     return begin.strftime(DATE_FORMAT), today.strftime(DATE_FORMAT)
 
 
 def total_rate(rows: list[dict]) -> float:
+    """The SU total of summary rows (``api/usage.py``)."""
     total = 0.0
     for row in rows:
         rate = row.get("rate")
@@ -62,6 +65,7 @@ def _rate(row: dict) -> float:
 
 
 def join_instances(rows: list[dict], resources: list[dict]) -> list[dict]:
+    """Rows joined with Gnocchi (``api/usage.py:97-131``)."""
     by_id = {r.get("id"): r for r in resources if r.get("id")}
     items = []
     for row in rows:
@@ -71,11 +75,13 @@ def join_instances(rows: list[dict], resources: list[dict]) -> list[dict]:
             "id": instance_id,
             "rate": round(_rate(row), 2),
             "qty": row.get("qty"),
-            "begin": row.get("begin"),
-            "end": row.get("end"),
+            "begin": to_utc_iso(row.get("begin")),
+            "end": to_utc_iso(row.get("end")),
         }
         for attr in INSTANCE_ATTRS:
             item[attr] = resource.get(attr)
+        for attr in INSTANCE_TIMES:
+            item[attr] = to_utc_iso(resource.get(attr))
         item["name"] = item["display_name"] or instance_id
         items.append(item)
     items.sort(key=lambda item: item["rate"], reverse=True)
@@ -83,6 +89,7 @@ def join_instances(rows: list[dict], resources: list[dict]) -> list[dict]:
 
 
 def most_used(items: list[dict], limit: int = MOST_USED) -> dict:
+    """Top five and the rest (``api/usage.py:67-94``)."""
     ordered = sorted(items, key=lambda item: _rate(item), reverse=True)
     top = [
         {
@@ -96,6 +103,7 @@ def most_used(items: list[dict], limit: int = MOST_USED) -> dict:
 
 
 def by_type(rows: list[dict]) -> list[dict]:
+    """SU per resource type (``nectar_dashboard/api/usage.py``)."""
     items = [
         {
             "type": row.get("type") or "other",
@@ -125,6 +133,7 @@ def burn_down(
     rows: list[dict],
     today: date,
 ) -> dict:
+    """The burn-down (``allocation_usage/views.py:14-74``)."""
     total_days = (end - start).days
     day_budget = su_budget / total_days if total_days > 0 else None
     days_used = max((today - start).days, 0)

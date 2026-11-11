@@ -5,12 +5,9 @@
 // flags; `hideForTrial` hides it for `pt-` projects; `requiresExtension`
 // names a neutron extension (from /api/network/extensions) the cloud must
 // offer, as Horizon shows Trunks and Port Forwardings only when it does.
-import type {
-  AllocationSummary,
-  Me,
-  NetworkExtensions,
-  ServiceKey,
-} from "../../lib/api/types";
+import type { NetworkExtensions } from "../../lib/api/types/network";
+import type { Me, ServiceKey } from "../../lib/api/types/session";
+import type { AllocationSummary } from "../../lib/api/types/usage";
 
 export type PanelStatus = "built" | "linkout" | "hidden";
 
@@ -86,7 +83,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "key-pairs",
-            label: "Key Pairs",
+            label: "Key pairs",
             status: "built",
             to: "/compute/key-pairs",
             horizonPath: "/project/key_pairs/",
@@ -94,7 +91,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "server-groups",
-            label: "Server Groups",
+            label: "Server groups",
             status: "built",
             to: "/compute/server-groups",
             horizonPath: "/project/server_groups/",
@@ -142,7 +139,7 @@ export const DASHBOARDS: Dashboard[] = [
       },
       {
         id: "container-infra",
-        label: "Container Infra",
+        label: "Container infra",
         panels: [
           {
             id: "clusters",
@@ -154,7 +151,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "cluster-templates",
-            label: "Cluster Templates",
+            label: "Cluster templates",
             status: "built",
             to: "/kubernetes/cluster-templates",
             horizonPath: "/project/cluster_templates/",
@@ -168,7 +165,7 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "topology",
-            label: "Network Topology",
+            label: "Network topology",
             status: "built",
             to: "/network/topology",
             horizonPath: "/project/network_topology/",
@@ -192,7 +189,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "security-groups",
-            label: "Security Groups",
+            label: "Security groups",
             status: "built",
             to: "/network/security-groups",
             horizonPath: "/project/security_groups/",
@@ -208,7 +205,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "port-forwardings",
-            label: "Port Forwardings",
+            label: "Port forwardings",
             status: "built",
             to: "/network/port-forwardings",
             horizonPath: "/project/floating_ip_portforwardings/",
@@ -226,7 +223,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "load-balancers",
-            label: "Load Balancers",
+            label: "Load balancers",
             status: "built",
             to: "/load-balancers",
             horizonPath: "/project/load_balancer/",
@@ -236,7 +233,7 @@ export const DASHBOARDS: Dashboard[] = [
       },
       {
         id: "object-store",
-        label: "Object Store",
+        label: "Object store",
         panels: [
           {
             id: "containers",
@@ -270,7 +267,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "database-configurations",
-            label: "Configuration Groups",
+            label: "Configuration groups",
             status: "built",
             to: "/databases/configuration-groups",
             horizonPath: "/project/database_configurations/",
@@ -284,7 +281,7 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "usage-trend",
-            label: "Usage Trend",
+            label: "Usage trend",
             status: "built",
             to: "/usage/trend",
             horizonPath: "/project/usage-trend/",
@@ -292,7 +289,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "allocation-usage",
-            label: "Allocation Usage",
+            label: "Allocation usage",
             status: "built",
             to: "/usage/allocation",
             horizonPath: "/project/allocation-usage/",
@@ -316,7 +313,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "resource-types",
-            label: "Resource Types",
+            label: "Resource types",
             status: "built",
             to: "/orchestration/resource-types",
             horizonPath: "/project/stacks/resource_types/",
@@ -324,7 +321,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "template-versions",
-            label: "Template Versions",
+            label: "Template versions",
             status: "built",
             to: "/orchestration/template-versions",
             horizonPath: "/project/stacks/template_versions/",
@@ -368,7 +365,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "security-services",
-            label: "Security Services",
+            label: "Security services",
             status: "built",
             to: "/shares/security-services",
             horizonPath: "/project/security_services/",
@@ -376,7 +373,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "share-groups",
-            label: "Share Groups",
+            label: "Share groups",
             status: "built",
             to: "/shares/share-groups",
             horizonPath: "/project/share_groups/",
@@ -384,7 +381,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "share-group-snapshots",
-            label: "Share Group Snapshots",
+            label: "Share group snapshots",
             status: "built",
             to: "/shares/share-group-snapshots",
             horizonPath: "/project/share_group_snapshots/",
@@ -398,14 +395,14 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "api-access",
-            label: "API Access",
+            label: "API access",
             status: "built",
             to: "/api-access",
             horizonPath: "/project/api_access/",
           },
           {
             id: "security-risks",
-            label: "Security Risks",
+            label: "Security risks",
             status: "built",
             to: "/security/risks",
             horizonPath: "/project/security/",
@@ -425,7 +422,7 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "application-credentials",
-            label: "Application Credentials",
+            label: "Application credentials",
             status: "built",
             to: "/identity/application-credentials",
             horizonPath: "/identity/application_credentials/",
@@ -439,7 +436,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "members",
-            label: "Project Members",
+            label: "Project members",
             status: "built",
             to: "/members",
             horizonPath: "/identity/members/",
@@ -447,7 +444,7 @@ export const DASHBOARDS: Dashboard[] = [
           },
           {
             id: "user-lookup",
-            label: "User Details",
+            label: "User details",
             status: "built",
             to: "/identity/user-lookup",
             horizonPath: "/identity/lookup/",
@@ -467,13 +464,13 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "allocation-request",
-            label: "New Request",
+            label: "New request",
             status: "linkout",
             horizonPath: "/allocation/request/",
           },
           {
             id: "allocation-user-requests",
-            label: "My Requests",
+            label: "My requests",
             status: "linkout",
             horizonPath: "/allocation/user_requests/",
           },
@@ -491,14 +488,14 @@ export const DASHBOARDS: Dashboard[] = [
         panels: [
           {
             id: "my-details",
-            label: "My Details",
+            label: "My details",
             status: "built",
             to: "/account/my-details",
             horizonPath: "/settings/my-details/",
           },
           {
             id: "reset-password",
-            label: "Reset Password",
+            label: "Reset password",
             status: "built",
             to: "/account/reset-password",
             horizonPath: "/settings/reset-password/",

@@ -1,139 +1,130 @@
-// Queries and mutations for the Orchestration panels (Heat), keyed under
-// `['project', pid, 'heat', ...]`. Stacks poll while any is IN_PROGRESS.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the Orchestration panels (Heat), keyed by
+// `queryKeys.orchestration`. Stacks poll while any is IN_PROGRESS, and every
+// write refreshes the whole service. Queries pass React Query's abort signal
+// on, so leaving a page cancels its requests.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
+import type { Items } from "../../lib/api/types/common";
 import type {
-  Items,
   ResourceTypeDetail,
   ResourceTypeSummary,
   Stack,
+  StackAccepted,
+  StackActionAccepted,
+  StackActionRequest,
   StackCreateRequest,
   StackDetail,
   StackEvent,
   StackResource,
   StackTemplate,
   StackUpdateRequest,
-  TemplateFunction,
+  TemplateFunctionList,
   TemplateSource,
   TemplateValidation,
   TemplateVersion,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/orchestration";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, pollWhile, staleTimes } from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
 
-export function heatKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "heat", ...rest] as const;
-}
+const keys = queryKeys.orchestration;
 
 const BASE = "/api/orchestration";
-const POLL_MS = 5000;
+
+/** What any Heat write marks stale: the whole service. */
+export const orchestrationWriteKeys = [keys.service.all];
 
 export function stacksQuery(projectId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "stacks"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Stack>>(`${BASE}/stacks`, { signal }),
+    queryKey: keys.stacks.list(projectId),
+    queryFn: getJson<Items<Stack>>(`${BASE}/stacks`),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
-      query.state.data?.items.some((s) => s.is_transitional) ? POLL_MS : false,
+      pollWhile(
+        query,
+        query.state.data?.items.some((s) => s.is_transitional),
+      ),
   });
 }
 
 export function stackQuery(projectId: string, stackId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "stack", stackId),
-    queryFn: ({ signal }) =>
-      apiFetch<StackDetail>(`${BASE}/stacks/${stackId}`, { signal }),
+    queryKey: keys.stacks.detail(projectId, stackId),
+    queryFn: getJson<StackDetail>(`${BASE}/stacks/${stackId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.is_transitional ? POLL_MS : false,
+      pollWhile(query, query.state.data?.is_transitional),
   });
 }
 
 export function stackResourcesQuery(projectId: string, stackId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "stack", stackId, "resources"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<StackResource>>(`${BASE}/stacks/${stackId}/resources`, {
-        signal,
-      }),
+    queryKey: [...keys.stacks.detail(projectId, stackId), "resources"],
+    queryFn: getJson<Items<StackResource>>(
+      `${BASE}/stacks/${stackId}/resources`,
+    ),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.items.some((r) => r.is_transitional) ? POLL_MS : false,
+      pollWhile(
+        query,
+        query.state.data?.items.some((r) => r.is_transitional),
+      ),
   });
 }
 
 export function stackEventsQuery(projectId: string, stackId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "stack", stackId, "events"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<StackEvent>>(`${BASE}/stacks/${stackId}/events`, {
-        signal,
-      }),
+    queryKey: [...keys.stacks.detail(projectId, stackId), "events"],
+    queryFn: getJson<Items<StackEvent>>(`${BASE}/stacks/${stackId}/events`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function stackTemplateQuery(projectId: string, stackId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "stack", stackId, "template"),
-    queryFn: ({ signal }) =>
-      apiFetch<StackTemplate>(`${BASE}/stacks/${stackId}/template`, { signal }),
+    queryKey: [...keys.stacks.detail(projectId, stackId), "template"],
+    queryFn: getJson<StackTemplate>(`${BASE}/stacks/${stackId}/template`),
     staleTime: staleTimes.static,
   });
 }
 
 export function resourceTypesQuery(projectId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "resource-types"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<ResourceTypeSummary>>(`${BASE}/resource-types`, {
-        signal,
-      }),
+    queryKey: keys.resourceTypes.list(projectId),
+    queryFn: getJson<Items<ResourceTypeSummary>>(`${BASE}/resource-types`),
     staleTime: staleTimes.static,
   });
 }
 
 export function resourceTypeQuery(projectId: string, name: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "resource-type", name),
-    queryFn: ({ signal }) =>
-      apiFetch<ResourceTypeDetail>(
-        `${BASE}/resource-types/${encodeURIComponent(name)}`,
-        { signal },
-      ),
+    queryKey: keys.resourceTypes.detail(projectId, name),
+    queryFn: getJson<ResourceTypeDetail>(
+      `${BASE}/resource-types/${encodeURIComponent(name)}`,
+    ),
     staleTime: staleTimes.static,
   });
 }
 
 export function templateVersionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "template-versions"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<TemplateVersion>>(`${BASE}/template-versions`, { signal }),
+    queryKey: keys.templateVersions.list(projectId),
+    queryFn: getJson<Items<TemplateVersion>>(`${BASE}/template-versions`),
     staleTime: staleTimes.static,
   });
 }
 
 export function templateFunctionsQuery(projectId: string, version: string) {
   return queryOptions({
-    queryKey: heatKey(projectId, "template-functions", version),
-    queryFn: ({ signal }) =>
-      apiFetch<{ version: string } & Items<TemplateFunction>>(
-        `${BASE}/template-versions/${encodeURIComponent(version)}/functions`,
-        { signal },
-      ),
+    queryKey: [
+      ...keys.templateVersions.detail(projectId, version),
+      "functions",
+    ],
+    queryFn: getJson<TemplateFunctionList>(
+      `${BASE}/template-versions/${encodeURIComponent(version)}/functions`,
+    ),
     staleTime: staleTimes.static,
   });
-}
-
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return () =>
-    void queryClient.invalidateQueries({ queryKey: heatKey(projectId) });
 }
 
 export function useValidateTemplate() {
@@ -146,47 +137,45 @@ export function useValidateTemplate() {
   });
 }
 
-export function useCreateStack(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateStack() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: StackCreateRequest) =>
-      apiFetch<{ id: string; name: string }>(`${BASE}/stacks`, {
+      apiFetch<StackAccepted>(`${BASE}/stacks`, {
         method: "POST",
         json: body,
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...orchestrationWriteKeys),
   });
 }
 
-export function useUpdateStack(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateStack() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({ id, ...body }: StackUpdateRequest & { id: string }) =>
-      apiFetch<{ id: string; name: string }>(`${BASE}/stacks/${id}`, {
+      apiFetch<StackAccepted>(`${BASE}/stacks/${id}`, {
         method: "PATCH",
         json: body,
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...orchestrationWriteKeys),
   });
 }
 
-export function useStackAction(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({ id, action }: { id: string; action: string }) =>
-      apiFetch<{ id: string; action: string }>(
-        `${BASE}/stacks/${id}/actions/${action}`,
-        { method: "POST" },
-      ),
-    onSuccess: invalidate,
+/**
+ * Sends one stack action (suspend, resume, check, cancel an update); a
+ * batch sends it per stack.
+ */
+export function requestStackAction(
+  stackId: string,
+  action: StackActionRequest["action"],
+) {
+  return apiFetch<StackActionAccepted>(`${BASE}/stacks/${stackId}/actions`, {
+    method: "POST",
+    json: { action } satisfies StackActionRequest,
   });
 }
 
-export function useDeleteStack(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<void>(`${BASE}/stacks/${id}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-  });
+/** Deletes one stack with its resources; a batch sends it per stack. */
+export function deleteStack(stackId: string) {
+  return apiFetch<void>(`${BASE}/stacks/${stackId}`, { method: "DELETE" });
 }

@@ -3,116 +3,28 @@ import json
 import httpx
 import pytest
 
-from tests.conftest import csrf_headers, login
-
-NOVA = "https://nova.test/v2.1"
-GLANCE = "https://glance.test"
-CINDER = "https://cinder.test/v3/p1"
-
-VOLUMES = [
-    {
-        "id": "vol-1",
-        "name": "data",
-        "description": "scratch",
-        "size": 20,
-        "status": "in-use",
-        "volume_type": "standard",
-        "availability_zone": "melbourne-qh2",
-        "bootable": "false",
-        "encrypted": False,
-        "attachments": [
-            {
-                "attachment_id": "att-1",
-                "server_id": "srv-1",
-                "device": "/dev/vdb",
-                "attached_at": "2026-10-01T00:00:00Z",
-            }
-        ],
-        "created_at": "2026-09-01T00:00:00Z",
-        "metadata": {},
-    },
-    {
-        "id": "vol-2",
-        "name": "boot",
-        "size": 30,
-        "status": "available",
-        "volume_type": "qh2-ssd",
-        "availability_zone": "melbourne-qh2",
-        "bootable": "true",
-        "attachments": [],
-        "volume_image_metadata": {
-            "image_id": "img-ubuntu",
-            "image_name": "Ubuntu 24.04",
-        },
-    },
-]
-SNAPSHOTS = [
-    {
-        "id": "snap-1",
-        "name": "before-upgrade",
-        "size": 20,
-        "status": "available",
-        "volume_id": "vol-1",
-        "os-extended-snapshot-attributes:progress": "100%",
-    }
-]
-BACKUPS = [
-    {
-        "id": "bak-1",
-        "name": "nightly",
-        "size": 20,
-        "status": "available",
-        "volume_id": "vol-1",
-        "snapshot_id": "snap-1",
-        "availability_zone": "melbourne-qh2",
-        "container": "backups",
-        "is_incremental": False,
-    }
-]
-TYPES = [
-    {"id": "t-std", "name": "standard", "extra_specs": {}},
-    {
-        "id": "t-qh2",
-        "name": "qh2-ssd",
-        "extra_specs": {"RESKEY:availability_zones": "melbourne-qh2"},
-    },
-]
-LIMITS = {
-    "maxTotalVolumeGigabytes": 1000,
-    "maxTotalVolumes": 10,
-    "maxTotalSnapshots": -1,
-    "totalGigabytesUsed": 50,
-    "totalVolumesUsed": 2,
-    "totalSnapshotsUsed": -3,
-}
+from tests.conftest import (
+    CINDER,
+    CINDER_ENTRY,
+    csrf_headers,
+    GLANCE,
+    GLANCE_ENTRY,
+    login,
+    NOVA,
+)
+from tests.fixtures.loader import fixture
 
 
-def catalog_entry(stype, name, url):
-    return {
-        "type": stype,
-        "name": name,
-        "endpoints": [
-            {"interface": "public", "region": "Melbourne", "url": url}
-        ],
-    }
+VOLUMES = fixture("cinder", "volumes")
+SNAPSHOTS = fixture("cinder", "snapshots")
+BACKUPS = fixture("cinder", "backups")
+TYPES = fixture("cinder", "types")
+LIMITS = fixture("cinder", "limits")
 
 
 @pytest.fixture
-def volume_catalog(upstream):
-    from tests import conftest
-
-    original = conftest.catalog
-
-    def richer():
-        return original() + [
-            catalog_entry("image", "glance", GLANCE),
-            catalog_entry("volumev3", "cinder", CINDER),
-        ]
-
-    conftest.catalog = richer
-    conftest.mock_keystone(upstream)
-    yield
-    conftest.catalog = original
+def volume_catalog(with_services):
+    with_services(GLANCE_ENTRY, CINDER_ENTRY)
 
 
 @pytest.fixture
@@ -208,6 +120,35 @@ async def test_list_volumes_marks_snapshots_and_attachments(user):
     assert boot["image"] == {"id": "img-ubuntu", "name": "Ubuntu 24.04"}
 
 
+async def test_list_volumes_follows_every_page(user, cinder):
+    """A project with more volumes than one Cinder page gets all of them
+    (the next link names the public URL; Hive re-bases it)."""
+
+    def page(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("marker") == "vol-1":
+            return httpx.Response(200, json={"volumes": VOLUMES[1:]})
+        return httpx.Response(
+            200,
+            json={
+                "volumes": VOLUMES[:1],
+                "volumes_links": [
+                    {
+                        "rel": "next",
+                        "href": "https://cinder.public/v3/p1/volumes/detail"
+                        "?marker=vol-1",
+                    }
+                ],
+            },
+        )
+
+    cinder.get(f"{CINDER}/volumes/detail").mock(side_effect=page)
+    response = await user.get("/api/volumes")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [v["id"] for v in body["items"]] == ["vol-1", "vol-2"]
+    assert "truncated" not in body
+
+
 async def test_options_gather_sections(user):
     response = await user.get("/api/volumes/options")
     assert response.status_code == 200, response.text
@@ -222,7 +163,7 @@ async def test_options_gather_sections(user):
     assert types["standard"]["zones"] is None
     assert body["images"][0]["min_disk"] == 5
     assert [s["id"] for s in body["snapshots"]] == ["snap-1"]
-    # Only available volumes can be cloned; vol-1 is in use.
+    # vol-1 is in use; only available volumes can be cloned.
     assert [v["id"] for v in body["volumes"]] == ["vol-2"]
     assert body["limits"]["totalSnapshotsUsed"] == 0
     assert body["limits"]["maxTotalSnapshots"] == -1
@@ -558,68 +499,212 @@ async def test_restore_backup(user, cinder):
     }
 
 
-async def test_volume_types_are_cached_per_project(user, cinder, redis):
-    types = cinder.get(f"{CINDER}/types").mock(
-        return_value=httpx.Response(200, json={"volume_types": TYPES})
+async def test_error_volume_carries_latest_message(user, cinder):
+    broken = {**VOLUMES[1], "id": "vol-9", "status": "error"}
+    cinder.get(f"{CINDER}/volumes/vol-9").mock(
+        return_value=httpx.Response(200, json={"volume": broken})
     )
-    response = await user.get("/api/volumes/types")
+    messages = cinder.get(f"{CINDER}/messages").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "messages": [
+                    {
+                        "user_message": "attach volume: older",
+                        "created_at": "2026-10-01T00:00:00.000000",
+                    },
+                    {
+                        "user_message": "schedule allocate volume: no "
+                        "weighted backend",
+                        "created_at": "2026-10-02T00:00:00.000000",
+                    },
+                ]
+            },
+        )
+    )
+    response = await user.get("/api/volumes/vol-9")
     assert response.status_code == 200, response.text
-    assert types.call_count == 1
-    keys = set(await redis.keys("*cinder-types*"))
-    assert keys and all(":p:p1:" in k for k in keys)
-    # A second project does not see the first project's private types.
-    switched = await user.post(
-        "/api/session/project",
-        json={"project_id": "p2"},
-        headers=csrf_headers(user),
-    )
-    assert switched.status_code == 200, switched.text
-    assert (await user.get("/api/volumes/types")).status_code == 200
-    assert types.call_count == 2
-    assert any(":p:p2:" in k for k in await redis.keys("*cinder-types*"))
-
-
-async def test_snapshot_and_backup_detail(user, cinder):
-    snapshot = await user.get("/api/volumes/snapshots/snap-1")
-    assert snapshot.status_code == 200, snapshot.text
-    assert snapshot.json()["volume_name"] == "data"
-
-    updated = cinder.put(f"{CINDER}/snapshots/snap-1").mock(
-        return_value=httpx.Response(200, json={"snapshot": SNAPSHOTS[0]})
-    )
-    response = await user.patch(
-        "/api/volumes/snapshots/snap-1",
-        json={"name": "renamed"},
-        headers=csrf_headers(user),
-    )
-    assert response.status_code == 200, response.text
-    assert json.loads(updated.calls.last.request.content) == {
-        "snapshot": {"name": "renamed"}
+    assert response.json()["fault"] == {
+        "message": "schedule allocate volume: no weighted backend",
+        "created": "2026-10-02T00:00:00Z",
     }
-    empty = await user.patch(
-        "/api/volumes/snapshots/snap-1",
-        json={},
+    assert messages.calls.last.request.url.params["resource_uuid"] == "vol-9"
+
+    # A healthy volume does not ask; failing messages leave the fault out.
+    healthy = await user.get("/api/volumes/vol-2")
+    assert healthy.json()["fault"] is None
+    assert messages.call_count == 1
+    messages.mock(return_value=httpx.Response(500))
+    response = await user.get("/api/volumes/vol-9")
+    assert response.status_code == 200, response.text
+    assert response.json()["fault"] is None
+
+
+async def test_metadata_replaces_volume_and_snapshot_metadata(user, cinder):
+    volume_meta = cinder.put(f"{CINDER}/volumes/vol-1/metadata").mock(
+        return_value=httpx.Response(200, json={"metadata": {"role": "db"}})
+    )
+    response = await user.put(
+        "/api/volumes/vol-1/metadata",
+        json={"metadata": {"role": "db"}},
         headers=csrf_headers(user),
     )
-    assert empty.status_code == 400
+    assert response.status_code == 200, response.text
+    assert response.json() == {"metadata": {"role": "db"}}
+    assert json.loads(volume_meta.calls.last.request.content) == {
+        "metadata": {"role": "db"}
+    }
 
-    backup = await user.get("/api/volumes/backups/bak-1")
-    assert backup.status_code == 200, backup.text
-    assert backup.json()["volume_name"] == "data"
-    assert backup.json()["snapshot_name"] == "before-upgrade"
+    snapshot_meta = cinder.put(f"{CINDER}/snapshots/snap-1/metadata").mock(
+        return_value=httpx.Response(200, json={"metadata": {}})
+    )
+    response = await user.put(
+        "/api/volumes/snapshots/snap-1/metadata",
+        json={"metadata": {}},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"metadata": {}}
+    assert snapshot_meta.called
 
-    # A parent that has gone leaves the name blank, not an error.
-    cinder.get(f"{CINDER}/volumes/vol-1").mock(
+    empty_key = await user.put(
+        "/api/volumes/vol-1/metadata",
+        json={"metadata": {"": "x"}},
+        headers=csrf_headers(user),
+    )
+    assert empty_key.status_code == 422
+
+
+async def test_retype_applies_rules(user, cinder):
+    cinder.get(f"{CINDER}/types").mock(
         return_value=httpx.Response(
-            404, json={"itemNotFound": {"message": "gone"}}
+            200,
+            json={
+                "volume_types": [
+                    *TYPES,
+                    {
+                        "id": "t-monash",
+                        "name": "monash-ssd",
+                        "extra_specs": {
+                            "RESKEY:availability_zones": "monash-02"
+                        },
+                    },
+                ]
+            },
         )
     )
-    cinder.get(f"{CINDER}/snapshots/snap-1").mock(
+    action = cinder.post(f"{CINDER}/volumes/vol-2/action").mock(
+        return_value=httpx.Response(202)
+    )
+    same = await user.post(
+        "/api/volumes/vol-2/retype",
+        json={"volume_type": "qh2-ssd"},
+        headers=csrf_headers(user),
+    )
+    assert same.status_code == 400
+    assert "different" in same.json()["message"]
+    other_zone = await user.post(
+        "/api/volumes/vol-2/retype",
+        json={"volume_type": "monash-ssd"},
+        headers=csrf_headers(user),
+    )
+    assert other_zone.status_code == 400
+    assert "melbourne-qh2" in other_zone.json()["message"]
+    assert not action.called
+
+    response = await user.post(
+        "/api/volumes/vol-2/retype",
+        json={"volume_type": "standard", "migration_policy": "on-demand"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 202, response.text
+    assert json.loads(action.calls.last.request.content) == {
+        "os-retype": {"new_type": "standard", "migration_policy": "on-demand"}
+    }
+
+
+async def test_transfers_create_cancel_and_accept(user, cinder):
+    created = cinder.post(f"{CINDER}/volume-transfers").mock(
         return_value=httpx.Response(
-            404, json={"itemNotFound": {"message": "gone"}}
+            202,
+            json={
+                "transfer": {
+                    "id": "tr-1",
+                    "name": "to-lab",
+                    "volume_id": "vol-2",
+                    "auth_key": "a1b2c3d4e5f6a7b8",
+                    "created_at": "2026-10-16T01:00:00.000000",
+                }
+            },
         )
     )
-    orphan = await user.get("/api/volumes/backups/bak-1")
-    assert orphan.status_code == 200, orphan.text
-    assert orphan.json()["volume_name"] is None
-    assert orphan.json()["snapshot_name"] is None
+    blank = await user.post(
+        "/api/volumes/vol-2/transfer",
+        json={"name": "   "},
+        headers=csrf_headers(user),
+    )
+    assert blank.status_code == 422
+    response = await user.post(
+        "/api/volumes/vol-2/transfer",
+        json={"name": "to-lab"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json() == {
+        "id": "tr-1",
+        "name": "to-lab",
+        "volume_id": "vol-2",
+        "auth_key": "a1b2c3d4e5f6a7b8",
+        "created_at": "2026-10-16T01:00:00Z",
+    }
+    assert json.loads(created.calls.last.request.content) == {
+        "transfer": {"volume_id": "vol-2", "name": "to-lab"}
+    }
+
+    cinder.get(f"{CINDER}/volume-transfers/detail").mock(
+        return_value=httpx.Response(
+            200,
+            json={"transfers": [{"id": "tr-1", "volume_id": "vol-2"}]},
+        )
+    )
+    deleted = cinder.delete(f"{CINDER}/volume-transfers/tr-1").mock(
+        return_value=httpx.Response(202)
+    )
+    response = await user.delete(
+        "/api/volumes/vol-2/transfer", headers=csrf_headers(user)
+    )
+    assert response.status_code == 204, response.text
+    assert deleted.called
+    missing = await user.delete(
+        "/api/volumes/vol-1/transfer", headers=csrf_headers(user)
+    )
+    assert missing.status_code == 404
+
+    accepted = cinder.post(f"{CINDER}/volume-transfers/tr-9/accept").mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                "transfer": {"id": "tr-9", "name": "gift", "volume_id": "v-9"}
+            },
+        )
+    )
+    response = await user.post(
+        "/api/volumes/transfers/accept",
+        json={"transfer_id": " tr-9 ", "auth_key": "k1"},
+        headers=csrf_headers(user),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "id": "tr-9",
+        "name": "gift",
+        "volume_id": "v-9",
+    }
+    assert json.loads(accepted.calls.last.request.content) == {
+        "accept": {"auth_key": "k1"}
+    }
+    too_long = await user.post(
+        "/api/volumes/transfers/accept",
+        json={"transfer_id": "tr-9", "auth_key": "k" * 17},
+        headers=csrf_headers(user),
+    )
+    assert too_long.status_code == 422

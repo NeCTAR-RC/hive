@@ -1,17 +1,20 @@
+// The Routers list, with Create router while the quota has room.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import type { Router } from "../../../lib/api/types";
-import { useProjectId } from "../../../lib/useProject";
+import { toRowActions } from "../../../lib/actions";
+import type { Router } from "../../../lib/api/types/network";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { routersRoute } from "../../../app/router";
 import { networkQuotaQuery, routersQuery } from "../api";
 import {
   adminStateLabel,
@@ -21,38 +24,25 @@ import {
   statusTone,
 } from "../status";
 import { useRouterActions } from "./RouterActions";
-import { CreateRouterDialog } from "./RouterDialogs";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { CreateRouterDialog } from "./dialogs/CreateRouterDialog";
+
+const routersRoute = getRouteApi("/app/network/routers");
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
+/** The Routers list page with its row and batch actions. */
 export function RoutersPage() {
   const projectId = useProjectId();
-  const search = routersRoute.useSearch();
-  const navigate = useNavigate({ from: routersRoute.fullPath });
+  const search = useListSearch(routersRoute);
   const routers = useQuery(routersQuery(projectId));
+  const table = useQueryTable(routers, {
+    noun: "routers",
+    search,
+    placeholder: "Search by name or external network",
+  });
   const quota = useQuery(networkQuotaQuery(projectId));
-  const { run, runDelete, dialogs } = useRouterActions(projectId);
-
-  const q = search.q ?? "";
-  const setSearch = (patch: { q?: string }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        return next;
-      },
-      replace: true,
-    });
-  const setCreating = (open: boolean) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous };
-        delete next.create;
-        return open ? { ...next, create: true } : next;
-      },
-      replace: true,
-    });
+  const actions = useRouterActions();
+  const setCreating = (create: boolean) => search.patch({ create });
 
   const columns = useMemo<ColumnDef<Router>[]>(
     () => [
@@ -61,12 +51,13 @@ export function RoutersPage() {
         label: "Name",
         isRowHeader: true,
         cell: (row) => (
-          <RouteLink
+          <AppLink
+            size="sm"
             to="/network/routers/$routerId"
             params={{ routerId: row.id }}
           >
             {row.name}
-          </RouteLink>
+          </AppLink>
         ),
         sortValue: (row) => row.name,
         textValue: (row) => `${row.name} ${row.id}`,
@@ -120,11 +111,6 @@ export function RoutersPage() {
     ],
     [],
   );
-
-  const rows = useMemo(
-    () => filterRows(routers.data?.items ?? [], q, columns),
-    [routers.data, q, columns],
-  );
   const canCreate = quotaLeft(quota.data, "router");
   return (
     <>
@@ -146,60 +132,33 @@ export function RoutersPage() {
         id="routers"
         label="Routers"
         columns={columns}
-        rows={rows}
         getRowId={(row) => row.id}
-        isLoading={routers.isPending}
-        isFetching={routers.isFetching}
-        error={routers.error}
-        onRetry={() => void routers.refetch()}
-        onRefresh={() => void routers.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder: "Search by name or external network",
-        }}
-        resetKey={q}
-        emptyTitle={
-          routers.data && routers.data.items.length > 0
-            ? "No routers match"
-            : "No routers yet"
-        }
+        {...table}
+        {...actions.tableProps}
         emptyBody={
-          routers.data && routers.data.items.length === 0 ? (
-            <p>
-              A router connects your private subnets to an external network and
-              lets floating IPs reach them.
-            </p>
-          ) : null
+          <p>
+            A router connects your private subnets to an external network and
+            lets floating IPs reach them.
+          </p>
         }
         rowActions={(row) =>
-          availableRouterActions(row).map((action) => ({
-            id: action.id,
-            label: action.label,
-            onAction: () => run(row, action.id),
-            isDisabled: action.isDisabled,
-            ...(action.disabledReason
-              ? { disabledReason: action.disabledReason }
-              : {}),
-            ...(action.tone ? { tone: action.tone } : {}),
-          }))
+          toRowActions(availableRouterActions(row), (id) =>
+            actions.run(id, [row]),
+          )
         }
         batchActions={[
           {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (selected) => runDelete(selected),
+            onAction: (selected) => actions.run("delete", selected),
           },
         ]}
       />
-      {dialogs}
-      <CreateRouterDialog
-        key={search.create ? "open" : "closed"}
-        projectId={projectId}
-        isOpen={Boolean(search.create)}
-        onOpenChange={setCreating}
-      />
+      {actions.dialogs}
+      {search.params.create && (
+        <CreateRouterDialog onClose={() => setCreating(false)} />
+      )}
     </>
   );
 }

@@ -1,13 +1,13 @@
+@use "mixins" as *;
+
+/// The group's panel over its rules, 32px apart (library
+/// `content-block-stack`, the content blocks' section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-5);
+  @include content-block-stack;
 }
 
-.rulesHeading {
-  margin-bottom: var(--hive-space-3);
-}
-
+/// A rule's remote prefix with the "Open to the internet" badge beside it,
+/// 8px apart and wrapping in a narrow cell (DERIVED-SPACING, 8px).
 .remote {
   display: inline-flex;
   flex-wrap: wrap;

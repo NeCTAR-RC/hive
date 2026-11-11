@@ -1,0 +1,10 @@
+[
+  {
+    "id": "snap-1",
+    "name": "before-upgrade",
+    "size": 20,
+    "status": "available",
+    "volume_id": "vol-1",
+    "os-extended-snapshot-attributes:progress": "100%"
+  }
+]

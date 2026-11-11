@@ -1,5 +1,7 @@
 @use "mixins" as *;
 
+/// The status pills and the power state under the title, 8px apart
+/// (DERIVED-SPACING, 8px).
 .statusRow {
   display: flex;
   flex-wrap: wrap;
@@ -8,47 +10,56 @@
   margin-top: var(--hive-space-2);
 }
 
+/// Helper text: Body/14 Grey-500, the library field helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.fault {
-  margin-bottom: var(--hive-space-4);
+/// The fault alert and the tabs, 32px apart (library `content-block-stack`).
+.page {
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
 }
 
+/// A tab's panels one under another, 32px apart (library
+/// `content-block-stack`).
+.stack {
+  @include content-block-stack;
+}
+
+/// Panels side by side from 1024px, span 6 each with the grid's 24px gap
+/// (grids spec, 12 columns, 24px gap).
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: 1fr;
+  gap: var(--hive-grid-gap);
+  grid-template-columns: minmax(0, 1fr);
 
   @include up($bp-lg) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.groups {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-}
-
+/// The console log's toolbar above its code block, 12px apart, as a table's
+/// toolbar sits above its table (gap "Table toolbar").
 .log {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-3);
 }
 
+/// The toolbar's controls 12px apart (gap "Table toolbar").
 .logBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-3);
 }
 
+/// The "Lines" select at the table footer's "Per page" width, span 2.
 .logLength {
-  min-width: 9rem;
+  min-width: var(--hive-page-size-field);
 }

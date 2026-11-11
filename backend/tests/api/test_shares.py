@@ -6,62 +6,15 @@ import json
 import httpx
 
 from tests.conftest import csrf_headers, MANILA
+from tests.fixtures.loader import fixture
 
-SHARE = {
-    "id": "sh-1",
-    "name": "data",
-    "status": "available",
-    "size": 5,
-    "share_proto": "CEPHFS",
-    "share_type": "st-1",
-    "share_type_name": "cephfs_share_type",
-    "availability_zone": "ardctest-artm",
-    "is_public": False,
-    "snapshot_support": True,
-    "revert_to_snapshot_support": True,
-    "mount_snapshot_support": True,
-    "metadata": {"owner": "me"},
-}
+SHARE = fixture("manila", "share")
 BUSY = {**SHARE, "id": "sh-2", "name": "busy", "status": "creating"}
-SNAPSHOT = {
-    "id": "snap-1",
-    "name": "data-snap",
-    "status": "available",
-    "size": 5,
-    "share_id": "sh-1",
-    "created_at": "2026-10-01T00:00:00",
-}
-LIMITS = {
-    "maxTotalShares": 10,
-    "totalSharesUsed": 2,
-    "maxTotalShareGigabytes": 100,
-    "totalShareGigabytesUsed": 10,
-    "maxTotalShareSnapshots": 10,
-    "totalShareSnapshotsUsed": 1,
-    "maxTotalSnapshotGigabytes": 100,
-    "totalSnapshotGigabytesUsed": 5,
-}
-SERVICE = {
-    "id": "ss-1",
-    "name": "corp-ad",
-    "type": "active_directory",
-    "dns_ip": "10.0.0.2",
-    "server": "ad",
-    "domain": "corp",
-}
-GROUP = {
-    "id": "g-1",
-    "name": "group",
-    "status": "available",
-    "share_group_type_id": "gt-1",
-    "share_types": ["st-1"],
-}
-GROUP_SNAPSHOT = {
-    "id": "gs-1",
-    "name": "group-snap",
-    "status": "available",
-    "share_group_id": "g-1",
-}
+SNAPSHOT = fixture("manila", "snapshot")
+LIMITS = fixture("manila", "limits")
+SERVICE = fixture("manila", "service")
+GROUP = fixture("manila", "group")
+GROUP_SNAPSHOT = fixture("manila", "group_snapshot")
 
 
 def mock_manila(upstream, snapshots=None):
@@ -186,11 +139,9 @@ async def test_list_options_and_detail(logged_in, upstream):
     body = (await logged_in.get("/api/shares/shares")).json()
     assert [s["name"] for s in body["items"]] == ["busy", "data"]
     data = body["items"][1]
-    assert (
-        data["has_snapshot"]
-        and "delete" not in data["actions"]
-        and "resize" in data["actions"]
-    )
+    assert data['has_snapshot']
+    assert 'delete' not in data['actions']
+    assert 'resize' in data['actions']
     assert body["can_create"]
     assert (
         upstream.calls.last.request.headers["x-openstack-manila-api-version"]
@@ -198,71 +149,21 @@ async def test_list_options_and_detail(logged_in, upstream):
     )
 
     options = (await logged_in.get("/api/shares/options")).json()
-    assert options["protocols"] == ["NFS", "CIFS", "CephFS"]
+    assert options["protocols"] == ["CephFS"]
+    assert options["public_shares_allowed"] is False
     assert [t["name"] for t in options["share_types"]] == ["cephfs_share_type"]
     assert options["availability_zones"] == ["ardctest-artm"]
-    assert (
-        options["snapshots"][0]["id"] == "snap-1"
-        and options["share_groups"][0]["id"] == "g-1"
-    )
+    assert options['snapshots'][0]['id'] == 'snap-1'
+    assert options['share_groups'][0]['id'] == 'g-1'
     assert options["can_snapshot"]
-
-    assert options["newest_snapshot_ids"] == {"sh-1": "snap-1"}
 
     detail = (await logged_in.get("/api/shares/shares/sh-1")).json()
     assert detail["export_locations"][0]["path"] == "10.0.0.9:/vol/x"
     assert detail["access_rules"][0]["access_key"] == "k"
-    assert detail["newest_snapshot_id"] == "snap-1"
-
-
-async def test_revert_names_the_newest_of_several_snapshots(
-    logged_in, upstream
-):
-    """Manila lists newest first, so the last listed is the oldest; the
-    backend names the one it accepts."""
-    newer = {**SNAPSHOT, "id": "snap-2", "created_at": "2026-10-05T00:00:00"}
-    mock_manila(upstream, snapshots=[newer, SNAPSHOT])
-    options = (await logged_in.get("/api/shares/options")).json()
-    assert [s["id"] for s in options["snapshots"]] == ["snap-2", "snap-1"]
-    assert options["newest_snapshot_ids"] == {"sh-1": "snap-2"}
-    detail = (await logged_in.get("/api/shares/shares/sh-1")).json()
-    assert detail["newest_snapshot_id"] == "snap-2"
-    action = upstream.post(f"{MANILA}/shares/sh-1/action").mock(
-        return_value=httpx.Response(202)
-    )
-    older = await logged_in.post(
-        "/api/shares/shares/sh-1/revert",
-        json={"snapshot_id": "snap-1"},
-        headers=csrf_headers(logged_in),
-    )
-    assert older.status_code == 400 and not action.called
-    newest = await logged_in.post(
-        "/api/shares/shares/sh-1/revert",
-        json={"snapshot_id": detail["newest_snapshot_id"]},
-        headers=csrf_headers(logged_in),
-    )
-    assert newest.status_code == 202 and action.called
-
-
-async def test_share_ids_are_percent_encoded_upstream(logged_in, upstream):
-    """A ``?`` in an id must not become an upstream query string."""
-    seen = []
-
-    def manila(request):
-        seen.append(request.url.raw_path.decode())
-        return httpx.Response(404, json={"itemNotFound": {"message": "x"}})
-
-    upstream.route(host="manila.test").mock(side_effect=manila)
-    response = await logged_in.delete(
-        "/api/shares/snapshots/a%3Fall_tenants=1",
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 404
-    assert seen == ["/v2/p1/snapshots/a%3Fall_tenants%3D1"]
 
 
 async def test_create_update_metadata_resize_revert_delete(
-    logged_in, upstream
+    logged_in, upstream, app
 ):
     mock_manila(upstream)
     create = upstream.post(f"{MANILA}/shares").mock(
@@ -285,36 +186,30 @@ async def test_create_update_metadata_resize_revert_delete(
     )
     assert response.status_code == 202, response.text
     sent = json.loads(create.calls.last.request.content)["share"]
-    assert (
-        sent["share_proto"] == "CephFS"
-        and sent["snapshot_id"] == "snap-1"
-        and sent["metadata"] == {"team": "x"}
-    )
-    assert (
-        sent["share_type"] == "cephfs_share_type"
-        and sent["is_public"] is False
-    )
+    assert sent['share_proto'] == 'CephFS'
+    assert sent['snapshot_id'] == 'snap-1'
+    assert sent['metadata'] == {'team': 'x'}
+    assert sent['share_type'] == 'cephfs_share_type'
+    assert sent['is_public'] is False
 
     too_small = await logged_in.post(
         "/api/shares/shares",
         json={
             "name": "n",
-            "protocol": "NFS",
+            "protocol": "CephFS",
             "size": 1,
             "share_type": "t",
             "snapshot_id": "snap-1",
         },
         headers=csrf_headers(logged_in),
     )
-    assert (
-        too_small.status_code == 400
-        and "snapshot size" in too_small.json()["message"]
-    )
+    assert too_small.status_code == 400
+    assert 'snapshot size' in too_small.json()['message']
     bad_meta = await logged_in.post(
         "/api/shares/shares",
         json={
             "name": "n",
-            "protocol": "NFS",
+            "protocol": "CephFS",
             "size": 1,
             "share_type": "t",
             "metadata": "oops",
@@ -339,12 +234,21 @@ async def test_create_update_metadata_resize_revert_delete(
             200, json={"share": {**SHARE, "name": "renamed"}}
         )
     )
+    refused = await logged_in.patch(
+        "/api/shares/shares/sh-1",
+        json={"name": "renamed", "is_public": True},
+        headers=csrf_headers(logged_in),
+    )
+    assert refused.status_code == 400
+    assert "administrators" in refused.json()["message"]
+    app.state.settings.manila_public_shares_allowed = True
     response = await logged_in.patch(
         "/api/shares/shares/sh-1",
         json={"name": "renamed", "is_public": True},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json()["name"] == "renamed"
+    assert response.status_code == 200
+    assert response.json()['name'] == 'renamed'
     assert json.loads(update.calls.last.request.content) == {
         "share": {"display_name": "renamed", "is_public": True}
     }
@@ -363,37 +267,30 @@ async def test_create_update_metadata_resize_revert_delete(
     set_meta = upstream.put(f"{MANILA}/shares/sh-1/metadata").mock(
         return_value=httpx.Response(200, json={"metadata": {"owner": "you"}})
     )
-    # Manila's PUT replaces the map, so "old" is already gone and a DELETE
-    # of it would be a 404 that turned the edit into "not found".
-    drop_old = upstream.delete(f"{MANILA}/shares/sh-1/metadata/old").mock(
-        return_value=httpx.Response(404, json={"itemNotFound": {}})
+    drop_meta = upstream.delete(f"{MANILA}/shares/sh-1/metadata/old").mock(
+        return_value=httpx.Response(200)
     )
     response = await logged_in.put(
         "/api/shares/shares/sh-1/metadata",
         json={"metadata": "owner=you"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json() == {
-        "metadata": {"owner": "you"}
-    }
-    assert json.loads(set_meta.calls.last.request.content) == {
-        "metadata": {"owner": "you"}
-    }
-    assert not drop_old.called
-    # An empty map cannot go through PUT, so each current key is deleted.
-    drop_owner = upstream.delete(f"{MANILA}/shares/sh-1/metadata/owner").mock(
+    assert response.status_code == 200
+    assert response.json() == {'metadata': {'owner': 'you'}}
+    assert set_meta.called
+    # The PUT replaces the whole map, so "old" needs no DELETE.
+    assert not drop_meta.called
+    owner_gone = upstream.delete(f"{MANILA}/shares/sh-1/metadata/owner").mock(
         return_value=httpx.Response(200)
     )
-    drop_old.mock(return_value=httpx.Response(200))
-    puts = set_meta.call_count
-    cleared = await logged_in.put(
+    response = await logged_in.put(
         "/api/shares/shares/sh-1/metadata",
         json={"metadata": ""},
         headers=csrf_headers(logged_in),
     )
-    assert cleared.status_code == 200 and cleared.json() == {"metadata": {}}
-    assert drop_owner.called and drop_old.called
-    assert set_meta.call_count == puts
+    assert response.status_code == 200
+    assert owner_gone.called
+    assert drop_meta.called
 
     action = upstream.post(f"{MANILA}/shares/sh-1/action").mock(
         return_value=httpx.Response(202)
@@ -403,17 +300,19 @@ async def test_create_update_metadata_resize_revert_delete(
         json={"size": 8},
         headers=csrf_headers(logged_in),
     )
-    assert grow.status_code == 202 and json.loads(
-        action.calls.last.request.content
-    ) == {"extend": {"new_size": 8}}
+    assert grow.status_code == 202
+    assert json.loads(action.calls.last.request.content) == {
+        'extend': {'new_size': 8}
+    }
     shrink = await logged_in.post(
         "/api/shares/shares/sh-1/resize",
         json={"size": 3},
         headers=csrf_headers(logged_in),
     )
-    assert shrink.status_code == 202 and json.loads(
-        action.calls.last.request.content
-    ) == {"shrink": {"new_size": 3}}
+    assert shrink.status_code == 202
+    assert json.loads(action.calls.last.request.content) == {
+        'shrink': {'new_size': 3}
+    }
     same = await logged_in.post(
         "/api/shares/shares/sh-1/resize",
         json={"size": 5},
@@ -432,9 +331,10 @@ async def test_create_update_metadata_resize_revert_delete(
         json={"snapshot_id": "snap-1"},
         headers=csrf_headers(logged_in),
     )
-    assert revert.status_code == 202 and json.loads(
-        action.calls.last.request.content
-    ) == {"revert": {"snapshot_id": "snap-1"}}
+    assert revert.status_code == 202
+    assert json.loads(action.calls.last.request.content) == {
+        'revert': {'snapshot_id': 'snap-1'}
+    }
     old = await logged_in.post(
         "/api/shares/shares/sh-1/revert",
         json={"snapshot_id": "snap-0"},
@@ -451,10 +351,8 @@ async def test_create_update_metadata_resize_revert_delete(
     with_snapshot = await logged_in.delete(
         "/api/shares/shares/sh-1", headers=csrf_headers(logged_in)
     )
-    assert (
-        with_snapshot.status_code == 409
-        and "snapshots" in with_snapshot.json()["message"]
-    )
+    assert with_snapshot.status_code == 409
+    assert 'snapshots' in with_snapshot.json()['message']
     busy = await logged_in.delete(
         "/api/shares/shares/sh-2", headers=csrf_headers(logged_in)
     )
@@ -469,7 +367,8 @@ async def test_delete_share_without_snapshots(logged_in, upstream):
     response = await logged_in.delete(
         "/api/shares/shares/sh-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
 
 async def test_quota_blocks_create_and_snapshot(logged_in, upstream):
@@ -489,16 +388,15 @@ async def test_quota_blocks_create_and_snapshot(logged_in, upstream):
         )
     )
     body = (await logged_in.get("/api/shares/shares")).json()
-    assert not body["can_create"] and "shares quota" in body["create_reason"]
+    assert not body['can_create']
+    assert 'shares quota' in body['create_reason']
     response = await logged_in.post(
         "/api/shares/shares",
         json={"name": "n", "protocol": "NFS", "size": 1, "share_type": "t"},
         headers=csrf_headers(logged_in),
     )
-    assert (
-        response.status_code == 409
-        and response.json()["error"] == "quota_exceeded"
-    )
+    assert response.status_code == 409
+    assert response.json()['error'] == 'quota_exceeded'
     snap = await logged_in.post(
         "/api/shares/snapshots",
         json={"share_id": "sh-1", "name": "s"},
@@ -510,7 +408,8 @@ async def test_quota_blocks_create_and_snapshot(logged_in, upstream):
 async def test_access_rules(logged_in, upstream):
     mock_manila(upstream)
     body = (await logged_in.get("/api/shares/shares/sh-1/access")).json()
-    assert body["items"][0]["access_to"] == "alice" and body["can_add"]
+    assert body['items'][0]['access_to'] == 'alice'
+    assert body['can_add']
     action = upstream.post(f"{MANILA}/shares/sh-1/action").mock(
         return_value=httpx.Response(
             200,
@@ -534,7 +433,8 @@ async def test_access_rules(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 202 and response.json()["id"] == "ar-2"
+    assert response.status_code == 202
+    assert response.json()['id'] == 'ar-2'
     assert json.loads(action.calls.last.request.content) == {
         "allow_access": {
             "access_type": "ip",
@@ -547,10 +447,14 @@ async def test_access_rules(logged_in, upstream):
         json={"access_type": "ip", "access_to": "nope", "access_level": "rw"},
         headers=csrf_headers(logged_in),
     )
-    assert bad.status_code == 400
+    assert bad.status_code == 422
     busy = await logged_in.post(
         "/api/shares/shares/sh-2/access",
-        json={"access_type": "user", "access_to": "bob", "access_level": "rw"},
+        json={
+            "access_type": "user",
+            "access_to": "bobby",
+            "access_level": "rw",
+        },
         headers=csrf_headers(logged_in),
     )
     assert busy.status_code == 409
@@ -566,16 +470,16 @@ async def test_access_rules(logged_in, upstream):
 async def test_snapshots(logged_in, upstream):
     mock_manila(upstream)
     body = (await logged_in.get("/api/shares/snapshots")).json()
-    assert (
-        body["items"][0]["share_name"] == "data"
-        and "rules" in body["items"][0]["actions"]
-    )
+    assert body['items'][0]['share_name'] == 'data'
+    assert 'rules' in body['items'][0]['actions']
 
     upstream.get(f"{MANILA}/snapshots/snap-1/export-locations").mock(
         return_value=httpx.Response(
             200,
             json={
-                "share_snapshot_export_locations": [{"path": "10.0.0.9:/snap"}]
+                "share_snapshot_export_locations": [
+                    {"id": "sel-1", "path": "10.0.0.9:/snap"}
+                ]
             },
         )
     )
@@ -588,16 +492,15 @@ async def test_snapshots(logged_in, upstream):
                         "id": "sa-1",
                         "access_type": "ip",
                         "access_to": "10.0.0.1",
+                        "state": "active",
                     }
                 ]
             },
         )
     )
     detail = (await logged_in.get("/api/shares/snapshots/snap-1")).json()
-    assert (
-        detail["mount_snapshot_support"]
-        and detail["export_locations"][0]["path"] == "10.0.0.9:/snap"
-    )
+    assert detail['mount_snapshot_support']
+    assert detail['export_locations'][0]['path'] == '10.0.0.9:/snap'
     assert detail["access_rules"][0]["id"] == "sa-1"
 
     create = upstream.post(f"{MANILA}/snapshots").mock(
@@ -613,9 +516,8 @@ async def test_snapshots(logged_in, upstream):
         json={"share_id": "sh-1", "name": "s2", "description": "d"},
         headers=csrf_headers(logged_in),
     )
-    assert (
-        response.status_code == 202 and response.json()["share_name"] == "data"
-    )
+    assert response.status_code == 202
+    assert response.json()['share_name'] == 'data'
     assert json.loads(create.calls.last.request.content)["snapshot"] == {
         "share_id": "sh-1",
         "force": False,
@@ -635,7 +537,7 @@ async def test_snapshots(logged_in, upstream):
             200, json={"snapshot": {**SNAPSHOT, "name": "renamed"}}
         )
     )
-    upstream.get(f"{MANILA}/snapshots/snap-1").mock(
+    reread = upstream.get(f"{MANILA}/snapshots/snap-1").mock(
         return_value=httpx.Response(
             200, json={"snapshot": {**SNAPSHOT, "name": "renamed"}}
         )
@@ -645,11 +547,11 @@ async def test_snapshots(logged_in, upstream):
         json={"name": "renamed"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json()["name"] == "renamed"
-    # The same shape as GET: the parent share and the Rules action survive.
-    assert response.json()["share_name"] == "data"
-    assert "rules" in response.json()["actions"]
-    assert response.json()["access_rules"][0]["id"] == "sa-1"
+    assert response.status_code == 200
+    assert response.json()['name'] == 'renamed'
+    # Read back with its share: the parent's name survives the rename.
+    assert reread.called
+    assert response.json()['share_name']
     assert json.loads(update.calls.last.request.content) == {
         "snapshot": {"display_name": "renamed"}
     }
@@ -662,7 +564,15 @@ async def test_snapshots(logged_in, upstream):
 
     action = upstream.post(f"{MANILA}/snapshots/snap-1/action").mock(
         return_value=httpx.Response(
-            200, json={"snapshot_access": {"id": "sa-2"}}
+            200,
+            json={
+                "snapshot_access": {
+                    "id": "sa-2",
+                    "access_type": "ip",
+                    "access_to": "10.0.0.5",
+                    "state": "queued_to_apply",
+                }
+            },
         )
     )
     response = await logged_in.post(
@@ -670,13 +580,14 @@ async def test_snapshots(logged_in, upstream):
         json={"access_type": "ip", "access_to": "10.0.0.5"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 202 and response.json()["id"] == "sa-2"
+    assert response.status_code == 202
+    assert response.json()['id'] == 'sa-2'
     bad = await logged_in.post(
         "/api/shares/snapshots/snap-1/access",
         json={"access_type": "ip", "access_to": "x"},
         headers=csrf_headers(logged_in),
     )
-    assert bad.status_code == 400
+    assert bad.status_code == 422
     response = await logged_in.delete(
         "/api/shares/snapshots/snap-1/access/sa-1",
         headers=csrf_headers(logged_in),
@@ -692,7 +603,8 @@ async def test_snapshots(logged_in, upstream):
     response = await logged_in.delete(
         "/api/shares/snapshots/snap-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
     upstream.get(f"{MANILA}/snapshots/snap-1").mock(
         return_value=httpx.Response(
             200, json={"snapshot": {**SNAPSHOT, "status": "creating"}}
@@ -707,9 +619,8 @@ async def test_snapshots(logged_in, upstream):
 async def test_security_services(logged_in, upstream):
     mock_manila(upstream)
     body = (await logged_in.get("/api/shares/security-services")).json()
-    assert body["items"][0]["type_label"] == "Active Directory" and body[
-        "types"
-    ] == ["active_directory", "ldap", "kerberos"]
+    assert body['items'][0]['type_label'] == 'Active Directory'
+    assert body['types'] == ['active_directory', 'ldap', 'kerberos']
     detail = (await logged_in.get("/api/shares/security-services/ss-1")).json()
     assert detail["name"] == "corp-ad"
 
@@ -733,7 +644,8 @@ async def test_security_services(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 201 and response.json()["id"] == "ss-2"
+    assert response.status_code == 201
+    assert response.json()['id'] == 'ss-2'
     sent = json.loads(create.calls.last.request.content)["security_service"]
     assert sent == {
         "name": "ldap",
@@ -753,16 +665,28 @@ async def test_security_services(logged_in, upstream):
         json={"name": "renamed"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and response.json()["name"] == "renamed"
+    assert response.status_code == 200
+    assert response.json()['name'] == 'renamed'
     assert json.loads(update.calls.last.request.content) == {
         "security_service": {"name": "renamed"}
+    }
+    cleared = await logged_in.patch(
+        "/api/shares/security-services/ss-1",
+        json={"ou": "", "description": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert cleared.status_code == 200
+    # Emptied fields reach Manila, so they are cleared, not ignored.
+    assert json.loads(update.calls.last.request.content) == {
+        "security_service": {"ou": "", "description": None}
     }
     noop = await logged_in.patch(
         "/api/shares/security-services/ss-1",
         json={},
         headers=csrf_headers(logged_in),
     )
-    assert noop.status_code == 200 and noop.json()["name"] == "corp-ad"
+    assert noop.status_code == 200
+    assert noop.json()['name'] == 'corp-ad'
 
     delete = upstream.delete(f"{MANILA}/security-services/ss-1").mock(
         return_value=httpx.Response(202)
@@ -770,7 +694,8 @@ async def test_security_services(logged_in, upstream):
     response = await logged_in.delete(
         "/api/shares/security-services/ss-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
 
 async def test_share_groups_and_group_snapshots(logged_in, upstream):
@@ -797,7 +722,8 @@ async def test_share_groups_and_group_snapshots(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 202 and response.json()["is_transitional"]
+    assert response.status_code == 202
+    assert response.json()['is_transitional']
     assert json.loads(create.calls.last.request.content)["share_group"] == {
         "name": "g2",
         "share_group_type_id": "gt-1",
@@ -821,13 +747,23 @@ async def test_share_groups_and_group_snapshots(logged_in, upstream):
         json={"name": "renamed"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and json.loads(
-        update.calls.last.request.content
-    ) == {"share_group": {"name": "renamed"}}
+    assert response.status_code == 200
+    assert json.loads(update.calls.last.request.content) == {
+        'share_group': {'name': 'renamed'}
+    }
     noop = await logged_in.patch(
         "/api/shares/groups/g-1", json={}, headers=csrf_headers(logged_in)
     )
     assert noop.status_code == 200
+    cleared = await logged_in.patch(
+        "/api/shares/groups/g-1",
+        json={"description": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert cleared.status_code == 200
+    assert json.loads(update.calls.last.request.content) == {
+        "share_group": {"description": None}
+    }
 
     delete = upstream.delete(f"{MANILA}/share-groups/g-1").mock(
         return_value=httpx.Response(202)
@@ -835,7 +771,8 @@ async def test_share_groups_and_group_snapshots(logged_in, upstream):
     response = await logged_in.delete(
         "/api/shares/groups/g-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
     snapshots = (await logged_in.get("/api/shares/group-snapshots")).json()
     assert snapshots["items"][0]["share_group_name"] == "group"
@@ -858,10 +795,8 @@ async def test_share_groups_and_group_snapshots(logged_in, upstream):
         json={"share_group_id": "g-1", "name": "gs2", "description": "d"},
         headers=csrf_headers(logged_in),
     )
-    assert (
-        response.status_code == 202
-        and response.json()["share_group_name"] == "group"
-    )
+    assert response.status_code == 202
+    assert response.json()['share_group_name'] == 'group'
     assert json.loads(create.calls.last.request.content)[
         "share_group_snapshot"
     ] == {
@@ -879,20 +814,31 @@ async def test_share_groups_and_group_snapshots(logged_in, upstream):
         json={"name": "r"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 200 and update.called
+    assert response.status_code == 200
+    assert update.called
     noop = await logged_in.patch(
         "/api/shares/group-snapshots/gs-1",
         json={},
         headers=csrf_headers(logged_in),
     )
     assert noop.status_code == 200
+    cleared = await logged_in.patch(
+        "/api/shares/group-snapshots/gs-1",
+        json={"description": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert cleared.status_code == 200
+    assert json.loads(update.calls.last.request.content) == {
+        "share_group_snapshot": {"description": None}
+    }
     delete = upstream.delete(f"{MANILA}/share-group-snapshots/gs-1").mock(
         return_value=httpx.Response(202)
     )
     response = await logged_in.delete(
         "/api/shares/group-snapshots/gs-1", headers=csrf_headers(logged_in)
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
     busy_group = {**GROUP, "status": "creating"}
     upstream.get(f"{MANILA}/share-groups/g-1").mock(

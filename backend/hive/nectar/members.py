@@ -11,7 +11,28 @@ first, so only registered Nectar accounts can be added (``forms.py:47-69``).
 MEMBER_ROLE_NAMES = ("member", "tenantmanager")
 
 
+def member_row(
+    user_id: str,
+    name: str | None,
+    role_id: str | None,
+    role_name: str,
+    current_user_id: str,
+) -> dict:
+    """One user and role on the Members panel; nobody may remove
+    themselves (``project_members/tables.py``)."""
+    return {
+        "id": f"{user_id}-{role_id}",
+        "user_id": user_id,
+        "name": name or user_id,
+        "role_id": role_id,
+        "role_name": role_name,
+        "is_self": user_id == current_user_id,
+        "can_remove": user_id != current_user_id,
+    }
+
+
 def member_rows(assignments: list[dict], current_user_id: str) -> list[dict]:
+    """One row per user and role (``views.py:27-37, 51-60``)."""
     rows = []
     for assignment in assignments:
         role = assignment.get("role") or {}
@@ -20,15 +41,13 @@ def member_rows(assignments: list[dict], current_user_id: str) -> list[dict]:
         if role_name not in MEMBER_ROLE_NAMES or not user.get("id"):
             continue
         rows.append(
-            {
-                "id": f"{user['id']}-{role.get('id')}",
-                "user_id": user["id"],
-                "name": user.get("name") or user["id"],
-                "role_id": role.get("id"),
-                "role_name": role_name,
-                "is_self": user["id"] == current_user_id,
-                "can_remove": user["id"] != current_user_id,
-            }
+            member_row(
+                user["id"],
+                user.get("name"),
+                role.get("id"),
+                role_name,
+                current_user_id,
+            )
         )
     rows.sort(key=lambda row: (row["name"].lower(), row["role_name"]))
     return rows
@@ -47,4 +66,5 @@ def role_choices(
 
 
 def removable_role(role_id: str, choices: list[dict]) -> bool:
+    """Only member and tenantmanager (``tables.py:47-53``)."""
     return any(choice["id"] == role_id for choice in choices)

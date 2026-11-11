@@ -1,0 +1,11 @@
+---
+features:
+  - |
+    The navigation sits in a sidebar beside the page from 768px, three
+    columns of the design system's grid wide, and opens in the header's
+    dialog below that. Its sections are one accordion, and pages sit
+    under their group names as the design system's related-list rows,
+    with a chevron and a bold label.
+  - |
+    The navigation opens one section at a time: opening Identity closes
+    Project, and the open section is remembered.

@@ -1,28 +1,40 @@
+@use "mixins" as *;
+
+// The topology tree has no spec frame (DESIGN-NOTES gap "Network topology"):
+// every block below is Hive's own drawing, built from the library's block
+// chrome, type and spacing tokens.
+
+/// The networks, then the unconnected group, 32px apart (library
+/// `content-block-stack`, the content blocks' section gap).
 .layout {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-5);
+  @include content-block-stack;
 }
 
+/// The tree's three lists drop the browser's bullets and indent; their
+/// spacing follows below (gap "Network topology").
 .networks,
-.attachments {
-  list-style: none;
+.attachments,
+.subnets {
   margin: 0;
   padding: 0;
+  list-style: none;
 }
 
+/// One block per network, 24px apart (grids spec, the grid gap).
 .networks {
   display: grid;
-  gap: var(--hive-space-4);
+  gap: var(--hive-grid-gap);
 }
 
+/// A network is a sidebar block (library `sidebar-block` through the
+/// `panel` mixin: 24/24/16 padding, 1px Grey-100 rule, 4px radius), its
+/// head, subnets and attachments 8px apart.
 .network {
-  padding: var(--hive-space-4);
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius);
-  background: var(--hive-color-surface);
+  @include panel;
 }
 
+/// The network's name at the start and its badges at the end, wrapping
+/// under it on a narrow block, 8px apart.
 .networkHead {
   display: flex;
   flex-wrap: wrap;
@@ -31,72 +43,104 @@
   gap: var(--hive-space-2);
 }
 
+/// Network names and the unconnected group's title: Heading/H5 in Grey-900
+/// (typography spec).
+.networkName,
+.islandsTitle {
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
+}
+
+/// The name 8px after its glyph (DERIVED-SPACING, icon to text).
 .networkName {
   display: inline-flex;
   align-items: center;
   gap: var(--hive-space-2);
-  margin: 0;
-  font-size: var(--hive-font-size-lg);
 }
 
+/// A glyph in the library's 16px icon frame.
+.icon {
+  flex: none;
+  width: var(--hive-icon-frame);
+  height: var(--hive-icon-frame);
+}
+
+/// Status badges (library `Badge`) 8px apart.
 .badges {
   display: inline-flex;
   flex-wrap: wrap;
   gap: var(--hive-space-2);
 }
 
+/// The subnets in one wrapping row: entries 16px apart, lines 8px apart.
 .subnets {
-  margin: var(--hive-space-2) 0 0;
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
-.attachments {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-  margin-top: var(--hive-space-3);
-  padding-left: var(--hive-space-4);
-  border-left: var(--hive-space-1) solid var(--hive-color-rule);
-}
-
-.attachment {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-2) var(--hive-space-4);
 }
 
-.attachmentBody {
-  flex: 1 1 12rem;
+/// A subnet's name as a link with its network address 8px after it.
+.subnet {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--hive-space-2);
+  min-width: 0;
 }
 
-.kind {
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
+/// Values beside a name (a network address, a port's addresses): Body/14
+/// in Grey-700, breaking anywhere rather than widening the block.
+.cidr,
 .addresses {
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+  overflow-wrap: anywhere;
 }
 
-.muted {
-  margin: var(--hive-space-3) 0 0;
+/// What is plugged into the network, one row each, 8px apart, inset 16px
+/// behind a 4px Grey-100 rail that ties them to the network.
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
+  padding-inline-start: var(--hive-space-4);
+  border-inline-start: var(--hive-space-1) solid var(--hive-color-rule);
+}
+
+/// Glyph, then the name and its details (wrapping within their column),
+/// then the status badge at the end of the row; 8px apart.
+.attachment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--hive-space-2);
+}
+
+/// The name, its kind and its addresses, wrapping 8px apart.
+.attachmentBody {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--hive-space-2);
+  min-width: 0;
+}
+
+/// Helper text (an attachment's kind, "Nothing is connected"): Body/14 in
+/// Grey-500 (library `body-14-muted`).
+.kind,
+.note {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
+/// Routers and ports on no network: a dashed 1px Grey-100 outline at the
+/// 4px radius, 16px padding, title and rows 8px apart. The only dashed
+/// border in Hive; it says the group is not a network.
 .islands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
   padding: var(--hive-space-4);
   border: var(--hive-border-width) dashed var(--hive-color-rule);
   border-radius: var(--hive-radius);
-}
-
-.islandsTitle {
-  margin: 0;
-  font-size: var(--hive-font-size-lg);
 }

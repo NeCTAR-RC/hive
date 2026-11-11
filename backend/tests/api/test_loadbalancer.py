@@ -6,81 +6,25 @@ import json
 import httpx
 import pytest
 
-from tests.conftest import csrf_headers, OCTAVIA
+from hive.web.app import create_app
+from tests.conftest import (
+    csrf_headers,
+    login,
+    NEUTRON,
+    NEUTRON_ENTRY,
+    NOVA,
+    OCTAVIA,
+)
+from tests.fixtures.loader import fixture
 
-NEUTRON = "https://neutron.test"
-NOVA = "https://nova.test/v2.1"
 LB = f"{OCTAVIA}/v2/lbaas"
 
-LOAD_BALANCER = {
-    "id": "lb-1",
-    "name": "web",
-    "provisioning_status": "ACTIVE",
-    "operating_status": "ONLINE",
-    "admin_state_up": True,
-    "vip_address": "192.168.1.10",
-    "vip_port_id": "port-vip",
-    "vip_subnet_id": "subnet-1",
-    "vip_network_id": "net-priv",
-    "provider": "ovn",
-    "listeners": [{"id": "l-1"}],
-    "pools": [{"id": "p-1"}],
-}
-LISTENER = {
-    "id": "l-1",
-    "name": "http",
-    "protocol": "HTTP",
-    "protocol_port": 80,
-    "provisioning_status": "ACTIVE",
-    "operating_status": "ONLINE",
-    "admin_state_up": True,
-    "default_pool_id": "p-1",
-    "loadbalancers": [{"id": "lb-1"}],
-    "l7policies": [{"id": "pol-1"}],
-}
-POOL = {
-    "id": "p-1",
-    "name": "web-pool",
-    "protocol": "HTTP",
-    "lb_algorithm": "ROUND_ROBIN",
-    "provisioning_status": "ACTIVE",
-    "operating_status": "ONLINE",
-    "admin_state_up": True,
-    "healthmonitor_id": "hm-1",
-    "listeners": [{"id": "l-1"}],
-    "loadbalancers": [{"id": "lb-1"}],
-    "members": [{"id": "m-1"}],
-}
-MEMBER = {
-    "id": "m-1",
-    "address": "192.168.1.20",
-    "protocol_port": 80,
-    "subnet_id": "subnet-1",
-    "weight": 1,
-    "provisioning_status": "ACTIVE",
-    "operating_status": "ONLINE",
-    "admin_state_up": True,
-}
-MONITOR = {
-    "id": "hm-1",
-    "type": "HTTP",
-    "delay": 5,
-    "timeout": 5,
-    "max_retries": 3,
-    "http_method": "GET",
-    "url_path": "/",
-    "expected_codes": "200",
-    "pools": [{"id": "p-1"}],
-    "provisioning_status": "ACTIVE",
-}
-POLICY = {
-    "id": "pol-1",
-    "action": "REJECT",
-    "listener_id": "l-1",
-    "position": 1,
-    "rules": [{"id": "r-1"}],
-    "provisioning_status": "ACTIVE",
-}
+LOAD_BALANCER = fixture("octavia", "load_balancer")
+LISTENER = fixture("octavia", "listener")
+POOL = fixture("octavia", "pool")
+MEMBER = fixture("octavia", "member")
+MONITOR = fixture("octavia", "monitor")
+POLICY = fixture("octavia", "policy")
 PRIVATE_NET = {
     "id": "net-priv",
     "name": "private",
@@ -100,29 +44,9 @@ SUBNET = {
 }
 
 
-def catalog_entry(stype, name, url):
-    return {
-        "type": stype,
-        "name": name,
-        "endpoints": [
-            {"interface": "public", "region": "Melbourne", "url": url}
-        ],
-    }
-
-
 @pytest.fixture
-def lb_catalog(upstream):
-    from tests import conftest
-
-    original = conftest.catalog
-
-    def richer():
-        return original() + [catalog_entry("network", "neutron", NEUTRON)]
-
-    conftest.catalog = richer
-    conftest.mock_keystone(upstream)
-    yield
-    conftest.catalog = original
+def lb_catalog(with_services):
+    with_services(NEUTRON_ENTRY)
 
 
 def mock_octavia(upstream, lb=None):
@@ -260,22 +184,13 @@ def mock_options(upstream):
     )
 
 
-async def wait_for_chain(client, steps: int) -> dict | None:
-    state = None
-    for _ in range(50):
-        await asyncio.sleep(0.01)
-        state = (await client.get("/api/load-balancers/lb-1")).json()["chain"]
-        if state and (len(state["done"]) == steps or state["error"]):
-            break
-    return state
-
-
 async def test_list_and_tree(lb_catalog, logged_in, upstream):
     mock_octavia(upstream)
     body = (await logged_in.get("/api/load-balancers")).json()
     item = body["items"][0]
     assert item["floating_ip"] == {"id": "fip-1", "address": "203.0.113.5"}
-    assert item["can_delete"] is True and item["is_transitional"] is False
+    assert item['can_delete'] is True
+    assert item['is_transitional'] is False
 
     tree = (await logged_in.get("/api/load-balancers/lb-1/tree")).json()
     assert tree["listeners"][0]["loadbalancer_id"] == "lb-1"
@@ -316,6 +231,27 @@ async def test_options(lb_catalog, logged_in, upstream):
         }
     ]
     assert body["quota"]["load_balancer"] == 22
+    # No Barbican in the catalog: no TLS-terminating listeners.
+    assert body["barbican_available"] is False
+    assert "TERMINATED_HTTPS" not in body["listener_protocols"]
+    assert "HTTPS" in body["listener_protocols"]
+
+
+@pytest.fixture
+def barbican_catalog(with_services):
+    with_services(
+        NEUTRON_ENTRY, ("key-manager", "barbican", "https://barbican.test")
+    )
+
+
+async def test_options_offer_tls_termination_with_barbican(
+    barbican_catalog, logged_in, upstream
+):
+    mock_octavia(upstream)
+    mock_options(upstream)
+    body = (await logged_in.get("/api/load-balancers/options")).json()
+    assert body["barbican_available"] is True
+    assert "TERMINATED_HTTPS" in body["listener_protocols"]
 
 
 async def test_create_runs_the_chain(lb_catalog, logged_in, upstream):
@@ -386,19 +322,16 @@ async def test_create_runs_the_chain(lb_catalog, logged_in, upstream):
         ]
         if state and (len(state["done"]) == 4 or state["error"]):
             break
-    assert (
-        state is not None
-        and state["error"] is None
-        and state["done"] == ["listener", "pool", "member", "monitor"]
-    )
+    assert state is not None
+    assert state['error'] is None
+    assert state['done'] == ['listener', 'pool', 'member', 'monitor']
     sent_listener = json.loads(listener.calls.last.request.content)["listener"]
     assert sent_listener["loadbalancer_id"] == "lb-1"
     assert sent_listener["default_tls_container_ref"] == "https://barbican/x"
     assert sent_listener["insert_headers"] == {"X-Forwarded-For": "true"}
     sent_pool = json.loads(pool.calls.last.request.content)["pool"]
-    assert (
-        sent_pool["listener_id"] == "l-1" and sent_pool["protocol"] == "HTTP"
-    )
+    assert sent_pool['listener_id'] == 'l-1'
+    assert sent_pool['protocol'] == 'HTTP'
     assert sent_pool["session_persistence"] == {"type": "SOURCE_IP"}
     assert (
         json.loads(member.calls.last.request.content)["member"]["subnet_id"]
@@ -407,10 +340,8 @@ async def test_create_runs_the_chain(lb_catalog, logged_in, upstream):
     sent_monitor = json.loads(monitor.calls.last.request.content)[
         "healthmonitor"
     ]
-    assert (
-        sent_monitor["pool_id"] == "p-1"
-        and sent_monitor["url_path"] == "/healthz"
-    )
+    assert sent_monitor['pool_id'] == 'p-1'
+    assert sent_monitor['url_path'] == '/healthz'
 
 
 async def test_create_validation(lb_catalog, logged_in, upstream):
@@ -420,7 +351,7 @@ async def test_create_validation(lb_catalog, logged_in, upstream):
         json={"vip_subnet_id": "subnet-1", "vip_address": "nope"},
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     response = await logged_in.post(
         "/api/load-balancers",
         json={
@@ -433,7 +364,7 @@ async def test_create_validation(lb_catalog, logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     response = await logged_in.post(
         "/api/load-balancers",
         json={
@@ -444,8 +375,20 @@ async def test_create_validation(lb_catalog, logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert "delay" in response.json()["message"]
+    response = await logged_in.post(
+        "/api/load-balancers",
+        json={
+            "vip_subnet_id": "subnet-1",
+            "listener": {"protocol": "HTTP", "protocol_port": 80},
+            "pool": {"lb_algorithm": "ROUND_ROBIN"},
+            "members": [{"address": "999.1.1.1", "protocol_port": 80}],
+        },
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 422
+    assert "IP address" in response.json()["message"]
 
 
 async def test_update_delete_and_floating_ip(lb_catalog, logged_in, upstream):
@@ -635,11 +578,16 @@ async def test_children(lb_catalog, logged_in, upstream):
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200, response.text
-    assert response.json()["pending"] == 2
-    state = await wait_for_chain(logged_in, 2)
-    assert state["error"] is None
-    assert state["done"] == ["delete_member", "member"]
-    assert removed.called and added.called
+    # The members before the change; the delete and add run in the chain.
+    body = response.json()
+    assert [m["id"] for m in body["items"]] == ["m-1"]
+    assert body["pending"] == 2
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if removed.called and added.called:
+            break
+    assert removed.called
+    assert added.called
 
     monitor = upstream.post(f"{LB}/healthmonitors").mock(
         return_value=httpx.Response(201, json={"healthmonitor": MONITOR})
@@ -651,7 +599,8 @@ async def test_children(lb_catalog, logged_in, upstream):
     )
     assert response.status_code == 202, response.text
     sent = json.loads(monitor.calls.last.request.content)["healthmonitor"]
-    assert sent["pool_id"] == "p-1" and "url_path" not in sent
+    assert sent['pool_id'] == 'p-1'
+    assert 'url_path' not in sent
     upstream.put(f"{LB}/healthmonitors/hm-1").mock(
         return_value=httpx.Response(
             200, json={"healthmonitor": {**MONITOR, "delay": 10}}
@@ -697,7 +646,16 @@ async def test_children(lb_catalog, logged_in, upstream):
     assert response.status_code == 400
     rule = upstream.post(f"{LB}/l7policies/pol-1/rules").mock(
         return_value=httpx.Response(
-            201, json={"rule": {"id": "r-2", "type": "HEADER"}}
+            201,
+            json={
+                "rule": {
+                    "id": "r-2",
+                    "type": "HEADER",
+                    "compare_type": "EQUAL_TO",
+                    "key": "Host",
+                    "value": "x",
+                }
+            },
         )
     )
     response = await logged_in.post(
@@ -738,6 +696,96 @@ async def test_children(lb_catalog, logged_in, upstream):
     ).status_code == 204
 
 
+async def test_updates_send_only_what_was_set_and_null_clears(
+    lb_catalog, logged_in, upstream
+):
+    pool = upstream.put(f"{LB}/pools/pool-1").mock(
+        return_value=httpx.Response(200, json={"pool": POOL})
+    )
+    response = await logged_in.patch(
+        "/api/load-balancers/pools/pool-1",
+        json={"name": "web", "session_persistence": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(pool.calls.last.request.content) == {
+        "pool": {"name": "web", "session_persistence": None}
+    }
+
+    listener = upstream.put(f"{LB}/listeners/l-1").mock(
+        return_value=httpx.Response(200, json={"listener": LISTENER})
+    )
+    await logged_in.patch(
+        "/api/load-balancers/listeners/l-1",
+        json={"default_pool_id": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert json.loads(listener.calls.last.request.content) == {
+        "listener": {"default_pool_id": None}
+    }
+
+    member = upstream.put(f"{LB}/pools/pool-1/members/m-1").mock(
+        return_value=httpx.Response(200, json={"member": MEMBER})
+    )
+    await logged_in.patch(
+        "/api/load-balancers/pools/pool-1/members/m-1",
+        json={"monitor_address": None, "monitor_port": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert json.loads(member.calls.last.request.content) == {
+        "member": {"monitor_address": None, "monitor_port": None}
+    }
+
+
+async def test_shutdown_marks_a_running_chain_failed(
+    lb_catalog, settings, redis, upstream
+):
+    """A chain still waiting on Octavia when the app stops is cancelled
+    and says which step it stopped at, instead of reading "in progress"
+    until its state expires."""
+    pending = {**LOAD_BALANCER, "provisioning_status": "PENDING_CREATE"}
+    mock_octavia(upstream, lb=pending)
+    upstream.post(f"{LB}/loadbalancers").mock(
+        return_value=httpx.Response(201, json={"loadbalancer": pending})
+    )
+    http = httpx.AsyncClient()
+    application = create_app(settings, redis=redis, http=http)
+    async with application.router.lifespan_context(application):
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            assert (await login(client)).status_code == 303
+            response = await client.post(
+                "/api/load-balancers",
+                json={
+                    "vip_subnet_id": "subnet-1",
+                    "listener": {"protocol": "HTTP", "protocol_port": 80},
+                },
+                headers=csrf_headers(client),
+            )
+            assert response.status_code == 202, response.text
+            await asyncio.sleep(0.01)
+            assert application.state.background.running == 1
+    await http.aclose()
+    keys = [key async for key in redis.scan_iter("hive:c:p:p1:lb-chain:*")]
+    state = json.loads(await redis.get(keys[0]))
+    assert state["done"] == []
+    assert state["failed_step"] == "listener"
+    assert state["error"].startswith("cancelled")
+
+
+async def wait_for_chain(client, steps: int) -> dict | None:
+    """The chain state once ``steps`` steps are done or it has failed."""
+    state = None
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        state = (await client.get("/api/load-balancers/lb-1")).json()["chain"]
+        if state and (len(state["done"]) == steps or state["error"]):
+            break
+    return state
+
+
 async def test_failing_chain_step_records_the_error(
     lb_catalog, logged_in, upstream, monkeypatch
 ):
@@ -762,7 +810,8 @@ async def test_failing_chain_step_records_the_error(
     )
     assert response.status_code == 202, response.text
     state = await wait_for_chain(logged_in, 1)
-    assert state["done"] == [] and state["error"].startswith("upstream_error")
+    assert state["done"] == []
+    assert state["error"].startswith("upstream_error")
 
     async def crash(octavia, lb_id, spec, ids):
         raise RuntimeError("bug")
@@ -781,45 +830,6 @@ async def test_failing_chain_step_records_the_error(
     assert response.status_code == 200, response.text
     state = await wait_for_chain(logged_in, 1)
     assert state["error"] == "internal error"
-
-
-async def test_drain_interrupts_a_waiting_chain(
-    lb_catalog, logged_in, upstream, monkeypatch
-):
-    from hive.services import loadbalancer
-
-    monkeypatch.setattr(loadbalancer, "POLL_SECONDS", 0.01)
-    mock_octavia(upstream)
-    pending = {**LOAD_BALANCER, "provisioning_status": "PENDING_UPDATE"}
-    # ACTIVE for the request's check, busy from then on, so the chain
-    # polls until it is cancelled.
-    states = iter([LOAD_BALANCER])
-    upstream.get(f"{LB}/loadbalancers/lb-1").mock(
-        side_effect=lambda request: httpx.Response(
-            200, json={"loadbalancer": next(states, pending)}
-        )
-    )
-    upstream.post(f"{LB}/listeners").mock(
-        return_value=httpx.Response(201, json={"listener": LISTENER})
-    )
-    response = await logged_in.post(
-        "/api/load-balancers/listeners",
-        json={
-            "loadbalancer_id": "lb-1",
-            "protocol": "HTTP",
-            "protocol_port": 81,
-            "pool": {"lb_algorithm": "ROUND_ROBIN"},
-        },
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 202, response.text
-    await asyncio.sleep(0.05)
-    assert loadbalancer._background
-    await loadbalancer.drain(timeout=0.05)
-    assert not loadbalancer._background
-    state = (await logged_in.get("/api/load-balancers/lb-1")).json()["chain"]
-    assert state["error"].startswith("interrupted")
-    await loadbalancer.drain()
 
 
 async def test_busy_load_balancer_is_refused(lb_catalog, logged_in, upstream):
@@ -871,62 +881,26 @@ async def test_busy_load_balancer_is_refused(lb_catalog, logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert (
-        response.status_code == 400
-        and "protocol" in response.json()["message"]
-    )
+    assert response.status_code == 400
+    assert "protocol" in response.json()["message"]
 
 
-async def test_updates_clear_values(lb_catalog, logged_in, upstream):
+async def test_updates_drop_nulls_for_fields_that_cannot_be_cleared(
+    lb_catalog, logged_in, upstream
+):
     mock_octavia(upstream)
-    listener = upstream.put(f"{LB}/listeners/l-1").mock(
-        return_value=httpx.Response(
-            200, json={"listener": {**LISTENER, "default_pool_id": None}}
-        )
+    lb = upstream.put(f"{LB}/loadbalancers/lb-1").mock(
+        return_value=httpx.Response(200, json={"loadbalancer": LOAD_BALANCER})
     )
     response = await logged_in.patch(
-        "/api/load-balancers/listeners/l-1",
-        json={"default_pool_id": None},
+        "/api/load-balancers/lb-1",
+        json={"name": None, "description": "web"},
         headers=csrf_headers(logged_in),
     )
     assert response.status_code == 200, response.text
-    assert json.loads(listener.calls.last.request.content) == {
-        "listener": {"default_pool_id": None}
+    assert json.loads(lb.calls.last.request.content) == {
+        "loadbalancer": {"description": "web"}
     }
-    await logged_in.patch(
-        "/api/load-balancers/listeners/l-1",
-        json={"name": "x"},
-        headers=csrf_headers(logged_in),
-    )
-    assert json.loads(listener.calls.last.request.content) == {
-        "listener": {"name": "x"}
-    }
-
-    pool = upstream.put(f"{LB}/pools/p-1").mock(
-        return_value=httpx.Response(200, json={"pool": POOL})
-    )
-    response = await logged_in.patch(
-        "/api/load-balancers/pools/p-1",
-        json={"session_persistence": None},
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 200, response.text
-    assert json.loads(pool.calls.last.request.content) == {
-        "pool": {"session_persistence": None}
-    }
-    await logged_in.patch(
-        "/api/load-balancers/pools/p-1",
-        json={
-            "session_persistence": {"type": "APP_COOKIE", "cookie_name": "s"}
-        },
-        headers=csrf_headers(logged_in),
-    )
-    assert json.loads(pool.calls.last.request.content) == {
-        "pool": {
-            "session_persistence": {"type": "APP_COOKIE", "cookie_name": "s"}
-        }
-    }
-
     member = upstream.put(f"{LB}/pools/p-1/members/m-1").mock(
         return_value=httpx.Response(200, json={"member": MEMBER})
     )
@@ -938,6 +912,28 @@ async def test_updates_clear_values(lb_catalog, logged_in, upstream):
     assert response.status_code == 200, response.text
     assert json.loads(member.calls.last.request.content) == {
         "member": {"monitor_address": None, "monitor_port": None, "weight": 2}
+    }
+    rule = upstream.put(f"{LB}/l7policies/pol-1/rules/r-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "rule": {
+                    "id": "r-1",
+                    "type": "PATH",
+                    "compare_type": "STARTS_WITH",
+                    "value": "/old",
+                }
+            },
+        )
+    )
+    response = await logged_in.patch(
+        "/api/load-balancers/l7policies/pol-1/rules/r-1",
+        json={"type": "PATH", "key": None, "invert": None},
+        headers=csrf_headers(logged_in),
+    )
+    assert response.status_code == 200, response.text
+    assert json.loads(rule.calls.last.request.content) == {
+        "rule": {"type": "PATH", "key": None}
     }
 
 

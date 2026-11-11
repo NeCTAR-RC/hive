@@ -1,0 +1,9 @@
+[
+  "router",
+  "extraroute",
+  "ext-gw-mode",
+  "dns-integration",
+  "network_availability_zone",
+  "router_availability_zone",
+  "port-security"
+]

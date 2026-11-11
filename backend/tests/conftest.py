@@ -3,6 +3,7 @@ with its lifespan run, and an ASGI test client that can log in."""
 
 from datetime import datetime, timedelta, UTC
 import json
+import sys
 
 import fakeredis.aioredis
 import httpx
@@ -28,6 +29,10 @@ HEAT = "https://heat.test/v1/p1"
 DESIGNATE = "https://designate.test"
 MANILA = "https://manila.test/v2/p1"
 TROVE = "https://trove.test/v1.0/p1"
+NOVA = "https://nova.test/v2.1"
+NEUTRON = "https://neutron.test"
+GLANCE = "https://glance.test"
+CINDER = "https://cinder.test/v3/p1"
 
 USER = {"id": "u1", "name": "sam@example.edu", "domain": {"id": "default"}}
 PROJECTS = [
@@ -38,19 +43,21 @@ PROJECTS = [
 ROLES = {"p1": ["member"], "p2": ["member", "tenantmanager"]}
 
 
-def catalog():
-    def entry(stype, name, url):
-        return {
-            "type": stype,
-            "name": name,
-            "endpoints": [
-                {"interface": "public", "region": "Melbourne", "url": url}
-            ],
-        }
+def entry(stype: str, name: str, url: str) -> dict:
+    """One catalog service with a public Melbourne endpoint."""
+    return {
+        "type": stype,
+        "name": name,
+        "endpoints": [
+            {"interface": "public", "region": "Melbourne", "url": url}
+        ],
+    }
 
+
+def catalog():
     return [
         entry("identity", "keystone", KEYSTONE),
-        entry("compute", "nova", "https://nova.test/v2.1"),
+        entry("compute", "nova", NOVA),
         entry("account", "manuka", MANUKA),
         entry("nectar-ops", "langstroth", LANGSTROTH),
         entry("security", "varroa", VARROA),
@@ -116,6 +123,9 @@ def mock_keystone(router: respx.MockRouter, **kwargs):
     router.post(f"{KEYSTONE}/auth/tokens").mock(
         side_effect=lambda request: token_response(request, **kwargs)
     )
+    router.get(f"{KEYSTONE}/auth/catalog").mock(
+        return_value=httpx.Response(200, json={"catalog": catalog()})
+    )
     router.get(f"{KEYSTONE}/auth/projects").mock(
         return_value=httpx.Response(200, json={"projects": PROJECTS})
     )
@@ -167,6 +177,26 @@ async def redis():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
     yield client
     await client.aclose()
+
+
+NEUTRON_ENTRY = ("network", "neutron", NEUTRON)
+GLANCE_ENTRY = ("image", "glance", GLANCE)
+CINDER_ENTRY = ("volumev3", "cinder", CINDER)
+
+
+@pytest.fixture
+def with_services(upstream, monkeypatch):
+    """Add services to the catalog the scoped tokens carry; call it before
+    logging in. The base catalog leaves Neutron, Glance and Cinder out so
+    the tests that need none of them stay small."""
+
+    def add(*services: tuple[str, str, str]) -> None:
+        base = catalog()
+        richer = [*base, *(entry(*service) for service in services)]
+        monkeypatch.setattr(sys.modules[__name__], "catalog", lambda: richer)
+        mock_keystone(upstream)
+
+    return add
 
 
 @pytest.fixture

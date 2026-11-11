@@ -1,28 +1,33 @@
-// Queries and mutations for the Object Store panel, keyed under
-// `['project', pid, 'swift', ...]`. Uploads go through upload.ts.
+// Queries and mutations for the Object Store panel, keyed by
+// `queryKeys.objectStore`: a container's listings and objects are keyed
+// under the container. Uploads go through upload.ts.
 import {
   infiniteQueryOptions,
   queryOptions,
   useMutation,
-  useQueryClient,
 } from "@tanstack/react-query";
+import type { BulkOutcome } from "../../lib/bulk";
 import { apiFetch } from "../../lib/api/client";
 import type {
   ContainerCreateRequest,
+  ContainerList,
   ContainerDetail,
-  ContainersResponse,
   CopyObjectRequest,
   DeleteObjectsResult,
+  FolderCreated,
+  ObjectCopied,
   ObjectDetail,
   ObjectListing,
   StoreInfo,
+  StoreObject,
+  UploadCompleted,
   UploadPlan,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/objectstore";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, staleTimes } from "../../lib/queries";
+import { queryKeys, type ProjectKeyOf } from "../../lib/queryKeys";
 
-export function swiftKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "swift", ...rest] as const;
-}
+const keys = queryKeys.objectStore;
 
 const BASE = "/api/object-store";
 
@@ -40,33 +45,32 @@ export function objectPath(container: string, name: string): string {
 
 export function storeInfoQuery(projectId: string) {
   return queryOptions({
-    queryKey: swiftKey(projectId, "info"),
-    queryFn: ({ signal }) => apiFetch<StoreInfo>(`${BASE}/info`, { signal }),
+    queryKey: keys.info.all(projectId),
+    queryFn: getJson<StoreInfo>(`${BASE}/info`),
     staleTime: staleTimes.quota,
   });
 }
 
 export function containersQuery(projectId: string) {
   return queryOptions({
-    queryKey: swiftKey(projectId, "containers"),
-    queryFn: ({ signal }) =>
-      apiFetch<ContainersResponse>(`${BASE}/containers`, { signal }),
+    queryKey: keys.containers.list(projectId),
+    queryFn: getJson<ContainerList>(`${BASE}/containers`),
     staleTime: staleTimes.list,
   });
 }
 
 export function containerQuery(projectId: string, container: string) {
   return queryOptions({
-    queryKey: swiftKey(projectId, "container", container),
-    queryFn: ({ signal }) =>
-      apiFetch<ContainerDetail>(containerPath(container), { signal }),
+    queryKey: keys.containers.detail(projectId, container),
+    queryFn: getJson<ContainerDetail>(containerPath(container)),
     staleTime: staleTimes.detail,
   });
 }
 
 /**
- * One folder's listing, a page (the backend's 500 entries) at a time:
- * each page names the marker for the next, as Horizon pages with markers.
+ * One folder's listing, a page (the backend's 500 entries) at a time: each
+ * page names the marker the next one starts after, as Horizon pages with
+ * markers. `joinListing` reads the pages loaded so far as one list.
  */
 export function objectsQuery(
   projectId: string,
@@ -74,17 +78,32 @@ export function objectsQuery(
   path: string,
 ) {
   return infiniteQueryOptions({
-    queryKey: swiftKey(projectId, "objects", container, path),
+    queryKey: [
+      ...keys.containers.detail(projectId, container),
+      "objects",
+      path,
+    ],
     queryFn: ({ signal, pageParam }) =>
       apiFetch<ObjectListing>(`${containerPath(container)}/objects`, {
-        signal,
         query: { path, marker: pageParam },
+        signal,
       }),
     initialPageParam: null as string | null,
-    getNextPageParam: (last: ObjectListing) =>
-      last.has_more && last.next_marker ? last.next_marker : null,
+    getNextPageParam: nextMarker,
     staleTime: staleTimes.list,
   });
+}
+
+/** The marker of the page after `last`, or null when it was the last. */
+export function nextMarker(last: ObjectListing): string | null {
+  return last.has_more && last.next_marker ? last.next_marker : null;
+}
+
+/** The pages of a folder loaded so far, as one list of its entries. */
+export function joinListing(data: { pages: ObjectListing[] }): {
+  items: StoreObject[];
+} {
+  return { items: data.pages.flatMap((page) => page.items) };
 }
 
 export function objectQuery(
@@ -93,35 +112,42 @@ export function objectQuery(
   name: string,
 ) {
   return queryOptions({
-    queryKey: swiftKey(projectId, "object", container, name),
-    queryFn: ({ signal }) =>
-      apiFetch<ObjectDetail>(`${objectPath(container, name)}/metadata`, {
-        signal,
-      }),
+    queryKey: [...keys.containers.detail(projectId, container), "object", name],
+    queryFn: getJson<ObjectDetail>(`${objectPath(container, name)}/metadata`),
     staleTime: staleTimes.detail,
   });
 }
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return (...rest: unknown[]) =>
-    queryClient.invalidateQueries({ queryKey: swiftKey(projectId, ...rest) });
+/**
+ * The keys a write to `containers` makes stale: the container list and the
+ * store totals (object counts and bytes), and each named container's own
+ * queries. Other containers' cached listings stay as they are.
+ */
+export function containerWriteKeys(...containers: string[]): ProjectKeyOf[] {
+  return [
+    keys.containers.list,
+    keys.info.all,
+    ...containers.map(
+      (container) => (projectId: string) =>
+        keys.containers.detail(projectId, container),
+    ),
+  ];
 }
 
-export function useCreateContainer(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateContainer() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: ContainerCreateRequest) =>
       apiFetch<ContainerDetail>(`${BASE}/containers`, {
         method: "POST",
         json: body,
       }),
-    onSuccess: () => invalidate(),
+    onSettled: () => invalidate(...containerWriteKeys()),
   });
 }
 
-export function useUpdateContainer(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateContainer() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       container,
@@ -135,63 +161,109 @@ export function useUpdateContainer(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSuccess: () => invalidate(),
+    onSettled: (_data, _error, { container }) =>
+      invalidate(...containerWriteKeys(container)),
   });
 }
 
-export function useDeleteContainer(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (container: string) =>
-      apiFetch<void>(containerPath(container), { method: "DELETE" }),
-    onSuccess: () => invalidate(),
+/**
+ * Deletes one container. Swift deletes only an empty one; `withObjects`
+ * has the backend delete every object in it first.
+ */
+export function deleteContainer(container: string, withObjects = false) {
+  return apiFetch<void>(containerPath(container), {
+    method: "DELETE",
+    ...(withObjects ? { query: { with_objects: "true" } } : {}),
   });
 }
 
-export function useCreateFolder(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateFolder() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({ container, path }: { container: string; path: string }) =>
-      apiFetch<{ name: string }>(`${containerPath(container)}/folders`, {
+      apiFetch<FolderCreated>(`${containerPath(container)}/folders`, {
         method: "POST",
         json: { path },
       }),
-    onSuccess: () => invalidate(),
+    onSettled: (_data, _error, { container }) =>
+      invalidate(...containerWriteKeys(container)),
   });
 }
 
-export function useCopyObject(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCopyObject() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       container,
       name,
       ...body
     }: CopyObjectRequest & { container: string; name: string }) =>
-      apiFetch<{ container: string; name: string }>(
-        `${objectPath(container, name)}/copy`,
-        { method: "POST", json: body },
-      ),
-    onSuccess: () => invalidate(),
+      apiFetch<ObjectCopied>(`${objectPath(container, name)}/copy`, {
+        method: "POST",
+        json: body,
+      }),
+    onSettled: (_data, _error, { container, dest_container }) =>
+      invalidate(...containerWriteKeys(container, dest_container)),
   });
 }
 
-export function useDeleteObjects(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({
-      container,
-      names,
-    }: {
-      container: string;
-      names: string[];
-    }) =>
-      apiFetch<DeleteObjectsResult>(`${containerPath(container)}/delete`, {
-        method: "POST",
-        json: { names },
-      }),
-    onSuccess: () => invalidate(),
-  });
+/**
+ * The object a name the bulk delete could not delete stands for: the
+ * backend reports a name (`photos/a.jpg`) or Swift's quoted path
+ * (`/<container>/photos/a.jpg`).
+ */
+function failedName(container: string, entry: string): string {
+  let name = entry;
+  try {
+    name = decodeURIComponent(entry);
+  } catch {
+    // A name with a stray "%" was never quoted.
+  }
+  const prefix = `/${container}/`;
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+}
+
+/**
+ * Splits a bulk delete's result over the objects asked for: an object
+ * failed when its name is among `failed`, and a folder failed when it or
+ * anything inside it did. The backend gives no reason for
+ * a failure, so the failures carry no error.
+ */
+export function deleteOutcome(
+  container: string,
+  objects: StoreObject[],
+  result: DeleteObjectsResult,
+): BulkOutcome<StoreObject> {
+  const failed = result.failed.map((entry) => failedName(container, entry));
+  const didFail = (object: StoreObject) => {
+    const inside = object.name.endsWith("/") ? object.name : `${object.name}/`;
+    return failed.some(
+      (name) =>
+        name === object.name || (object.is_folder && name.startsWith(inside)),
+    );
+  };
+  const outcome: BulkOutcome<StoreObject> = { succeeded: [], failed: [] };
+  for (const object of objects) {
+    if (didFail(object))
+      outcome.failed.push({ item: object, error: undefined });
+    else outcome.succeeded.push(object);
+  }
+  return outcome;
+}
+
+/**
+ * Deletes objects and folders (with everything in them) in one request:
+ * the backend's bulk delete, which reports the names it could not delete.
+ */
+export async function deleteObjects(
+  container: string,
+  objects: StoreObject[],
+): Promise<BulkOutcome<StoreObject>> {
+  const result = await apiFetch<DeleteObjectsResult>(
+    `${containerPath(container)}/delete`,
+    { method: "POST", json: { names: objects.map((object) => object.name) } },
+  );
+  return deleteOutcome(container, objects, result);
 }
 
 export function requestUploadPlan(
@@ -209,10 +281,10 @@ export function completeUpload(
   name: string,
   segments: { path: string; size_bytes: number; etag?: string }[],
 ) {
-  return apiFetch<{ name: string; bytes: number }>(
-    `${objectPath(container, name)}/manifest`,
-    { method: "POST", json: { segments } },
-  );
+  return apiFetch<UploadCompleted>(`${objectPath(container, name)}/manifest`, {
+    method: "POST",
+    json: { segments },
+  });
 }
 
 export function downloadPath(container: string, name: string): string {

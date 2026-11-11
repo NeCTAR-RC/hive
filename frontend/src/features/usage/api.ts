@@ -2,18 +2,19 @@
 // come from the shared usage summary query; the per-instance breakdown and
 // the allocation burn-down have their own endpoints.
 import { queryOptions } from "@tanstack/react-query";
-import { apiFetch } from "../../lib/api/client";
 import type {
   AllocationUsage,
   UsageInstancesResponse,
   UsageOptions,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/usage";
+import { getJson, staleTimes } from "../../lib/queries";
+import { queryKeys, userKeys } from "../../lib/queryKeys";
+
+const keys = queryKeys.usage;
 
 export const usageOptionsQuery = queryOptions({
-  queryKey: ["usage", "options"],
-  queryFn: ({ signal }) =>
-    apiFetch<UsageOptions>("/api/usage/options", { signal }),
+  queryKey: userKeys.usageOptions.all(),
+  queryFn: getJson<UsageOptions>("/api/usage/options"),
   staleTime: staleTimes.static,
 });
 
@@ -23,21 +24,19 @@ export function usageInstancesQuery(
   end: string,
 ) {
   return queryOptions({
-    queryKey: ["project", projectId, "usage", "instances", begin, end],
-    queryFn: ({ signal }) =>
-      apiFetch<UsageInstancesResponse>("/api/usage/instances", {
-        signal,
-        query: { begin, end },
-      }),
+    queryKey: keys.instances.list(projectId, { begin, end }),
+    queryFn: getJson<UsageInstancesResponse>("/api/usage/instances", {
+      begin,
+      end,
+    }),
     staleTime: staleTimes.quota,
   });
 }
 
 export function allocationUsageQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "usage", "allocation"],
-    queryFn: ({ signal }) =>
-      apiFetch<AllocationUsage>("/api/usage/allocation", { signal }),
+    queryKey: keys.allocation.all(projectId),
+    queryFn: getJson<AllocationUsage>("/api/usage/allocation"),
     staleTime: staleTimes.quota,
   });
 }

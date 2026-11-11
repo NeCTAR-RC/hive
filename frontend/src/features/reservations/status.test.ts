@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { ReservationFlavor } from "../../lib/api/types";
+import type {
+  Reservation,
+  ReservationFlavor,
+} from "../../lib/api/types/reservations";
 import {
+  availableReservationActions,
   eligibility,
+  estimateSu,
   flavorDisk,
-  flavorFacts,
   flavorRate,
   flavorSize,
   slotLastDay,
@@ -52,19 +56,6 @@ describe("reservation status helpers", () => {
     expect(slotLastDay(null)).toBeNull();
   });
 
-  it("lists the flavour facts, empty values left for the list to mark", () => {
-    const facts = Object.fromEntries(
-      flavorFacts({ ...flavor, description: null }).map((f) => [
-        f.label,
-        f.value,
-      ]),
-    );
-    expect(facts["Class"]).toBe("GPU");
-    expect(facts["Description"]).toBeNull();
-    expect(facts["Max duration"]).toBe("7 days");
-    expect(facts["Usage rate"]).toBe("0.9 SU/hour");
-  });
-
   it("checks eligibility like the backend", () => {
     const ok = eligibility(3, 8, flavor, 100, 1000);
     expect(ok.eligible).toBe(true);
@@ -79,5 +70,62 @@ describe("reservation status helpers", () => {
     expect(
       eligibility(3, null, { ...flavor, rate: 10 }, 900, -1).eligible,
     ).toBe(true);
+  });
+});
+
+describe("estimateSu", () => {
+  it.each([
+    { rate: 2, days: 1, expected: 48 },
+    { rate: 0.5, days: 3, expected: 36 },
+    { rate: 1.234, days: 1, expected: 29.62 },
+    { rate: 4, days: 0, expected: 0 },
+    { rate: 4, days: -2, expected: 0 },
+  ])("$days days at $rate SU/hour is $expected", ({ rate, days, expected }) => {
+    expect(estimateSu(rate, days)).toBe(expected);
+  });
+});
+
+describe("reservation actions", () => {
+  const reservation: Reservation = {
+    id: "res-1",
+    status: "ACTIVE",
+    status_help: "",
+    status_reason: null,
+    start: null,
+    end: null,
+    created_at: null,
+    instance_count: null,
+    compute_flavor: "res-1",
+    flavor,
+    actions: ["launch", "extend", "calendar", "delete"],
+  };
+
+  /** The reason each action is disabled, or null when it can run. */
+  const reasons = (item: Reservation) =>
+    Object.fromEntries(
+      availableReservationActions(item).map((offer) => [
+        offer.id,
+        offer.disabledReason ?? null,
+      ]),
+    );
+
+  it("offers what the backend allows", () => {
+    expect(reasons(reservation)).toEqual({
+      launch: null,
+      extend: null,
+      calendar: null,
+      delete: null,
+    });
+  });
+
+  it("lists the rest disabled with their reasons", () => {
+    expect(
+      reasons({ ...reservation, status: "PENDING_CREATE", actions: [] }),
+    ).toEqual({
+      launch: "The reservation is not active yet",
+      extend: "Only active reservations with days left can be extended",
+      calendar: "Only allocated or active reservations have a calendar entry",
+      delete: "A reservation still being created cannot be deleted",
+    });
   });
 });

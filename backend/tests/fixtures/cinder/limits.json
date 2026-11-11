@@ -1,0 +1,8 @@
+{
+  "maxTotalVolumeGigabytes": 1000,
+  "maxTotalVolumes": 10,
+  "maxTotalSnapshots": -1,
+  "totalGigabytesUsed": 50,
+  "totalVolumesUsed": 2,
+  "totalSnapshotsUsed": -3
+}

@@ -1,0 +1,13 @@
+---
+features:
+  - |
+    The home page follows the ARDC design system. The featured banner is
+    the design system's call to action with its picture, subtitle,
+    details and buttons, ARDC news appears as cards, and the welcome
+    panel, quick links, usage and service announcements use the design
+    system's type and spacing.
+fixes:
+  - |
+    The featured banner on the home page showed only its title: the page
+    read field names that the banner feed does not use. It now reads the
+    feed's own fields.

@@ -1,34 +1,72 @@
 @use "mixins" as *;
 
-.grid {
+/// The "Sidebar right" layout (layouts spec, "Single pages"): the account
+/// and contact panels beside a span 4 side column (384px, the sidebar
+/// block's width) holding ORCID, 24px apart. The side column joins from
+/// 1280px; stacked below (gap "Breakpoints").
+.layout {
   display: grid;
-  gap: var(--hive-space-4);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
-  @include up($bp-lg) {
-    grid-template-columns: 2fr 1fr;
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// The main column's panels 32px apart (library `content-block-stack`,
+/// the content blocks' section gap).
 .stack {
+  @include content-block-stack;
+}
+
+/// A panel's parts (a note, the details, a button) 20px apart, the gap the
+/// Info - Sidebar block stacks its parts at (sidebar-blocks spec, line 120;
+/// the `info-block` gap).
+.panelStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-5);
+}
+
+/// The contact form: its fields, then the save button 32px under them
+/// (DERIVED-SPACING: field group to primary action, 32px; library
+/// `content-block-stack`).
+.form {
+  @include content-block-stack;
+}
+
+/// Fields 16px apart (DERIVED-SPACING: inter-field row gap), in a span 6
+/// column (588px, the 50-50 content column).
+.fields {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-6);
 }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-3);
-  max-width: 28rem;
-}
-
+/// Notes about where the details come from: Body/14 in Grey-500, the text
+/// field's helper style (text-input spec, "Input Field with Labels").
 .note {
-  margin: 0 0 var(--hive-space-3);
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }
 
+/// The connected ORCID iD is a URL: the library's own
+/// `sidebar-block-link-label` mixin lets the link's label wrap, and the URL
+/// breaks anywhere rather than widening the side column (gap "Text link
+/// that wraps").
+.connected {
+  overflow-wrap: anywhere;
+
+  a {
+    @include sidebar-block-link-label;
+  }
+}
+
+/// The native form that posts the ORCID disconnect to the accounts service;
+/// it draws nothing.
 .hiddenForm {
   display: none;
 }

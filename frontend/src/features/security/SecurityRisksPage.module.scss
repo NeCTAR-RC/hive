@@ -1,51 +1,72 @@
+@use "mixins" as *;
+
+/// The page's intro paragraph: Body/16 in Grey-700, the content blocks'
+/// intro paragraph (content-blocks spec, Frame 519), at most span 9 wide
+/// (gap "Reading measure").
 .intro {
-  margin: 0;
-  max-width: 48rem;
-  color: var(--hive-color-text-muted);
+  max-width: var(--hive-grid-span-9);
+  color: var(--hive-color-gray-700);
 }
 
+/// The page's sections (the count alert, the risks) in one column of span
+/// 9 (894px), 32px apart (library `content-block-stack`, the content
+/// blocks' section gap).
 .stack {
+  @include content-block-stack;
+
+  max-width: var(--hive-grid-span-9);
+}
+
+/// "Risks detected" over its resource panels, 24px from the heading and
+/// between panels (DERIVED-SPACING: section title to body, 24px; the
+/// grid's gap between rows of blocks).
+.section {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-4);
-  max-width: 56rem;
+  gap: var(--hive-grid-gap);
 }
 
-.heading {
-  margin: 0;
-  font-size: var(--hive-font-size-lg);
-}
-
+/// The panel a `#<resource id>` link lands on, ringed with the library
+/// focus ring at the panel's 4px radius, so its corner matches the ring
+/// the library draws round a focused control (gap "Target highlight").
 .highlight {
+  border-radius: var(--hive-radius);
   outline: var(--hive-focus-ring);
   outline-offset: var(--hive-focus-ring-offset);
-  border-radius: var(--hive-radius-lg);
 }
 
-.muted {
-  margin: 0;
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
-.risks {
-  list-style: none;
-  margin: var(--hive-space-3) 0 0;
-  padding: 0;
+/// A panel's parts (its note, the risks) 20px apart, the gap the Info -
+/// Sidebar block stacks its parts at (sidebar-blocks spec, line 120; the
+/// `info-block` gap).
+.panelStack {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
+  gap: var(--hive-space-5);
 }
 
+/// The note above a resource's risks: Body/14 in Grey-500, the text
+/// field's helper style (text-input spec, "Input Field with Labels").
+.muted {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
+}
+
+/// Each risk is a library `Alert` in the danger tone; the alerts sit 12px
+/// apart, the content blocks' card column gap (library
+/// `content-block-card-column`), as the home page's alerts do.
+.risks {
+  @include content-block-card-column;
+
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/// The lines inside one risk's alert (its name in bold, the description,
+/// the address and dates) 8px apart, as the shared error alert stacks its
+/// lines (DERIVED-SPACING, 8px). The alert keeps its own surface and text.
 .risk {
-  padding-left: var(--hive-space-3);
-  border-left: var(--hive-space-1) solid var(--hive-color-danger);
-
-  p {
-    margin: 0 0 var(--hive-space-1);
-  }
-}
-
-.riskName {
-  font-weight: var(--hive-font-weight-semibold);
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
 }

@@ -1,0 +1,14 @@
+---
+features:
+  - |
+    A detail page says "Service not available" when this cloud does not
+    offer the service behind the page.
+  - |
+    Leaving the create cluster, launch stack, launch database instance
+    and create reservation pages with unsaved input now asks first, as
+    the launch instance and create load balancer wizards already did.
+  - |
+    In the launch instance and create load balancer wizards, Next moves
+    the screen reader focus to the new step and announces it.
+  - |
+    A chart's "View as table" shows its rows 20 to a page.

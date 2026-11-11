@@ -11,8 +11,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatDate, formatDayMonth, formatNumber } from "../../lib/format";
-import styles from "./DailyLineChart.module.scss";
+import { formatDayMonth, formatNumber } from "../../lib/format";
+import { ChartTooltip } from "./ChartTooltip";
+import {
+  axisProps,
+  CHART_MARGIN,
+  cursorProps,
+  GUIDE_DASH,
+  GUIDE_STROKE,
+  gridProps,
+  LABEL_FILL,
+  SERIES_STROKE,
+} from "./chartTheme";
 
 export interface DailyPoint {
   /** ISO date, "2026-10-09". */
@@ -27,74 +37,39 @@ export interface DailyLineChartProps {
   guide?: { value: number; label: string };
 }
 
-const TICK = { fontSize: 12, fill: "var(--hive-color-text-muted)" };
-const AXIS = "var(--hive-color-rule)";
-
-function PointTooltip({
-  active,
-  payload,
-  label,
-  valueLabel,
-}: {
-  active?: boolean;
-  payload?: { value?: number }[];
-  label?: string;
-  valueLabel: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className={styles.tooltip}>
-      <div className={styles.tooltipDate}>{formatDate(label)}</div>
-      <div>
-        {valueLabel}: {formatNumber(payload[0]?.value)}
-      </div>
-    </div>
-  );
-}
-
 export default function DailyLineChart({
   data,
   valueLabel,
   guide,
 }: DailyLineChartProps) {
+  const axis = axisProps();
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart
-        data={data}
-        margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-        accessibilityLayer={false}
-      >
-        <CartesianGrid stroke={AXIS} strokeDasharray="3 3" vertical={false} />
+      <LineChart data={data} margin={CHART_MARGIN} accessibilityLayer={false}>
+        <CartesianGrid {...gridProps} />
         <XAxis
           dataKey="date"
           tickFormatter={formatDayMonth}
           minTickGap={32}
-          tick={TICK}
-          stroke={AXIS}
-          tickLine={false}
+          {...axis}
         />
         <YAxis
           width={48}
-          tick={TICK}
-          stroke={AXIS}
-          tickLine={false}
           axisLine={false}
           tickFormatter={(value: number) => formatNumber(value)}
+          {...axis}
         />
-        <Tooltip
-          content={<PointTooltip valueLabel={valueLabel} />}
-          cursor={{ stroke: "var(--hive-chart-other)" }}
-        />
+        <Tooltip content={<ChartTooltip />} cursor={cursorProps} />
         {guide && (
           <ReferenceLine
             y={guide.value}
-            stroke="var(--hive-chart-other)"
-            strokeDasharray="6 4"
+            stroke={GUIDE_STROKE}
+            strokeDasharray={GUIDE_DASH}
             label={{
               value: guide.label,
               position: "insideTopRight",
-              fontSize: 12,
-              fill: "var(--hive-color-text-muted)",
+              fontSize: axis.tick.fontSize,
+              fill: LABEL_FILL,
             }}
           />
         )}
@@ -102,7 +77,7 @@ export default function DailyLineChart({
           type="monotone"
           dataKey="value"
           name={valueLabel}
-          stroke="var(--hive-chart-1)"
+          stroke={SERIES_STROKE}
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}

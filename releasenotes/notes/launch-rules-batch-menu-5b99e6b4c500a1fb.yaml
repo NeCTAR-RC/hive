@@ -1,0 +1,18 @@
+---
+features:
+  - |
+    The launch wizard's security groups step shows each group's rules:
+    "Rules (n)" under a group opens its direction, ether type, protocol,
+    port range and remote. A project with more than ten groups can
+    search them by name or description.
+  - |
+    A list's batch actions are in a "With selected" menu in the table
+    toolbar, beside "Columns". It is always there, disabled until a row
+    is ticked, so selecting rows no longer pushes the table down. An
+    action the selection rules out is listed with the reason, and "Clear
+    selection" is the menu's last item.
+fixes:
+  - |
+    In the mocked dev server, a tab left hidden for a while no longer
+    fails every request until a reload: the mocked API restarts when
+    needed once the tab is shown again.

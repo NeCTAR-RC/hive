@@ -1,38 +1,58 @@
 @use "mixins" as *;
 
-.form {
+/// "Search Field with Button" (search spec, line 3): the library
+/// `SearchField` and its button on one row, 8px apart, at most span 8 wide
+/// (the frame is 748px: a 640px field and the button). Below 480px the
+/// button goes under the field, 8px down (gap "Breakpoints").
+.search {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-2);
-  max-width: 40rem;
+  max-width: var(--hive-grid-span-8);
 
   @include up($bp-sm) {
     flex-direction: row;
-    align-items: end;
+    align-items: flex-end;
   }
 }
 
+/// The field takes the row's width beside its button.
 .field {
   flex: 1;
+  min-width: 0;
 }
 
+/// The "at least 3 characters" note under the search: Body/14 in Grey-500,
+/// the text field's helper style (text-input spec, "Input Field with
+/// Labels").
 .hint {
-  margin: var(--hive-space-2) 0 0;
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
 }
 
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
-  max-width: 48rem;
+/// The sentence shown before a search: Body/16 in Grey-700, the content
+/// blocks' intro paragraph (content-blocks spec, Frame 519).
+.intro {
+  color: var(--hive-color-gray-700);
 }
 
+/// A user's panels, one column of span 9 (894px), 32px apart (library
+/// `content-block-stack`, the content blocks' section gap).
+.stack {
+  @include content-block-stack;
+
+  max-width: var(--hive-grid-span-9);
+}
+
+/// One key and value list per external identity, 20px apart and without
+/// rules: the gap the Info - Sidebar block stacks its pairs at
+/// (sidebar-blocks spec, line 120; the `info-block` gap), so the
+/// identities read as further rows of pairs.
 .ids {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

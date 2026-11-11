@@ -1,22 +1,34 @@
-// Shaping for the Usage Trend page: the date range and its presets, the
-// by-service and by-instance bar lists, and the daily guide line
-// (nectar_usage.js: presets at trend/index.html:158-163, the guide at
-// :124-135 as budget over allocation days).
+// Shaping for the usage pages. Usage Trend: the date range and its
+// presets, the by-service and by-instance bar lists, and the daily guide
+// line (nectar_usage.js: presets at trend/index.html:158-163, the guide at
+// :124-135 as budget over allocation days). Allocation Usage: the burn-down
+// guide's value on a date.
+import {
+  getLocalTimeZone,
+  parseDate,
+  today as todayIn,
+} from "@internationalized/date";
 import type { BarListItem } from "../../components/Charts/BarList";
 import type {
   AllocationSummary,
   MostUsed,
   UsageRow,
-} from "../../lib/api/types";
+} from "../../lib/api/types/usage";
+import { enumLabel } from "../../lib/status";
 
 export const DAY_MS = 86_400_000;
 
-export function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+/**
+ * Today as YYYY-MM-DD in the user's time zone. The range is in local days:
+ * the UTC date is still yesterday in Australia until 10 or 11 am.
+ */
+export function localToday(timeZone: string = getLocalTimeZone()): string {
+  return todayIn(timeZone).toString();
 }
 
-export function daysAgo(days: number, today: Date = new Date()): string {
-  return isoDate(new Date(today.getTime() - days * DAY_MS));
+/** The date `days` calendar days before `today` (both YYYY-MM-DD). */
+export function daysAgo(days: number, today: string): string {
+  return parseDate(today).subtract({ days }).toString();
 }
 
 export const PRESETS: { id: string; label: string; days: number }[] = [
@@ -25,24 +37,6 @@ export const PRESETS: { id: string; label: string; days: number }[] = [
   { id: "6m", label: "6 months", days: 182 },
   { id: "1y", label: "Past year", days: 365 },
 ];
-
-/**
- * The preset the range matches (ending today, starting the preset's days
- * ago, or at `dataFrom` when that is later), or null for a custom range.
- */
-export function activePreset(
-  begin: string,
-  end: string,
-  dataFrom: string,
-  today: Date = new Date(),
-): string | null {
-  if (end !== isoDate(today)) return null;
-  const match = PRESETS.find((preset) => {
-    const start = daysAgo(preset.days, today);
-    return begin === (start < dataFrom ? dataFrom : start);
-  });
-  return match?.id ?? null;
-}
 
 export interface DateRange {
   begin: string;
@@ -53,14 +47,35 @@ export interface DateRange {
 export function resolveRange(
   search: { begin?: string; end?: string },
   dataFrom: string,
-  today: Date = new Date(),
+  today: string,
 ): DateRange {
-  const end = search.end && isIso(search.end) ? search.end : isoDate(today);
+  const end = search.end && isIso(search.end) ? search.end : today;
   let begin =
     search.begin && isIso(search.begin) ? search.begin : daysAgo(365, today);
   if (begin < dataFrom) begin = dataFrom;
   if (begin > end) begin = end;
   return { begin, end };
+}
+
+/**
+ * The preset the range is, so its button shows pressed: the one whose range
+ * ending today (clamped to the data floor as the page clamps it) is the
+ * range shown. Dates typed into the picker that match no preset leave none
+ * pressed.
+ */
+export function activePreset(
+  range: DateRange,
+  dataFrom: string,
+  today: string,
+): string | undefined {
+  return PRESETS.find((preset) => {
+    const presetRange = resolveRange(
+      { begin: daysAgo(preset.days, today), end: today },
+      dataFrom,
+      today,
+    );
+    return presetRange.begin === range.begin && presetRange.end === range.end;
+  })?.id;
 }
 
 function isIso(value: string): boolean {
@@ -81,7 +96,7 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export function typeLabel(type: string): string {
-  return TYPE_LABELS[type] ?? type.replace(/_/g, " ") + "s";
+  return TYPE_LABELS[type] ?? enumLabel(type) + "s";
 }
 
 export function typeItems(rows: UsageRow[] | undefined): BarListItem[] {
@@ -121,10 +136,25 @@ export function dailyGuide(
 ): { value: number; label: string } | undefined {
   const budget = allocation?.su_budget;
   const current = allocation?.allocation;
-  if (!budget || budget <= 0 || !current) return undefined;
+  if (!budget || budget <= 0 || !current?.start_date || !current.end_date) {
+    return undefined;
+  }
   const days = Math.round(
     (Date.parse(current.end_date) - Date.parse(current.start_date)) / DAY_MS,
   );
   if (!Number.isFinite(days) || days <= 0) return undefined;
   return { value: Math.round(budget / days), label: "Daily guide" };
+}
+
+/** The guide's value on a date, interpolated between its two end points. */
+export function guideAt(
+  date: string,
+  guide: { date: string; value: number }[],
+): number {
+  const [start, end] = guide;
+  if (!start || !end) return 0;
+  const span = Date.parse(end.date) - Date.parse(start.date);
+  if (span <= 0) return end.value;
+  const ratio = (Date.parse(date) - Date.parse(start.date)) / span;
+  return Math.round(Math.min(Math.max(ratio, 0), 1) * end.value * 100) / 100;
 }

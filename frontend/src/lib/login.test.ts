@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLoginUrl, safeNext } from "./login";
+import { buildLoginUrl, loginHelpUrl, safeNext } from "./login";
 
 const config = {
   login_base_url: "https://accounts.test/login",
@@ -28,6 +28,26 @@ describe("buildLoginUrl", () => {
     );
     expect(url.startsWith("https://accounts.test/login?x=1&return-path=")).toBe(
       true,
+    );
+  });
+});
+
+describe("loginHelpUrl", () => {
+  const article =
+    "https://support.ehelp.edu.au/support/solutions/articles/6000055377";
+
+  it.each([
+    ["the default help page", "https://support.ehelp.edu.au/support/home"],
+    ["the site's root", "https://support.ehelp.edu.au/"],
+    ["no help URL", undefined],
+    ["an unreadable help URL", "not a url"],
+  ])("finds the article from %s", (_, helpUrl) => {
+    expect(loginHelpUrl(helpUrl)).toBe(article);
+  });
+
+  it("stays on the configured support site", () => {
+    expect(loginHelpUrl("https://help.example.org/support/home")).toBe(
+      "https://help.example.org/support/solutions/articles/6000055377",
     );
   });
 });

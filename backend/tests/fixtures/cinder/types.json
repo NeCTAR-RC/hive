@@ -1,0 +1,14 @@
+[
+  {
+    "id": "t-std",
+    "name": "standard",
+    "extra_specs": {}
+  },
+  {
+    "id": "t-qh2",
+    "name": "qh2-ssd",
+    "extra_specs": {
+      "RESKEY:availability_zones": "melbourne-qh2"
+    }
+  }
+]

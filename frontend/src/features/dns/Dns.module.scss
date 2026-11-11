@@ -1,46 +1,34 @@
 @use "mixins" as *;
 
+/// The zone's panel over its record sets, 32px apart (library
+/// `content-block-stack`, the content blocks' section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
 }
 
-.mono {
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+/// A record set's name in its table cell: the cell's own Body/14 (library
+/// `$table-cell-font-size`), breaking anywhere rather than widening the
+/// column.
+.recordName {
   overflow-wrap: anywhere;
 }
 
+/// A record set's records in its table cell, one per line, 8px apart (the
+/// related-list gap, sidebar-blocks spec "Related list - Sidebar"), in the
+/// cell's Body/14.
 .records {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
   overflow-wrap: anywhere;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-2);
-}
-
-.grid {
-  display: grid;
-  gap: var(--hive-space-4);
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-
-  @include up($bp-lg) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
+/// The zones quota (library `Meter` through `QuotaMeter`) in a span 4
+/// column (384px, the sidebar block's width; gap "Quota meters above a
+/// list").
 .meters {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-  max-width: 28rem;
+  max-width: var(--hive-grid-span-4);
 }

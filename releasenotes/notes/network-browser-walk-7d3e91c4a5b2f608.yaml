@@ -1,0 +1,36 @@
+---
+features:
+  - |
+    Create network's IPv6 subnets take an IPv6 address configuration
+    mode, and the form offers "Enable port security" where Neutron has
+    the port-security extension.
+  - |
+    A port's page lists its allowed address pairs, with add and delete
+    (``PUT /api/network/ports/{port_id}/allowed-address-pairs``), and a
+    port's attached device links to its router as well as its instance.
+  - |
+    Allocate floating IP shows the floating IP quota, and offers a
+    chosen address only when ``HIVE_FLOATING_IP_ADDRESS_ALLOWED`` is set
+    (default false). Associate marks ports that already have a floating
+    IP.
+  - |
+    The security group rule form has "Use my address", which fills in
+    the browser's own address as the backend sees it (``GET
+    /api/network/my-address``).
+  - |
+    Network topology has Launch instance, Create network and Create
+    router, and each router says which other networks it joins.
+fixes:
+  - |
+    The subnet form checks that the gateway is inside the subnet and
+    clear of the pools and that the pools lie inside the subnet and do
+    not overlap, and the network form accepts an MTU of at most 9000.
+    The backend checks the same rules again.
+  - |
+    Delete network is disabled while the network holds ports other than
+    DHCP's; Add interface disables a subnet that overlaps one already on
+    the router; Create trunk no longer offers the parent port as a
+    subport.
+  - |
+    An error or warning toast now closes when the user moves to another
+    page; it still stays until dismissed while they remain on the page.

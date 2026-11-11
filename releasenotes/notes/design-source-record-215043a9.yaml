@@ -1,0 +1,12 @@
+---
+other:
+  - |
+    Every rule in the CSS modules and global.scss now carries a docblock
+    for its design source, and the lint holds it there. The design token
+    check rejects a raw px or rem size in the token bridge, the retired
+    code face and accent rule tokens, and any CSS rule without a
+    docblock. DESIGN-NOTES.md lists the gaps for the designer by where
+    they appear, the library engineering items, the decisions per layer,
+    and a generated "Sources by selector" table that `pnpm lint` keeps
+    in step with the code. Reading-width intros and the share and
+    database quota meters now use the grid's span 9 and span 4 widths.

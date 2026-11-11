@@ -1,0 +1,12 @@
+{
+  "id": "pol-1",
+  "action": "REJECT",
+  "listener_id": "l-1",
+  "position": 1,
+  "rules": [
+    {
+      "id": "r-1"
+    }
+  ],
+  "provisioning_status": "ACTIVE"
+}

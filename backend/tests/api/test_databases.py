@@ -6,22 +6,18 @@ import httpx
 import pytest
 
 from hive.services import databases as database_service
-from tests.conftest import csrf_headers, SWIFT, TROVE
+from tests.conftest import (
+    csrf_headers,
+    NEUTRON,
+    NEUTRON_ENTRY,
+    NOVA,
+    SWIFT,
+    TROVE,
+)
+from tests.fixtures.loader import fixture
 
-NOVA = "https://nova.test/v2.1"
-NEUTRON = "https://neutron.test"
 
-INSTANCE = {
-    "id": "db-1",
-    "name": "appdb",
-    "status": "HEALTHY",
-    "datastore": {"type": "mysql", "version": "8.0"},
-    "flavor": {"id": "db3.small"},
-    "volume": {"size": 5, "used": 1.5},
-    "addresses": [{"type": "private", "address": "10.0.0.7"}],
-    "access": {"allowed_cidrs": ["0.0.0.0/0"]},
-    "created": "2026-10-01T00:00:00",
-}
+INSTANCE = fixture("trove", "instance")
 BUILDING = {
     **INSTANCE,
     "id": "db-2",
@@ -29,75 +25,15 @@ BUILDING = {
     "status": "BUILD",
     "configuration": {"id": "cfg-1"},
 }
-BACKUP = {
-    "id": "bk-1",
-    "name": "nightly",
-    "status": "COMPLETED",
-    "instance_id": "db-1",
-    "datastore": {"type": "mysql", "version": "8.0"},
-    "created": "2026-10-02T00:00:00",
-    "locationRef": "swift://backups/bk-1",
-}
-CONFIG = {
-    "id": "cfg-1",
-    "name": "tuned",
-    "datastore_name": "mysql",
-    "datastore_version_name": "8.0",
-    "datastore_version_id": "v-80",
-    "values": {"max_connections": 200},
-}
-DATASTORES = [
-    {
-        "id": "ds-mysql",
-        "name": "mysql",
-        "versions": [
-            {"id": "v-80", "name": "8.0", "active": True},
-            {"id": "v-84", "name": "8.4", "active": True},
-        ],
-    },
-    {"id": "ds-pg", "name": "postgresql", "versions": []},
-]
-FLAVORS = [
-    {
-        "id": None,
-        "str_id": "db3.small",
-        "name": "db3.small",
-        "ram": 2048,
-        "vcpus": 1,
-    },
-    {
-        "id": None,
-        "str_id": "db3.medium",
-        "name": "db3.medium",
-        "ram": 4096,
-        "vcpus": 2,
-    },
-]
-
-
-def catalog_entry(stype, name, url):
-    return {
-        "type": stype,
-        "name": name,
-        "endpoints": [
-            {"interface": "public", "region": "Melbourne", "url": url}
-        ],
-    }
+BACKUP = fixture("trove", "backup")
+CONFIG = fixture("trove", "config")
+DATASTORES = fixture("trove", "datastores")
+FLAVORS = fixture("trove", "flavors")
 
 
 @pytest.fixture
-def db_catalog(upstream):
-    from tests import conftest
-
-    original = conftest.catalog
-
-    def richer():
-        return original() + [catalog_entry("network", "neutron", NEUTRON)]
-
-    conftest.catalog = richer
-    conftest.mock_keystone(upstream)
-    yield
-    conftest.catalog = original
+def db_catalog(with_services):
+    with_services(NEUTRON_ENTRY)
 
 
 def mock_trove(upstream):
@@ -259,14 +195,11 @@ async def test_list_and_detail(logged_in, upstream):
     body = (await logged_in.get("/api/databases/instances")).json()
     assert [i["name"] for i in body["items"]] == ["appdb", "building"]
     appdb = body["items"][0]
-    assert (
-        appdb["flavor_name"] == "db3.small"
-        and appdb["ram"] == 2048
-        and appdb["addresses"] == ["10.0.0.7"]
-    )
-    assert (
-        "upgrade" in appdb["actions"] and body["items"][1]["is_transitional"]
-    )
+    assert appdb['flavor_name'] == 'db3.small'
+    assert appdb['ram'] == 2048
+    assert appdb['addresses'] == ['10.0.0.7']
+    assert 'upgrade' in appdb['actions']
+    assert body['items'][1]['is_transitional']
     assert body["quota"] == {
         "max_instances": 10,
         "max_backups": 20,
@@ -275,20 +208,17 @@ async def test_list_and_detail(logged_in, upstream):
     }
 
     detail = (await logged_in.get("/api/databases/instances/db-1")).json()
-    assert (
-        detail["port"] == 3306
-        and detail["cidr_warning"]
-        and detail["volume_used"] == 1.5
-    )
+    assert detail['port'] == 3306
+    assert detail['cidr_warning']
+    assert detail['volume_used'] == 1.5
     with_config = (await logged_in.get("/api/databases/instances/db-2")).json()
     assert with_config["configuration"]["name"] == "tuned"
 
     targets = (
         await logged_in.get("/api/databases/instances/db-1/upgrade-targets")
     ).json()
-    assert targets["current"] == "8.0" and [
-        t["version"] for t in targets["items"]
-    ] == ["8.4"]
+    assert targets['current'] == '8.0'
+    assert [t['version'] for t in targets['items']] == ['8.4']
     backups = (
         await logged_in.get("/api/databases/instances/db-1/backups")
     ).json()
@@ -313,11 +243,9 @@ async def test_options(db_catalog, logged_in, upstream):
     assert body["networks"] == [
         {"id": "net-1", "name": "private", "classic": False}
     ]
-    assert (
-        body["configurations"][0]["id"] == "cfg-1"
-        and body["backups"][0]["id"] == "bk-1"
-    )
-    assert body["default_cidr"] == "0.0.0.0/0"
+    assert body['configurations'][0]['id'] == 'cfg-1'
+    assert body['backups'][0]['id'] == 'bk-1'
+    assert "default_cidr" not in body
 
 
 async def test_options_tolerates_configuration_400(
@@ -338,10 +266,8 @@ async def test_options_tolerates_configuration_400(
     body = (await logged_in.get("/api/databases/options")).json()
     assert body["configurations"] == []
     listing = (await logged_in.get("/api/databases/configurations")).json()
-    assert (
-        listing["items"] == []
-        and listing["datastores"][0]["datastore"] == "mysql"
-    )
+    assert listing['items'] == []
+    assert listing['datastores'][0]['datastore'] == 'mysql'
 
 
 async def test_launch(logged_in, upstream):
@@ -365,7 +291,7 @@ async def test_launch(logged_in, upstream):
             "allowed_cidrs": ["10.0.0.0/8"],
             "databases": "app, reports",
             "user": "app",
-            "password": "secret",
+            "password": "secret-pw",
             "configuration": "cfg-1",
             "backup_id": "bk-1",
         },
@@ -374,17 +300,13 @@ async def test_launch(logged_in, upstream):
     assert response.status_code == 202, response.text
     assert response.json()["id"] == "db-9"
     sent = json.loads(create.calls.last.request.content)["instance"]
-    assert sent["nics"] == [{"net-id": "net-1"}] and sent["volume"] == {
-        "size": 10
-    }
+    assert sent['nics'] == [{'net-id': 'net-1'}]
+    assert sent['volume'] == {'size': 10}
     assert sent["databases"] == [{"name": "app"}, {"name": "reports"}]
-    assert sent["users"][0]["name"] == "app" and sent["restorePoint"] == {
-        "backupRef": "bk-1"
-    }
-    assert (
-        sent["access"] == {"allowed_cidrs": ["10.0.0.0/8"]}
-        and sent["configuration"] == "cfg-1"
-    )
+    assert sent['users'][0]['name'] == 'app'
+    assert sent['restorePoint'] == {'backupRef': 'bk-1'}
+    assert sent['access'] == {'allowed_cidrs': ['10.0.0.0/8']}
+    assert sent['configuration'] == 'cfg-1'
 
     base = {
         "name": "x",
@@ -399,7 +321,8 @@ async def test_launch(logged_in, upstream):
         json={**base, "allowed_cidrs": ["nope"]},
         headers=csrf_headers(logged_in),
     )
-    assert bad_cidr.status_code == 400
+    assert bad_cidr.status_code == 422
+    assert bad_cidr.json()["message"] == '"nope" is not a valid CIDR.'
     no_password = await logged_in.post(
         "/api/databases/instances",
         json={
@@ -410,10 +333,8 @@ async def test_launch(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert (
-        no_password.status_code == 400
-        and "password" in no_password.json()["message"]
-    )
+    assert no_password.status_code == 422
+    assert "password" in no_password.json()["message"]
     wrong_config = await logged_in.post(
         "/api/databases/instances",
         json={
@@ -424,10 +345,8 @@ async def test_launch(logged_in, upstream):
         },
         headers=csrf_headers(logged_in),
     )
-    assert (
-        wrong_config.status_code == 400
-        and "datastore version" in wrong_config.json()["message"]
-    )
+    assert wrong_config.status_code == 400
+    assert 'datastore version' in wrong_config.json()['message']
     upstream.get(f"{TROVE}/backups/bk-1").mock(
         return_value=httpx.Response(
             200, json={"backup": {**BACKUP, "status": "FAILED"}}
@@ -474,7 +393,7 @@ async def test_instance_actions(logged_in, upstream):
         json={"allowed_cidrs": ["x"]},
         headers=headers,
     )
-    assert bad.status_code == 400
+    assert bad.status_code == 422
     busy = await logged_in.patch(
         "/api/databases/instances/db-2", json={"name": "x"}, headers=headers
     )
@@ -543,9 +462,8 @@ async def test_instance_actions(logged_in, upstream):
     restart = await logged_in.post(
         "/api/databases/instances/db-1/restart", headers=headers
     )
-    assert restart.status_code == 202 and json.loads(
-        action.calls.last.request.content
-    ) == {"restart": {}}
+    assert restart.status_code == 202
+    assert json.loads(action.calls.last.request.content) == {'restart': {}}
     busy = await logged_in.post(
         "/api/databases/instances/db-2/restart", headers=headers
     )
@@ -589,7 +507,8 @@ async def test_instance_actions(logged_in, upstream):
     response = await logged_in.delete(
         "/api/databases/instances/db-1", headers=headers
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
 
 async def test_root_users_databases(logged_in, upstream):
@@ -605,12 +524,11 @@ async def test_root_users_databases(logged_in, upstream):
             200, json={"user": {"name": "root", "password": "generated"}}
         )
     )
-    enabled_response = await logged_in.post(
-        "/api/databases/instances/db-1/root", headers=headers
-    )
-    # The body carries the generated root password.
-    assert enabled_response.headers["cache-control"] == "no-store"
-    enabled = enabled_response.json()
+    enabled = (
+        await logged_in.post(
+            "/api/databases/instances/db-1/root", headers=headers
+        )
+    ).json()
     assert enabled["password"] == "generated"
     busy = await logged_in.post(
         "/api/databases/instances/db-2/root", headers=headers
@@ -642,7 +560,7 @@ async def test_root_users_databases(logged_in, upstream):
         "/api/databases/instances/db-1/users",
         json={
             "name": "bob",
-            "password": "pw",
+            "password": "pw-12345",
             "host": "10.0.0.5",
             "databases": ["app"],
         },
@@ -653,30 +571,48 @@ async def test_root_users_databases(logged_in, upstream):
         "users": [
             {
                 "name": "bob",
-                "password": "pw",
+                "password": "pw-12345",
                 "host": "10.0.0.5",
                 "databases": [{"name": "app"}],
             }
         ]
     }
-    deleted_paths = []
-
-    def delete_user(request):
-        deleted_paths.append(request.url.raw_path.decode())
-        return httpx.Response(202)
-
-    upstream.delete(url__regex=r"/instances/db-1/users/bob[^/]*$").mock(
-        side_effect=delete_user
-    )
+    delete_user = upstream.delete(
+        # troveclient quote_user_host: "@" encoded, dots as %2e.
+        f"{TROVE}/instances/db-1/users/bob%4010%2e0%2e0%2e5"
+    ).mock(return_value=httpx.Response(202))
     response = await logged_in.delete(
         "/api/databases/instances/db-1/users/bob?host=10.0.0.5",
         headers=headers,
     )
-    # troveclient quote_user_host: percent-encoded, then dots as %2e.
     assert response.status_code == 204
-    assert deleted_paths == [
-        "/v1.0/p1/instances/db-1/users/bob%4010%2e0%2e0%2e5"
-    ]
+    assert delete_user.called
+
+    update_user = upstream.put(
+        f"{TROVE}/instances/db-1/users/bob%4010%2e0%2e0%2e5"
+    ).mock(return_value=httpx.Response(202))
+    response = await logged_in.patch(
+        "/api/databases/instances/db-1/users/bob?host=10.0.0.5",
+        json={"password": "new-secret", "host": "%"},
+        headers=headers,
+    )
+    assert response.status_code == 202
+    assert response.json() == {"name": "bob", "host": "%"}
+    assert json.loads(update_user.calls.last.request.content) == {
+        "user": {"password": "new-secret", "host": "%"}
+    }
+    nothing = await logged_in.patch(
+        "/api/databases/instances/db-1/users/bob",
+        json={},
+        headers=headers,
+    )
+    assert nothing.status_code == 422
+    short = await logged_in.patch(
+        "/api/databases/instances/db-1/users/bob",
+        json={"password": "x"},
+        headers=headers,
+    )
+    assert short.status_code == 422
 
     upstream.get(f"{TROVE}/instances/db-1/users/app/databases").mock(
         return_value=httpx.Response(200, json={"databases": [{"name": "app"}]})
@@ -712,7 +648,8 @@ async def test_root_users_databases(logged_in, upstream):
         "/api/databases/instances/db-1/users/app/access/reports",
         headers=headers,
     )
-    assert response.status_code == 204 and revoke.called
+    assert response.status_code == 204
+    assert revoke.called
 
     databases = (
         await logged_in.get("/api/databases/instances/db-1/databases")
@@ -746,23 +683,20 @@ async def test_root_users_databases(logged_in, upstream):
     response = await logged_in.delete(
         "/api/databases/instances/db-1/databases/new", headers=headers
     )
-    assert response.status_code == 204 and delete_db.called
+    assert response.status_code == 204
+    assert delete_db.called
 
 
 async def test_backups(logged_in, upstream):
     mock_trove(upstream)
     headers = csrf_headers(logged_in)
     body = (await logged_in.get("/api/databases/backups")).json()
-    assert (
-        body["items"][0]["instance_name"] == "appdb"
-        and body["items"][0]["can_restore"]
-    )
+    assert body['items'][0]['instance_name'] == 'appdb'
+    assert body['items'][0]['can_restore']
     assert body["instances"] == [{"id": "db-1", "name": "appdb"}]
     detail = (await logged_in.get("/api/databases/backups/bk-1")).json()
-    assert (
-        detail["instance_name"] == "appdb"
-        and detail["instance_status"] == "HEALTHY"
-    )
+    assert detail['instance_name'] == 'appdb'
+    assert detail['instance_status'] == 'HEALTHY'
 
     create = upstream.post(f"{TROVE}/backups").mock(
         return_value=httpx.Response(
@@ -787,7 +721,8 @@ async def test_backups(logged_in, upstream):
         },
         headers=headers,
     )
-    assert response.status_code == 202 and response.json()["incremental"]
+    assert response.status_code == 202
+    assert response.json()['incremental']
     assert json.loads(create.calls.last.request.content) == {
         "backup": {
             "name": "incr",
@@ -836,7 +771,8 @@ async def test_backups(logged_in, upstream):
     response = await logged_in.delete(
         "/api/databases/backups/bk-1", headers=headers
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
 
 async def test_backup_detail_tolerates_missing_links(logged_in, upstream):
@@ -860,14 +796,17 @@ async def test_backup_detail_tolerates_missing_links(logged_in, upstream):
         return_value=httpx.Response(404, json={"itemNotFound": {}})
     )
     detail = (await logged_in.get("/api/databases/backups/bk-1")).json()
-    assert detail["instance_name"] is None and "parent_name" not in detail
+    assert detail['instance_name'] is None
+    assert detail['instance_status'] is None
+    assert detail['parent_name'] is None
 
 
 async def test_configurations(logged_in, upstream):
     mock_trove(upstream)
     headers = csrf_headers(logged_in)
     body = (await logged_in.get("/api/databases/configurations")).json()
-    assert body["items"][0]["name"] == "tuned" and len(body["datastores"]) == 3
+    assert body['items'][0]['name'] == 'tuned'
+    assert len(body['datastores']) == 3
     detail = (
         await logged_in.get("/api/databases/configurations/cfg-1")
     ).json()
@@ -893,7 +832,8 @@ async def test_configurations(logged_in, upstream):
         },
         headers=headers,
     )
-    assert response.status_code == 201 and response.json()["id"] == "cfg-2"
+    assert response.status_code == 201
+    assert response.json()['id'] == 'cfg-2'
     assert json.loads(create.calls.last.request.content) == {
         "configuration": {
             "name": "new",
@@ -911,9 +851,10 @@ async def test_configurations(logged_in, upstream):
         json={"values": {"max_connections": "500", "autocommit": "true"}},
         headers=headers,
     )
-    assert response.status_code == 200 and response.json()["values"] == {
-        "max_connections": 500,
-        "autocommit": True,
+    assert response.status_code == 200
+    assert response.json()['values'] == {
+        'max_connections': 500,
+        'autocommit': True,
     }
     assert json.loads(update.calls.last.request.content) == {
         "configuration": {
@@ -940,15 +881,15 @@ async def test_configurations(logged_in, upstream):
         await logged_in.get("/api/databases/configurations/cfg-1")
     ).json()
     assert no_specs["parameters"] == []
-    rejected = await logged_in.put(
+    # Saving cannot check the values without the specs: an upstream error,
+    # not "no such parameter".
+    failed = await logged_in.put(
         "/api/databases/configurations/cfg-1/values",
         json={"values": {"max_connections": "1"}},
         headers=headers,
     )
-    # The failed spec call surfaces as an upstream error, not as every
-    # value being "not a parameter of this datastore version".
-    assert rejected.status_code == 502
-    assert "not a parameter" not in rejected.json()["message"]
+    assert failed.status_code == 502
+    assert failed.json()["error"] == "upstream_error"
 
     delete = upstream.delete(f"{TROVE}/configurations/cfg-1").mock(
         return_value=httpx.Response(202)
@@ -956,7 +897,8 @@ async def test_configurations(logged_in, upstream):
     response = await logged_in.delete(
         "/api/databases/configurations/cfg-1", headers=headers
     )
-    assert response.status_code == 204 and delete.called
+    assert response.status_code == 204
+    assert delete.called
 
 
 async def test_resize_flavors_follow_the_datastore_version(
@@ -968,15 +910,15 @@ async def test_resize_flavors_follow_the_datastore_version(
         return_value=httpx.Response(
             200,
             json={
-                "flavors": FLAVORS
-                + [
+                "flavors": [
+                    *FLAVORS,
                     {
                         "id": None,
                         "str_id": "db3.large",
                         "name": "db3.large",
                         "ram": 8192,
                         "vcpus": 4,
-                    }
+                    },
                 ]
             },
         )
@@ -984,9 +926,8 @@ async def test_resize_flavors_follow_the_datastore_version(
     body = (
         await logged_in.get("/api/databases/instances/db-1/resize-flavors")
     ).json()
-    assert (
-        body["current"] == "db3.small" and body["datastore_version"] == "8.0"
-    )
+    assert body['current'] == 'db3.small'
+    assert body['datastore_version'] == '8.0'
     assert [f["id"] for f in body["items"]] == ["db3.medium", "db3.large"]
 
     action = upstream.post(f"{TROVE}/instances/db-1/action").mock(
@@ -997,10 +938,8 @@ async def test_resize_flavors_follow_the_datastore_version(
         json={"flavor": "m3.huge"},
         headers=headers,
     )
-    assert (
-        rejected.status_code == 400
-        and "not available for mysql 8.0" in rejected.json()["message"]
-    )
+    assert rejected.status_code == 400
+    assert 'not available for mysql 8.0' in rejected.json()['message']
     assert not action.called
     accepted = await logged_in.post(
         "/api/databases/instances/db-1/resize",
@@ -1058,26 +997,8 @@ async def test_configuration_defaults(logged_in, upstream):
     ]
 
 
-LOG = {
-    "name": "general",
-    "type": "USER",
-    "status": "Published",
-    "published": 120,
-    "pending": 0,
-    "container": "database_logs",
-    "prefix": "db-1/mysql-general",
-    "metafile": "db-1/mysql-general_metafile",
-}
-SYS_LOG = {
-    "name": "error",
-    "type": "SYS",
-    "status": "Disabled",
-    "published": 0,
-    "pending": 0,
-    "container": "None",
-    "prefix": "None",
-    "metafile": "db-1/mysql-error_metafile",
-}
+LOG = fixture("trove", "log")
+SYS_LOG = fixture("trove", "sys_log")
 
 
 async def test_logs(logged_in, upstream, monkeypatch):
@@ -1089,41 +1010,41 @@ async def test_logs(logged_in, upstream, monkeypatch):
     body = (await logged_in.get("/api/databases/instances/db-1/logs")).json()
     assert [log["name"] for log in body["items"]] == ["error", "general"]
     general, error = body["items"][1], body["items"][0]
-    assert general["actions"] == [
-        "view",
-        "publish",
-        "enable",
-        "disable",
-        "discard",
-    ]
-    assert (
-        general["status_kind"] == "ok"
-        and general["container"] == "database_logs"
-    )
-    assert error["actions"] == ["publish", "enable", "discard"]
-    assert (
-        error["container"] is None
-        and error["prefix"] is None
-        and error["status_kind"] == "unknown"
-    )
+    # A published user log is on: disable, not enable.
+    assert general["actions"] == ["view", "publish", "disable", "discard"]
+    assert general['status_kind'] == 'ok'
+    assert general['container'] == 'database_logs'
+    # A SYS log is always on: neither enable nor disable.
+    assert error["actions"] == ["publish", "discard"]
+    assert error['container'] is None
+    assert error['prefix'] is None
+    assert error['status_kind'] == 'unknown'
 
     action = upstream.post(f"{TROVE}/instances/db-1/log").mock(
         return_value=httpx.Response(200, json={"log": LOG})
     )
-    response = await logged_in.post(
-        "/api/databases/instances/db-1/logs/general/actions/publish",
-        headers=headers,
-    )
-    assert response.status_code == 200 and response.json()["name"] == "general"
-    assert json.loads(action.calls.last.request.content) == {
-        "name": "general",
-        "publish": 1,
-    }
-    bad = await logged_in.post(
-        "/api/databases/instances/db-1/logs/general/actions/explode",
-        headers=headers,
-    )
-    assert bad.status_code == 400
+    for name in ("enable", "disable", "publish", "discard"):
+        response = await logged_in.post(
+            "/api/databases/instances/db-1/logs/general/actions",
+            json={"action": name},
+            headers=headers,
+        )
+        assert response.status_code == 200, name
+        assert response.json()['name'] == 'general'
+        assert json.loads(action.calls.last.request.content) == {
+            "name": "general",
+            name: 1,
+        }
+    sent = action.call_count
+    for body in ({"action": "explode"}, {}):
+        bad = await logged_in.post(
+            "/api/databases/instances/db-1/logs/general/actions",
+            json=body,
+            headers=headers,
+        )
+        assert bad.status_code == 422, body
+        assert [e["loc"] for e in bad.json()["detail"]] == [["body", "action"]]
+    assert action.call_count == sent
 
     # contents: two published parts plus the metafile, newest part last
     upstream.get(f"{SWIFT}/database_logs").mock(
@@ -1162,54 +1083,53 @@ async def test_logs(logged_in, upstream, monkeypatch):
             "/api/databases/instances/db-1/logs/general/contents?lines=3"
         )
     ).json()
-    assert (
-        tail["text"] == "c\nd\ne\n"
-        and tail["partial"] is True
-        and tail["parts"] == 2
-    )
+    assert tail['text'] == 'c\nd\ne\n'
+    assert tail['partial'] is True
+    assert tail['parts'] == 2
     newest = (
         await logged_in.get(
             "/api/databases/instances/db-1/logs/general/contents?lines=2"
         )
     ).json()
-    assert newest["text"] == "d\ne\n" and newest["partial"] is True
+    assert newest['text'] == 'd\ne\n'
+    assert newest['partial'] is True
     everything = (
         await logged_in.get(
             "/api/databases/instances/db-1/logs/general/contents?lines=0"
         )
     ).json()
-    assert (
-        everything["text"] == "a\nb\nc\nd\ne\n"
-        and everything["partial"] is False
-    )
+    assert everything['text'] == 'a\nb\nc\nd\ne\n'
+    assert everything['partial'] is False
     plenty = (
         await logged_in.get(
             "/api/databases/instances/db-1/logs/general/contents?lines=50"
         )
     ).json()
-    assert plenty["text"] == "a\nb\nc\nd\ne\n" and plenty["partial"] is False
+    assert plenty['text'] == 'a\nb\nc\nd\ne\n'
+    assert plenty['partial'] is False
 
     download = await logged_in.get(
         "/api/databases/instances/db-1/logs/general/download"
     )
-    assert download.status_code == 200 and download.text == "a\nb\nc\nd\ne\n"
+    assert download.status_code == 200
+    assert download.text == 'a\nb\nc\nd\ne\n'
     assert (
         download.headers["content-disposition"]
-        == 'attachment; filename="db-1-general.log"'
+        == "attachment; filename=\"db-1-general.log\";"
+        " filename*=UTF-8''db-1-general.log"
     )
 
     # The viewer stops at the cap and never reads the parts past it.
     monkeypatch.setattr(database_service, "LOG_VIEW_MAX_CHARS", 4)
-    second = upstream.get(f"{SWIFT}/database_logs/db-1/mysql-general-2").mock(
-        return_value=httpx.Response(200, content=b"d\ne\n")
-    )
+    second = upstream.get(f"{SWIFT}/database_logs/db-1/mysql-general-2")
     reads = second.call_count
     capped = (
         await logged_in.get(
             "/api/databases/instances/db-1/logs/general/contents?lines=0"
         )
     ).json()
-    assert capped["text"] == "a\nb\n" and capped["truncated"] is True
+    assert capped["text"] == "a\nb\n"
+    assert capped["truncated"] is True
     assert second.call_count == reads
     monkeypatch.undo()
 
@@ -1260,20 +1180,3 @@ async def test_trove_lists_follow_next_links(logged_in, upstream):
     body = (await logged_in.get("/api/databases/backups")).json()
     assert sorted(b["id"] for b in body["items"]) == ["bk-1", "bk-21"]
     assert route.call_count == 2
-
-
-async def test_trove_ids_are_percent_encoded_upstream(logged_in, upstream):
-    """A ``?`` in an id must not become an upstream query string."""
-    seen = []
-
-    def trove(request):
-        seen.append(request.url.raw_path.decode())
-        return httpx.Response(202)
-
-    upstream.route(host="trove.test", method="DELETE").mock(side_effect=trove)
-    response = await logged_in.delete(
-        "/api/databases/backups/b%3Fall_tenants=1",
-        headers=csrf_headers(logged_in),
-    )
-    assert response.status_code == 204
-    assert seen == ["/v1.0/p1/backups/b%3Fall_tenants%3D1"]

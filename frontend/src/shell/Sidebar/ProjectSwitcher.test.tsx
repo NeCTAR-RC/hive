@@ -2,17 +2,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import type { Me, ServiceKey } from "../../lib/api/types";
-import { ProjectSwitcher } from "./ProjectSwitcher";
+import type { Me } from "../../lib/api/types/session";
+import { FILTER_THRESHOLD, ProjectSwitcher } from "./ProjectSwitcher";
 
 function project(id: string, name: string) {
   return { id, name, domain_id: null, enabled: true };
 }
 
-const alpha = project("p1", "Alpha project");
-
 const projects = [
-  alpha,
+  project("p1", "Alpha project"),
   project("p2", "Beta project"),
   project("p3", "Gamma project"),
   project("p4", "Delta project"),
@@ -25,37 +23,45 @@ const projects = [
 
 const me: Me = {
   user: { id: "u1", name: "sam", domain_id: null },
-  project: { ...alpha, is_trial: false },
+  project: { ...project("p1", "Alpha project"), is_trial: false },
   roles: ["Member"],
   projects,
   capabilities: {
     tenantmanager: false,
     user_lookup: false,
-    services: {} as Record<ServiceKey, boolean>,
+    services: {},
   },
   session: { expires_at: 0, server_time: 0 },
 };
 
-function renderSwitcher() {
+function renderSwitcher(projectCount: number) {
   const client = new QueryClient();
+  const user: Me = { ...me, projects: projects.slice(0, projectCount) };
   return render(
     <QueryClientProvider client={client}>
-      <ProjectSwitcher me={me} />
+      <ProjectSwitcher me={user} />
     </QueryClientProvider>,
   );
 }
 
 describe("ProjectSwitcher", () => {
-  it("focuses the filter when the selector opens", async () => {
+  it("offers a select while the list is short", async () => {
     const user = userEvent.setup();
-    renderSwitcher();
+    renderSwitcher(FILTER_THRESHOLD);
 
-    await user.click(screen.getByRole("button", { name: "Alpha project" }));
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Alpha project/ }));
+    expect(screen.getAllByRole("option")).toHaveLength(FILTER_THRESHOLD);
+  });
 
-    const filter = screen.getByRole("searchbox", { name: "Filter projects" });
-    expect(filter).toHaveFocus();
+  it("filters by typing once the list is long", async () => {
+    const user = userEvent.setup();
+    renderSwitcher(FILTER_THRESHOLD + 1);
 
-    await user.keyboard("beta");
+    const field = screen.getByRole("combobox", { name: "Project" });
+    await user.clear(field);
+    await user.type(field, "beta");
+
     const options = screen.getAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual(["Beta project"]);
   });

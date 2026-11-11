@@ -1,0 +1,9 @@
+---
+features:
+  - |
+    Panels, status labels, quota meters, charts, tables and empty, error and
+    loading states now follow the ARDC design system. Panel titles use the
+    design system's heading style instead of small capitals, and a quota
+    meter says in words when usage is near or over the limit. The Actions,
+    Columns and Add to calendar menu buttons are the library's plain
+    secondary button, without a chevron glyph.

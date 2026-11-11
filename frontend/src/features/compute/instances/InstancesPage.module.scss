@@ -1,20 +1,26 @@
+/// An instance's addresses, one to a line in the table cell's Body/14
+/// (library `$table-cell-font-size`). An address keeps whole while the
+/// column has room for it (it sizes the column); only one longer than the
+/// cell (IPv6) breaks.
 .addresses {
   list-style: none;
   padding: 0;
   margin: 0;
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
+  overflow-wrap: break-word;
 }
 
+/// A flavour's rate after its name: Body/14 Grey-500, the library field
+/// helper style.
 .muted {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.statusFilter {
-  min-width: 14rem;
-}
-
-.riskLink {
-  text-decoration: none;
+/// The status pill and the "Locked" pill in one cell, 8px apart as on the
+/// instance's page (DERIVED-SPACING, 8px); a narrow column stacks them.
+.pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-2);
 }

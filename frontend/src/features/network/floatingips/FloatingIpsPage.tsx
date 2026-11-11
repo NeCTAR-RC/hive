@@ -1,17 +1,21 @@
+// The Floating IPs list, with Allocate IP to project while the quota has
+// room.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
 import {
   DataTable,
   type ColumnDef,
 } from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import type { FloatingIp } from "../../../lib/api/types";
-import { useProjectId } from "../../../lib/useProject";
+import { allows, toRowActions } from "../../../lib/actions";
+import type { FloatingIp } from "../../../lib/api/types/network";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { floatingIpsRoute } from "../../../app/router";
 import {
   floatingIpsQuery,
   networkExtensionsQuery,
@@ -25,39 +29,27 @@ import {
   statusTone,
 } from "../status";
 import { useFloatingIpActions } from "./FloatingIpActions";
-import { AllocateFloatingIpDialog } from "./FloatingIpDialogs";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { AllocateFloatingIpDialog } from "./dialogs/AllocateFloatingIpDialog";
+
+const floatingIpsRoute = getRouteApi("/app/network/floating-ips");
 
 const CRUMBS = [{ label: "Project" }, { label: "Network" }];
 
+/** The Floating IPs list page with its row and batch actions. */
 export function FloatingIpsPage() {
   const projectId = useProjectId();
-  const search = floatingIpsRoute.useSearch();
-  const navigate = useNavigate({ from: floatingIpsRoute.fullPath });
+  const search = useListSearch(floatingIpsRoute);
+  const navigate = floatingIpsRoute.useNavigate();
   const fips = useQuery(floatingIpsQuery(projectId));
+  const table = useQueryTable(fips, {
+    noun: "floating IPs",
+    search,
+    placeholder: "Search by address, description or instance",
+  });
   const quota = useQuery(networkQuotaQuery(projectId));
   const extensions = useQuery(networkExtensionsQuery(projectId));
-  const { run, runRelease, dialogs } = useFloatingIpActions(projectId);
-
-  const q = search.q ?? "";
-  const setSearch = (patch: { q?: string }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        return next;
-      },
-      replace: true,
-    });
-  const setAllocating = (open: boolean) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous };
-        delete next.allocate;
-        return open ? { ...next, allocate: true } : next;
-      },
-      replace: true,
-    });
+  const actions = useFloatingIpActions();
+  const setAllocating = (allocate: boolean) => search.patch({ allocate });
 
   const dns = extensions.data?.dns_integration ?? false;
   const columns = useMemo<ColumnDef<FloatingIp>[]>(
@@ -94,13 +86,14 @@ export function FloatingIpsPage() {
         label: "Mapped fixed IP",
         cell: (row) =>
           row.instance_id && row.instance_type === "compute" ? (
-            <RouteLink
+            <AppLink
+              size="sm"
               to="/compute/instances/$instanceId"
               params={{ instanceId: row.instance_id }}
               search={{}}
             >
               {floatingIpTargetLabel(row)}
-            </RouteLink>
+            </AppLink>
           ) : (
             floatingIpTargetLabel(row)
           ),
@@ -135,11 +128,6 @@ export function FloatingIpsPage() {
       },
     ],
     [dns, extensions.data],
-  );
-
-  const rows = useMemo(
-    () => filterRows(fips.data?.items ?? [], q, columns),
-    [fips.data, q, columns],
   );
   const canAllocate = quotaLeft(quota.data, "floatingip");
   return (
@@ -177,62 +165,37 @@ export function FloatingIpsPage() {
         id="floating-ips"
         label="Floating IPs"
         columns={columns}
-        rows={rows}
         getRowId={(row) => row.id}
-        isLoading={fips.isPending}
-        isFetching={fips.isFetching}
-        error={fips.error}
-        onRetry={() => void fips.refetch()}
-        onRefresh={() => void fips.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder: "Search by address, description or instance",
-        }}
-        resetKey={q}
-        emptyTitle={
-          fips.data && fips.data.items.length > 0
-            ? "No floating IPs match"
-            : "No floating IPs yet"
-        }
+        {...table}
+        {...actions.tableProps}
         emptyBody={
-          fips.data && fips.data.items.length === 0 ? (
-            <p>
-              Allocate a floating IP and associate it with an instance behind a
-              router to reach the instance from outside.
-            </p>
-          ) : null
+          <p>
+            Allocate a floating IP and associate it with an instance behind a
+            router to reach the instance from outside.
+          </p>
         }
         rowActions={(row) =>
-          availableFloatingIpActions(row, extensions.data).map((action) => ({
-            id: action.id,
-            label: action.label,
-            onAction: () => run(row, action.id),
-            isDisabled: action.isDisabled,
-            ...(action.disabledReason
-              ? { disabledReason: action.disabledReason }
-              : {}),
-            ...(action.tone ? { tone: action.tone } : {}),
-          }))
+          toRowActions(availableFloatingIpActions(row, extensions.data), (id) =>
+            actions.run(id, [row]),
+          )
         }
         batchActions={[
           {
             id: "release",
             label: "Release",
             tone: "danger",
-            onAction: (selected) => runRelease(selected),
+            onAction: (selected) => actions.run("release", selected),
             isDisabled: (selected) =>
-              selected.some((row) => row.port_forwarding_count > 0),
+              !selected.some((row) =>
+                allows(availableFloatingIpActions(row), "release"),
+              ),
           },
         ]}
       />
-      {dialogs}
-      <AllocateFloatingIpDialog
-        key={search.allocate ? "open" : "closed"}
-        projectId={projectId}
-        isOpen={Boolean(search.allocate)}
-        onOpenChange={setAllocating}
-      />
+      {actions.dialogs}
+      {search.params.allocate && (
+        <AllocateFloatingIpDialog onClose={() => setAllocating(false)} />
+      )}
     </>
   );
 }

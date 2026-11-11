@@ -1,0 +1,25 @@
+[
+  {
+    "id": "f-small",
+    "name": "m3.small",
+    "vcpus": 2,
+    "ram": 4096,
+    "disk": 30,
+    "OS-FLV-EXT-DATA:ephemeral": 0,
+    "os-flavor-access:is_public": true,
+    "extra_specs": {
+      "nectar:rate": "0.5"
+    }
+  },
+  {
+    "id": "f-pre",
+    "name": "p3.small",
+    "vcpus": 2,
+    "ram": 4096,
+    "disk": 30,
+    "extra_specs": {
+      "flavor_class:name": "preemptible",
+      "nectar:rate": "0.1"
+    }
+  }
+]

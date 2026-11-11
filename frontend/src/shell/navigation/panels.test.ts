@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Me } from "../../lib/api/types";
+import type { Me } from "../../lib/api/types/session";
 import { DASHBOARDS, linkoutHref, panelVisible } from "./panels";
 
 function me(overrides: Partial<Me> = {}): Me {
@@ -92,6 +92,7 @@ describe("panelVisible", () => {
       router_availability_zone: true,
       subnet_allocation: true,
       port_security: true,
+      allowed_address_pairs: true,
     };
     expect(panelVisible(panel("port-forwardings"), me(), extensions)).toBe(
       true,

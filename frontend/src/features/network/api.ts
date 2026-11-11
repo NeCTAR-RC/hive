@@ -1,13 +1,10 @@
-// Queries and mutations for the Network dashboard, keyed under
-// `['project', pid, 'network', ...]`: networks, subnets and ports, routers,
-// floating IPs and their port forwardings, trunks, the topology payload,
-// and the security groups compute shares.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the Network dashboard, keyed by
+// `queryKeys.network`: networks, subnets and ports, routers, floating IPs
+// and their port forwardings, trunks, the topology payload, and the
+// security groups compute shares.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
+import type { Items } from "../../lib/api/types/common";
 import type {
   AddInterfaceRequest,
   AddInterfaceResult,
@@ -17,7 +14,7 @@ import type {
   FloatingIpTarget,
   HostRoute,
   InterfaceCandidate,
-  Items,
+  MyAddress,
   Network,
   NetworkCreateRequest,
   NetworkDetail,
@@ -25,6 +22,7 @@ import type {
   NetworkOptions,
   NetworkQuota,
   Port,
+  PortAddressPair,
   PortCreateRequest,
   PortForwarding,
   PortForwardingRequest,
@@ -35,6 +33,7 @@ import type {
   RuleCreate,
   RulePresets,
   SecurityGroup,
+  SecurityGroupDetail,
   SecurityGroupRule,
   SubnetCreateRequest,
   SubnetDetail,
@@ -44,32 +43,26 @@ import type {
   TrunkCreateRequest,
   TrunkOptions,
   TrunkSubportRequest,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/network";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, pollWhile, staleTimes } from "../../lib/queries";
+import { queryKeys, userKeys } from "../../lib/queryKeys";
 import { isTransitional } from "./status";
 
-export function networkKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "network", ...rest] as const;
-}
+const keys = queryKeys.network;
 
 export type NetworkPurpose = "boot" | "router" | "any";
-
-const POLL_MS = 5000;
 
 function pollWhileBusy<T extends { status: string | null }>(query: {
   state: { data?: Items<T> | undefined };
 }) {
-  return query.state.data?.items.some(isTransitional) ? POLL_MS : false;
+  return pollWhile(query, query.state.data?.items.some(isTransitional));
 }
 
 export function networksQuery(projectId: string, purpose: NetworkPurpose) {
   return queryOptions({
-    queryKey: networkKey(projectId, "networks", purpose),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Network>>("/api/network/networks", {
-        signal,
-        query: { purpose },
-      }),
+    queryKey: keys.networks.list(projectId, { purpose }),
+    queryFn: getJson<Items<Network>>("/api/network/networks", { purpose }),
     staleTime: staleTimes.list,
   });
 }
@@ -78,268 +71,261 @@ export function networksQuery(projectId: string, purpose: NetworkPurpose) {
  * floating networks, classic first (Horizon's project networks table). */
 export function panelNetworksQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "networks", "panel"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Network>>("/api/network/networks", {
-        signal,
-        query: { purpose: "any", external: "true" },
-      }),
+    queryKey: keys.networks.list(projectId, { purpose: "any", external: true }),
+    queryFn: getJson<Items<Network>>("/api/network/networks", {
+      purpose: "any",
+      external: "true",
+    }),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
     refetchInterval: pollWhileBusy,
   });
 }
 
 export function networkQuery(projectId: string, networkId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "networks", "detail", networkId),
-    queryFn: ({ signal }) =>
-      apiFetch<NetworkDetail>(`/api/network/networks/${networkId}`, { signal }),
+    queryKey: keys.networks.detail(projectId, networkId),
+    queryFn: getJson<NetworkDetail>(`/api/network/networks/${networkId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function subnetQuery(projectId: string, subnetId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "subnets", subnetId),
-    queryFn: ({ signal }) =>
-      apiFetch<SubnetDetail>(`/api/network/subnets/${subnetId}`, { signal }),
+    queryKey: keys.subnets.detail(projectId, subnetId),
+    queryFn: getJson<SubnetDetail>(`/api/network/subnets/${subnetId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function portQuery(projectId: string, portId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "ports", "detail", portId),
-    queryFn: ({ signal }) =>
-      apiFetch<Port>(`/api/network/ports/${portId}`, { signal }),
+    queryKey: keys.ports.detail(projectId, portId),
+    queryFn: getJson<Port>(`/api/network/ports/${portId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function attachablePortsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "ports", "boot"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<AttachablePort>>("/api/network/ports", {
-        signal,
-        query: { purpose: "boot" },
-      }),
+    queryKey: keys.ports.list(projectId, { purpose: "boot" }),
+    queryFn: getJson<Items<AttachablePort>>("/api/network/ports", {
+      purpose: "boot",
+    }),
     staleTime: staleTimes.list,
   });
 }
 
 export function networkOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "options"),
-    queryFn: ({ signal }) =>
-      apiFetch<NetworkOptions>("/api/network/options", { signal }),
+    queryKey: keys.options.all(projectId),
+    queryFn: getJson<NetworkOptions>("/api/network/options"),
     staleTime: staleTimes.list,
   });
 }
 
 export function networkExtensionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "extensions"),
-    queryFn: ({ signal }) =>
-      apiFetch<NetworkExtensions>("/api/network/extensions", { signal }),
+    queryKey: keys.extensions.all(projectId),
+    queryFn: getJson<NetworkExtensions>("/api/network/extensions"),
     staleTime: staleTimes.static,
   });
 }
 
 export function networkQuotaQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "quota"),
-    queryFn: ({ signal }) =>
-      apiFetch<NetworkQuota>("/api/network/quota", { signal }),
+    queryKey: keys.quota.all(projectId),
+    queryFn: getJson<NetworkQuota>("/api/network/quota"),
     staleTime: staleTimes.list,
   });
 }
 
 export function topologyQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "topology"),
-    queryFn: ({ signal }) =>
-      apiFetch<Topology>("/api/network/topology", { signal }),
+    queryKey: keys.topology.all(projectId),
+    queryFn: getJson<Topology>("/api/network/topology"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
   });
 }
 
 export function routersQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "routers"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Router>>("/api/network/routers", { signal }),
+    queryKey: keys.routers.list(projectId),
+    queryFn: getJson<Items<Router>>("/api/network/routers"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
     refetchInterval: pollWhileBusy,
   });
 }
 
 export function routerQuery(projectId: string, routerId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "routers", routerId),
-    queryFn: ({ signal }) =>
-      apiFetch<RouterDetail>(`/api/network/routers/${routerId}`, { signal }),
+    queryKey: keys.routers.detail(projectId, routerId),
+    queryFn: getJson<RouterDetail>(`/api/network/routers/${routerId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function interfaceCandidatesQuery(projectId: string, routerId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "routers", routerId, "candidates"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<InterfaceCandidate>>(
-        `/api/network/routers/${routerId}/interface-candidates`,
-        { signal },
-      ),
-    staleTime: 0,
+    queryKey: [
+      ...keys.routers.detail(projectId, routerId),
+      "interface-candidates",
+    ],
+    queryFn: getJson<Items<InterfaceCandidate>>(
+      `/api/network/routers/${routerId}/interface-candidates`,
+    ),
+    staleTime: staleTimes.none,
   });
 }
 
 export function floatingIpsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "floating-ips"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<FloatingIp>>("/api/network/floating-ips", { signal }),
+    queryKey: keys.floatingIps.list(projectId),
+    queryFn: getJson<Items<FloatingIp>>("/api/network/floating-ips"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
   });
 }
 
 export function floatingIpTargetsQuery(projectId: string, instanceId?: string) {
   return queryOptions({
-    queryKey: networkKey(
-      projectId,
-      "floating-ips",
-      "targets",
-      instanceId ?? "",
+    queryKey: [...keys.floatingIps.all(projectId), "targets", instanceId ?? ""],
+    queryFn: getJson<Items<FloatingIpTarget>>(
+      "/api/network/floating-ips/targets",
+      instanceId ? { instance_id: instanceId } : {},
     ),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<FloatingIpTarget>>("/api/network/floating-ips/targets", {
-        signal,
-        query: instanceId ? { instance_id: instanceId } : {},
-      }),
-    staleTime: 0,
+    staleTime: staleTimes.none,
   });
 }
 
 export function portForwardingsQuery(projectId: string, floatingIpId?: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "port-forwardings", floatingIpId ?? ""),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<PortForwarding>>("/api/network/port-forwardings", {
-        signal,
-        query: floatingIpId ? { floating_ip_id: floatingIpId } : {},
-      }),
+    queryKey: keys.portForwardings.list(projectId, {
+      floatingIpId: floatingIpId ?? "",
+    }),
+    queryFn: getJson<Items<PortForwarding>>(
+      "/api/network/port-forwardings",
+      floatingIpId ? { floating_ip_id: floatingIpId } : {},
+    ),
     staleTime: staleTimes.list,
   });
 }
 
 export function trunksQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "trunks"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Trunk>>("/api/network/trunks", { signal }),
+    queryKey: keys.trunks.list(projectId),
+    queryFn: getJson<Items<Trunk>>("/api/network/trunks"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
   });
 }
 
 export function trunkQuery(projectId: string, trunkId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "trunks", trunkId),
-    queryFn: ({ signal }) =>
-      apiFetch<Trunk>(`/api/network/trunks/${trunkId}`, { signal }),
+    queryKey: keys.trunks.detail(projectId, trunkId),
+    queryFn: getJson<Trunk>(`/api/network/trunks/${trunkId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function trunkOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "trunks", "options"),
-    queryFn: ({ signal }) =>
-      apiFetch<TrunkOptions>("/api/network/trunks/options", { signal }),
-    staleTime: 0,
+    queryKey: [...keys.trunks.all(projectId), "options"],
+    queryFn: getJson<TrunkOptions>("/api/network/trunks/options"),
+    staleTime: staleTimes.none,
   });
 }
 
 export function securityGroupsQuery(projectId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "security-groups"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<SecurityGroup>>("/api/network/security-groups", {
-        signal,
-      }),
+    queryKey: keys.securityGroups.list(projectId),
+    queryFn: getJson<Items<SecurityGroup>>("/api/network/security-groups"),
     staleTime: staleTimes.list,
   });
 }
 
 export function securityGroupQuery(projectId: string, groupId: string) {
   return queryOptions({
-    queryKey: networkKey(projectId, "security-groups", groupId),
-    queryFn: ({ signal }) =>
-      apiFetch<Required<SecurityGroup>>(
-        `/api/network/security-groups/${groupId}`,
-        { signal },
-      ),
+    queryKey: keys.securityGroups.detail(projectId, groupId),
+    queryFn: getJson<SecurityGroupDetail>(
+      `/api/network/security-groups/${groupId}`,
+    ),
     staleTime: staleTimes.detail,
   });
 }
 
 export const rulePresetsQuery = queryOptions({
-  queryKey: ["security-group-presets"],
-  queryFn: ({ signal }) =>
-    apiFetch<RulePresets>("/api/network/security-group-presets", { signal }),
+  queryKey: userKeys.securityGroupPresets.all(),
+  queryFn: getJson<RulePresets>("/api/network/security-group-presets"),
   staleTime: Infinity,
 });
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return (...rest: unknown[]) =>
-    queryClient.invalidateQueries({ queryKey: networkKey(projectId, ...rest) });
-}
+/**
+ * The browser's own address as the backend sees it, for a security group
+ * rule open to the user alone. It is the user's, not the project's, and
+ * changes only when the user moves network, so it is read once a session.
+ */
+export const myAddressQuery = queryOptions({
+  queryKey: userKeys.myAddress.all(),
+  queryFn: getJson<MyAddress>("/api/network/my-address"),
+  staleTime: Infinity,
+});
 
-// Floating IP changes show on the instance pages too.
-function useInvalidateCompute(projectId: string) {
-  const queryClient = useQueryClient();
-  return (resource: string) =>
-    queryClient.invalidateQueries({
-      queryKey: ["project", projectId, "compute", resource],
-    });
-}
+/** What a network write marks stale: the networks, quota and topology. */
+export const networkWriteKeys = [
+  keys.networks.all,
+  keys.quota.all,
+  keys.topology.all,
+];
+/** What a subnet create or delete marks stale: its network and the quota. */
+export const subnetWriteKeys = [keys.networks.all, keys.quota.all];
+/** What a port create or delete marks stale: its network and the quota. */
+export const portWriteKeys = [
+  keys.networks.all,
+  keys.ports.all,
+  keys.quota.all,
+];
+/** What a router write marks stale: the routers, quota and topology. */
+export const routerWriteKeys = [
+  keys.routers.all,
+  keys.quota.all,
+  keys.topology.all,
+];
+/** What a router interface write marks stale: both ends and the topology. */
+export const routerInterfaceWriteKeys = [
+  keys.routers.all,
+  keys.networks.all,
+  keys.topology.all,
+];
+/** What a change to a router's static routes marks stale. */
+export const routerRouteWriteKeys = [keys.routers.all];
+/** What a floating IP write marks stale, the instances it reaches too. */
+export const floatingIpWriteKeys = [
+  keys.floatingIps.all,
+  keys.quota.all,
+  queryKeys.compute.instances.all,
+];
+/** What a port forwarding write marks stale, its IP's rule count too. */
+export const portForwardingWriteKeys = [
+  keys.portForwardings.all,
+  keys.floatingIps.all,
+];
+/** What a trunk or subport write marks stale, the ports it binds too. */
+export const trunkWriteKeys = [keys.trunks.all, keys.ports.all];
+/** What a security group or rule write marks stale. */
+export const securityGroupWriteKeys = [keys.securityGroups.all];
 
-async function deleteAll(paths: string[]) {
-  const results = await Promise.allSettled(
-    paths.map((path) => apiFetch<void>(path, { method: "DELETE" })),
-  );
-  const failed = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  if (failed) throw failed.reason;
-}
-
-// --- networks, subnets and ports ---------------------------------------------
-
-export function useCreateNetwork(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateNetwork() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: NetworkCreateRequest) =>
       apiFetch<Network>("/api/network/networks", {
         method: "POST",
         json: body,
       }),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("quota");
-      await invalidate("topology");
-    },
+    onSettled: () => invalidate(...networkWriteKeys),
   });
 }
 
-export function useUpdateNetwork(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateNetwork() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       networkId,
@@ -353,40 +339,31 @@ export function useUpdateNetwork(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("networks"),
+    onSettled: () => invalidate(keys.networks.all),
   });
 }
 
-export function useDeleteNetworks(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/networks/${id}`)),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("quota");
-      await invalidate("topology");
-    },
+/** Deletes one network; a batch sends it per network. */
+export function deleteNetwork(networkId: string) {
+  return apiFetch<void>(`/api/network/networks/${networkId}`, {
+    method: "DELETE",
   });
 }
 
-export function useCreateSubnet(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateSubnet() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: SubnetCreateRequest) =>
       apiFetch<SubnetDetail>("/api/network/subnets", {
         method: "POST",
         json: body,
       }),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("quota");
-    },
+    onSettled: () => invalidate(...subnetWriteKeys),
   });
 }
 
-export function useUpdateSubnet(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateSubnet() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       subnetId,
@@ -396,83 +373,89 @@ export function useUpdateSubnet(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("subnets");
-    },
+    onSettled: () => invalidate(keys.networks.all, keys.subnets.all),
   });
 }
 
-export function useDeleteSubnets(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/subnets/${id}`)),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("quota");
-    },
+/** Deletes one subnet; a batch sends it per subnet. */
+export function deleteSubnet(subnetId: string) {
+  return apiFetch<void>(`/api/network/subnets/${subnetId}`, {
+    method: "DELETE",
   });
 }
 
-export function useCreatePort(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreatePort() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: PortCreateRequest) =>
       apiFetch<Port>("/api/network/ports", { method: "POST", json: body }),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("ports");
-      await invalidate("quota");
-    },
+    onSettled: () => invalidate(...portWriteKeys),
   });
 }
 
-export function useUpdatePort(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdatePort() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({ portId, ...body }: PortUpdateRequest & { portId: string }) =>
       apiFetch<Port>(`/api/network/ports/${portId}`, {
         method: "PATCH",
         json: body,
       }),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("ports");
+    onSettled: () => invalidate(keys.networks.all, keys.ports.all),
+  });
+}
+
+/**
+ * Replaces a port's allowed address pairs with `pairs`. Neutron keeps the
+ * list whole, so adding or deleting pairs sends the list that should
+ * remain.
+ */
+export function setAllowedAddressPairs(
+  portId: string,
+  pairs: PortAddressPair[],
+) {
+  return apiFetch<Port>(`/api/network/ports/${portId}/allowed-address-pairs`, {
+    method: "PUT",
+    json: {
+      pairs: pairs.map((pair) =>
+        pair.mac_address
+          ? { ip_address: pair.ip_address, mac_address: pair.mac_address }
+          : { ip_address: pair.ip_address },
+      ),
     },
   });
 }
 
-export function useDeletePorts(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useSetAllowedAddressPairs() {
+  const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/ports/${id}`)),
-    onSettled: async () => {
-      await invalidate("networks");
-      await invalidate("ports");
-      await invalidate("quota");
-    },
+    mutationFn: ({
+      portId,
+      pairs,
+    }: {
+      portId: string;
+      pairs: PortAddressPair[];
+    }) => setAllowedAddressPairs(portId, pairs),
+    onSettled: () => invalidate(keys.ports.all),
   });
 }
 
-// --- routers -----------------------------------------------------------------
+/** Deletes one port; a batch sends it per port. */
+export function deletePort(portId: string) {
+  return apiFetch<void>(`/api/network/ports/${portId}`, { method: "DELETE" });
+}
 
-export function useCreateRouter(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateRouter() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: RouterCreateRequest) =>
       apiFetch<Router>("/api/network/routers", { method: "POST", json: body }),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("quota");
-      await invalidate("topology");
-    },
+    onSettled: () => invalidate(...routerWriteKeys),
   });
 }
 
-export function useUpdateRouter(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateRouter() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       routerId,
@@ -486,25 +469,19 @@ export function useUpdateRouter(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("routers"),
+    onSettled: () => invalidate(keys.routers.all),
   });
 }
 
-export function useDeleteRouters(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/routers/${id}`)),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("quota");
-      await invalidate("topology");
-    },
+/** Deletes one router; a batch sends it per router. */
+export function deleteRouter(routerId: string) {
+  return apiFetch<void>(`/api/network/routers/${routerId}`, {
+    method: "DELETE",
   });
 }
 
-export function useSetGateway(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useSetGateway() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       routerId,
@@ -517,29 +494,19 @@ export function useSetGateway(projectId: string) {
         method: "PUT",
         json: { network_id: networkId },
       }),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("topology");
-    },
+    onSettled: () => invalidate(keys.routers.all, keys.topology.all),
   });
 }
 
-export function useClearGateway(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (routerId: string) =>
-      apiFetch<Router>(`/api/network/routers/${routerId}/gateway`, {
-        method: "DELETE",
-      }),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("topology");
-    },
+/** Clears one router's external gateway; a batch sends it per router. */
+export function clearGateway(routerId: string) {
+  return apiFetch<Router>(`/api/network/routers/${routerId}/gateway`, {
+    method: "DELETE",
   });
 }
 
-export function useAddInterface(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useAddInterface() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       routerId,
@@ -549,31 +516,34 @@ export function useAddInterface(projectId: string) {
         `/api/network/routers/${routerId}/interfaces`,
         { method: "POST", json: body },
       ),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("networks");
-      await invalidate("topology");
-    },
+    onSettled: () => invalidate(...routerInterfaceWriteKeys),
   });
 }
 
-export function useRemoveInterface(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({ routerId, portId }: { routerId: string; portId: string }) =>
-      apiFetch<void>(`/api/network/routers/${routerId}/interfaces/${portId}`, {
-        method: "DELETE",
-      }),
-    onSettled: async () => {
-      await invalidate("routers");
-      await invalidate("networks");
-      await invalidate("topology");
-    },
+/**
+ * Removes one interface (or the gateway port) from a router; a batch sends
+ * it per interface.
+ */
+export function removeInterface(routerId: string, portId: string) {
+  return apiFetch<void>(
+    `/api/network/routers/${routerId}/interfaces/${portId}`,
+    { method: "DELETE" },
+  );
+}
+
+/**
+ * Replaces a router's static routes with `routes`. Neutron keeps the list
+ * whole, so adding or deleting routes sends the list that should remain.
+ */
+export function setRouterRoutes(routerId: string, routes: HostRoute[]) {
+  return apiFetch<Router>(`/api/network/routers/${routerId}/routes`, {
+    method: "PUT",
+    json: { routes },
   });
 }
 
-export function useSetRoutes(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useSetRoutes() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       routerId,
@@ -581,94 +551,118 @@ export function useSetRoutes(projectId: string) {
     }: {
       routerId: string;
       routes: HostRoute[];
-    }) =>
-      apiFetch<Router>(`/api/network/routers/${routerId}/routes`, {
-        method: "PUT",
-        json: { routes },
-      }),
-    onSettled: () => invalidate("routers"),
+    }) => setRouterRoutes(routerId, routes),
+    onSettled: () => invalidate(...routerRouteWriteKeys),
   });
 }
 
-// --- floating IPs ------------------------------------------------------------
-
-export function useAllocateFloatingIp(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useAllocateFloatingIp() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: FloatingIpAllocateRequest) =>
       apiFetch<FloatingIp>("/api/network/floating-ips", {
         method: "POST",
         json: body,
       }),
-    onSettled: async () => {
-      await invalidate("floating-ips");
-      await invalidate("quota");
-    },
+    onSettled: () => invalidate(...floatingIpWriteKeys),
   });
 }
 
-export function useAssociateFloatingIp(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
+/**
+ * The floating IP to associate: one the project holds, or a new one
+ * allocated from a pool first (`allocateFrom`, the floating network).
+ */
+export type AssociateFloatingIpVariables = {
+  portId: string;
+  fixedIp?: string;
+} & ({ floatingIpId: string } | { allocateFrom: string });
+
+/** Associates a floating IP the project holds with a port address. */
+function associateFloatingIp(
+  floatingIpId: string,
+  portId: string,
+  fixedIp: string | undefined,
+) {
+  return apiFetch<FloatingIp>(
+    `/api/network/floating-ips/${floatingIpId}/associate`,
+    {
+      method: "POST",
+      json: {
+        port_id: portId,
+        ...(fixedIp ? { fixed_ip_address: fixedIp } : {}),
+      },
+    },
+  );
+}
+
+/**
+ * Associates a floating IP with a port, allocating it first when asked
+ * (Horizon's "+" beside the IP list in the associate form). When the
+ * allocation succeeds but the association does not, the error names the
+ * new address, which stays with the project.
+ */
+export function useAssociateFloatingIp() {
+  const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({
-      floatingIpId,
-      portId,
-      fixedIp,
-    }: {
-      floatingIpId: string;
-      portId: string;
-      fixedIp?: string;
-    }) =>
-      apiFetch<FloatingIp>(
-        `/api/network/floating-ips/${floatingIpId}/associate`,
+    mutationFn: async (variables: AssociateFloatingIpVariables) => {
+      if ("floatingIpId" in variables) {
+        return associateFloatingIp(
+          variables.floatingIpId,
+          variables.portId,
+          variables.fixedIp,
+        );
+      }
+      const allocated = await apiFetch<FloatingIp>(
+        "/api/network/floating-ips",
         {
           method: "POST",
-          json: {
-            port_id: portId,
-            ...(fixedIp ? { fixed_ip_address: fixedIp } : {}),
-          },
+          json: { floating_network_id: variables.allocateFrom },
         },
-      ),
-    onSettled: async () => {
-      await invalidate("floating-ips");
-      await invalidateCompute("instances");
+      );
+      try {
+        return await associateFloatingIp(
+          allocated.id,
+          variables.portId,
+          variables.fixedIp,
+        );
+      } catch (error) {
+        // Keeps the error's kind (a 401 still ends the session) and says
+        // which address is now the project's.
+        if (error instanceof Error) {
+          error.message = `allocated ${allocated.floating_ip_address ?? allocated.id}, but could not associate it: ${error.message}`;
+        }
+        throw error;
+      }
     },
+    onSettled: () => invalidate(...floatingIpWriteKeys),
   });
 }
 
-export function useDisassociateFloatingIp(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
+/** Disassociates one floating IP from its port; it stays allocated. */
+export function disassociateFloatingIp(floatingIpId: string) {
+  return apiFetch<FloatingIp>(
+    `/api/network/floating-ips/${floatingIpId}/disassociate`,
+    { method: "POST" },
+  );
+}
+
+export function useDisassociateFloatingIp() {
+  const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (floatingIpId: string) =>
-      apiFetch<FloatingIp>(
-        `/api/network/floating-ips/${floatingIpId}/disassociate`,
-        { method: "POST", json: {} },
-      ),
-    onSettled: async () => {
-      await invalidate("floating-ips");
-      await invalidateCompute("instances");
-    },
+    mutationFn: disassociateFloatingIp,
+    onSettled: () => invalidate(...floatingIpWriteKeys),
   });
 }
 
-export function useReleaseFloatingIps(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/floating-ips/${id}`)),
-    onSettled: async () => {
-      await invalidate("floating-ips");
-      await invalidate("quota");
-      await invalidateCompute("instances");
-    },
+/** Releases one floating IP from the project; a batch sends it per IP. */
+export function releaseFloatingIp(floatingIpId: string) {
+  return apiFetch<void>(`/api/network/floating-ips/${floatingIpId}`, {
+    method: "DELETE",
   });
 }
 
-export function useCreatePortForwarding(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreatePortForwarding() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       floatingIpId,
@@ -678,15 +672,12 @@ export function useCreatePortForwarding(projectId: string) {
         `/api/network/floating-ips/${floatingIpId}/port-forwardings`,
         { method: "POST", json: body },
       ),
-    onSettled: async () => {
-      await invalidate("port-forwardings");
-      await invalidate("floating-ips");
-    },
+    onSettled: () => invalidate(...portForwardingWriteKeys),
   });
 }
 
-export function useUpdatePortForwarding(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdatePortForwarding() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       floatingIpId,
@@ -700,43 +691,29 @@ export function useUpdatePortForwarding(projectId: string) {
         `/api/network/floating-ips/${floatingIpId}/port-forwardings/${ruleId}`,
         { method: "PATCH", json: body },
       ),
-    onSettled: () => invalidate("port-forwardings"),
+    onSettled: () => invalidate(keys.portForwardings.all),
   });
 }
 
-export function useDeletePortForwardings(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (rules: { floatingIpId: string; ruleId: string }[]) =>
-      deleteAll(
-        rules.map(
-          (r) =>
-            `/api/network/floating-ips/${r.floatingIpId}/port-forwardings/${r.ruleId}`,
-        ),
-      ),
-    onSettled: async () => {
-      await invalidate("port-forwardings");
-      await invalidate("floating-ips");
-    },
-  });
+/** Deletes one port forwarding rule; a batch sends it per rule. */
+export function deletePortForwarding(floatingIpId: string, ruleId: string) {
+  return apiFetch<void>(
+    `/api/network/floating-ips/${floatingIpId}/port-forwardings/${ruleId}`,
+    { method: "DELETE" },
+  );
 }
 
-// --- trunks ------------------------------------------------------------------
-
-export function useCreateTrunk(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateTrunk() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: TrunkCreateRequest) =>
       apiFetch<Trunk>("/api/network/trunks", { method: "POST", json: body }),
-    onSettled: async () => {
-      await invalidate("trunks");
-      await invalidate("ports");
-    },
+    onSettled: () => invalidate(...trunkWriteKeys),
   });
 }
 
-export function useUpdateTrunk(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateTrunk() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       trunkId,
@@ -751,24 +728,17 @@ export function useUpdateTrunk(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("trunks"),
+    onSettled: () => invalidate(keys.trunks.all),
   });
 }
 
-export function useDeleteTrunks(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/network/trunks/${id}`)),
-    onSettled: async () => {
-      await invalidate("trunks");
-      await invalidate("ports");
-    },
-  });
+/** Deletes one trunk; a batch sends it per trunk. */
+export function deleteTrunk(trunkId: string) {
+  return apiFetch<void>(`/api/network/trunks/${trunkId}`, { method: "DELETE" });
 }
 
-export function useAddSubports(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useAddSubports() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       trunkId,
@@ -781,44 +751,32 @@ export function useAddSubports(projectId: string) {
         method: "POST",
         json: { sub_ports: subports },
       }),
-    onSettled: () => invalidate("trunks"),
+    onSettled: () => invalidate(...trunkWriteKeys),
   });
 }
 
-export function useRemoveSubports(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({
-      trunkId,
-      portIds,
-    }: {
-      trunkId: string;
-      portIds: string[];
-    }) =>
-      apiFetch<Trunk>(`/api/network/trunks/${trunkId}/subports/remove`, {
-        method: "POST",
-        json: { port_ids: portIds },
-      }),
-    onSettled: () => invalidate("trunks"),
+/** Removes subports from a trunk in one request; the ports themselves stay. */
+export function removeSubports(trunkId: string, portIds: string[]) {
+  return apiFetch<Trunk>(`/api/network/trunks/${trunkId}/subports/remove`, {
+    method: "POST",
+    json: { port_ids: portIds },
   });
 }
 
-// --- security groups ---------------------------------------------------------
-
-export function useCreateSecurityGroup(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateSecurityGroup() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: { name: string; description: string }) =>
-      apiFetch<SecurityGroup>("/api/network/security-groups", {
+      apiFetch<SecurityGroupDetail>("/api/network/security-groups", {
         method: "POST",
         json: body,
       }),
-    onSettled: () => invalidate("security-groups"),
+    onSettled: () => invalidate(...securityGroupWriteKeys),
   });
 }
 
-export function useUpdateSecurityGroup(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateSecurityGroup() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       groupId,
@@ -828,43 +786,37 @@ export function useUpdateSecurityGroup(projectId: string) {
       name?: string;
       description?: string;
     }) =>
-      apiFetch<SecurityGroup>(`/api/network/security-groups/${groupId}`, {
+      apiFetch<SecurityGroupDetail>(`/api/network/security-groups/${groupId}`, {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("security-groups"),
+    onSettled: () => invalidate(...securityGroupWriteKeys),
   });
 }
 
-export function useDeleteSecurityGroups(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (groupIds: string[]) =>
-      deleteAll(groupIds.map((id) => `/api/network/security-groups/${id}`)),
-    onSettled: () => invalidate("security-groups"),
+/** Deletes one security group; a batch sends it per group. */
+export function deleteSecurityGroup(groupId: string) {
+  return apiFetch<void>(`/api/network/security-groups/${groupId}`, {
+    method: "DELETE",
   });
 }
 
-export function useCreateRule(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateRule() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({ groupId, ...body }: RuleCreate & { groupId: string }) =>
       apiFetch<SecurityGroupRule>(
         `/api/network/security-groups/${groupId}/rules`,
         { method: "POST", json: body },
       ),
-    onSettled: () => invalidate("security-groups"),
+    onSettled: () => invalidate(...securityGroupWriteKeys),
   });
 }
 
-export function useDeleteRule(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({ groupId, ruleId }: { groupId: string; ruleId: string }) =>
-      apiFetch<void>(
-        `/api/network/security-groups/${groupId}/rules/${ruleId}`,
-        { method: "DELETE" },
-      ),
-    onSettled: () => invalidate("security-groups"),
-  });
+/** Deletes one rule from a security group; a batch sends it per rule. */
+export function deleteSecurityGroupRule(groupId: string, ruleId: string) {
+  return apiFetch<void>(
+    `/api/network/security-groups/${groupId}/rules/${ruleId}`,
+    { method: "DELETE" },
+  );
 }

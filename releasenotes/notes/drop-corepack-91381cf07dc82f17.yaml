@@ -1,0 +1,12 @@
+---
+upgrade:
+  - |
+    The frontend now needs Node 26: the image builds on ``node:26-alpine``
+    and ``frontend/package.json`` requires ``node >=26``.
+  - |
+    The frontend no longer runs pnpm through corepack, which Node 25 and
+    later no longer ship. ``tox -e frontend``, ``tox -e e2e`` and the dev
+    scripts now call ``pnpm`` directly, so build hosts need a global pnpm
+    (``npm install -g pnpm``); it switches itself to the version pinned by
+    ``packageManager`` in ``frontend/package.json``. The image build installs
+    that pinned version with npm.

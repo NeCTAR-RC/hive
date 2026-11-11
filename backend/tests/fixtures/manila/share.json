@@ -1,0 +1,17 @@
+{
+  "id": "sh-1",
+  "name": "data",
+  "status": "available",
+  "size": 5,
+  "share_proto": "CEPHFS",
+  "share_type": "st-1",
+  "share_type_name": "cephfs_share_type",
+  "availability_zone": "ardctest-artm",
+  "is_public": false,
+  "snapshot_support": true,
+  "revert_to_snapshot_support": true,
+  "mount_snapshot_support": true,
+  "metadata": {
+    "owner": "me"
+  }
+}

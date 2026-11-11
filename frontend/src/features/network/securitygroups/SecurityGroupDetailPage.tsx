@@ -1,292 +1,152 @@
+// A security group's detail page: its fields, and its rules with add and
+// delete.
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { Button } from "@ardc-ui/react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { ApiError } from "../../../lib/api/client";
-import type { SecurityGroupRule } from "../../../lib/api/types";
+import { toRowActions } from "../../../lib/actions";
+import type { SecurityGroupRule } from "../../../lib/api/types/network";
 import { formatDateTime } from "../../../lib/format";
-import { notify } from "../../../lib/notify";
-import { useProjectId } from "../../../lib/useProject";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { securityGroupRoute } from "../../../app/router";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
 import {
+  deleteSecurityGroupRule,
   securityGroupQuery,
+  securityGroupWriteKeys,
   securityGroupsQuery,
-  useDeleteRule,
-  useDeleteSecurityGroups,
 } from "../api";
-import { AddRuleDialog, EditSecurityGroupDialog } from "./SecurityGroupDialogs";
-import { portRange } from "./rules";
+import { availableSecurityGroupActions } from "../status";
+import { useSecurityGroupActions } from "./SecurityGroupActions";
+import { AddRuleDialog } from "./dialogs/AddRuleDialog";
+import { describeRule } from "./rules";
+import { useRuleColumns } from "./useRuleColumns";
 import styles from "./SecurityGroupDetailPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+
+const securityGroupRoute = getRouteApi("/app/network/security-groups/$groupId");
 
 const CRUMBS = [
   { label: "Project" },
   { label: "Network" },
-  { label: "Security Groups", href: "/network/security-groups" },
+  { label: "Security groups", href: "/network/security-groups" },
 ];
 
+/** One security group with its actions in the header and its rules. */
 export function SecurityGroupDetailPage() {
   const projectId = useProjectId();
   const { groupId } = securityGroupRoute.useParams();
   const navigate = useNavigate();
   const group = useQuery(securityGroupQuery(projectId, groupId));
   const groups = useQuery(securityGroupsQuery(projectId));
-  const removeRule = useDeleteRule(projectId);
-  const removeGroup = useDeleteSecurityGroups(projectId);
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [deletingGroup, setDeletingGroup] = useState(false);
-  const [deletingRule, setDeletingRule] = useState<SecurityGroupRule | null>(
-    null,
+  const actions = useSecurityGroupActions(
+    () => void navigate({ to: "/network/security-groups" }),
   );
+  const [addingRule, setAddingRule] = useState(false);
 
   const groupNames = useMemo(
     () => new Map((groups.data?.items ?? []).map((g) => [g.id, g.name])),
     [groups.data],
   );
+  const describe = (rule: SecurityGroupRule) => describeRule(rule, groupNames);
+  const rules = useBulkAction<SecurityGroupRule, "delete">({
+    noun: { one: "rule", many: "rules" },
+    name: describe,
+    getId: (rule) => rule.id,
+    invalidates: securityGroupWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        request: (rule) => deleteSecurityGroupRule(groupId, rule.id),
+        title: (targets) =>
+          targets.length === 1
+            ? "Delete rule?"
+            : `Delete ${targets.length} rules?`,
+        body: (targets) =>
+          targets.map((rule) => <p key={rule.id}>{describe(rule)}</p>),
+      },
+    },
+  });
 
-  const columns = useMemo<ColumnDef<SecurityGroupRule>[]>(
-    () => [
-      {
-        id: "direction",
-        label: "Direction",
-        isRowHeader: true,
-        cell: (row) => (row.direction === "ingress" ? "Ingress" : "Egress"),
-        sortValue: (row) => row.direction,
-      },
-      {
-        id: "ethertype",
-        label: "Ether type",
-        cell: (row) => row.ethertype,
-        sortValue: (row) => row.ethertype,
-        hideBelow: "md",
-      },
-      {
-        id: "protocol",
-        label: "Protocol",
-        cell: (row) => (row.protocol ?? "Any").toUpperCase(),
-        sortValue: (row) => row.protocol ?? "",
-      },
-      {
-        id: "ports",
-        label: "Port range",
-        cell: (row) => portRange(row),
-        sortValue: (row) => row.port_range_min ?? -1,
-      },
-      {
-        id: "remote",
-        label: "Remote",
-        cell: (row) =>
-          row.remote_group_id ? (
-            <span>
-              {groupNames.get(row.remote_group_id) ?? row.remote_group_id}
-            </span>
-          ) : (
-            <span className={styles.remote}>
-              <code>{row.remote_ip_prefix ?? "Any"}</code>
-              {row.open_to_the_world && (
-                <StatusPill tone="warning">Open to the internet</StatusPill>
-              )}
-            </span>
-          ),
-        sortValue: (row) => row.remote_ip_prefix ?? row.remote_group_id ?? "",
-      },
-      {
-        id: "description",
-        label: "Description",
-        cell: (row) => row.description,
-        hideBelow: "lg",
-      },
-    ],
-    [groupNames],
-  );
+  const columns = useRuleColumns(groupNames);
 
-  if (group.isError) {
-    const notFound =
-      group.error instanceof ApiError && group.error.status === 404;
-    return (
-      <>
-        <PageHeader
-          title={notFound ? "Security group not found" : "Security group"}
-          crumbs={CRUMBS}
-        />
-        {notFound ? (
-          <p>
-            There is no security group with id <code>{groupId}</code> in this
-            project.{" "}
-            <RouteLink to="/network/security-groups">
-              Back to security groups
-            </RouteLink>
-          </p>
-        ) : (
-          <ErrorState
-            error={group.error}
-            onRetry={() => void group.refetch()}
-          />
-        )}
-      </>
-    );
-  }
-
-  const data = group.data;
-  const isDefault = data?.name === "default";
   return (
     <>
-      <PageHeader
-        title={data?.name ?? "Security group"}
+      <DetailPage
+        query={group}
+        noun="security group"
+        id={groupId}
         crumbs={CRUMBS}
-        actions={
-          data && (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onPress={() => setEditing(true)}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                tone="danger"
-                isDisabled={isDefault}
-                onPress={() => setDeletingGroup(true)}
-              >
-                Delete
-              </Button>
-            </>
-          )
-        }
-      />
-      <div className={styles.stack}>
-        <Panel title="Security group">
-          {!data ? (
-            <SkeletonLines lines={4} />
-          ) : (
-            <KeyValueList
-              items={[
-                { label: "Name", value: data.name },
-                { label: "ID", value: <code>{data.id}</code> },
-                { label: "Description", value: data.description },
-                { label: "Created", value: formatDateTime(data.created_at) },
-              ]}
-            />
-          )}
-        </Panel>
-        <section aria-labelledby="rules-heading">
-          <h2 id="rules-heading" className={styles.rulesHeading}>
-            Rules
-          </h2>
-          <DataTable
-            id="security-group-rules"
-            label="Rules"
-            columns={columns}
-            rows={data?.rules}
-            getRowId={(row) => row.id}
-            isLoading={group.isPending}
-            isFetching={group.isFetching}
-            onRefresh={() => void group.refetch()}
-            emptyTitle="No rules"
-            emptyBody={
-              <p>
-                Without ingress rules nothing can reach instances in this group.
-              </p>
-            }
-            defaultSort={{ column: "direction", direction: "ascending" }}
-            toolbarActions={
-              <Button
-                size="xs"
-                onPress={() => setAdding(true)}
-                isDisabled={!data}
-              >
-                Add rule
-              </Button>
-            }
-            rowActions={(row) => [
-              {
-                id: "delete",
-                label: "Delete rule",
-                tone: "danger",
-                onAction: () => setDeletingRule(row),
-              },
-            ]}
+        backTo={{ label: "security groups", href: "/network/security-groups" }}
+        title={(data) => data.name}
+        actions={(data) => (
+          <RowActionsMenu
+            actions={toRowActions(availableSecurityGroupActions(data), (id) =>
+              actions.run(id, [data]),
+            )}
           />
-        </section>
-      </div>
-      {adding && data && (
-        <AddRuleDialog
-          projectId={projectId}
-          group={data}
-          onClose={() => setAdding(false)}
-        />
-      )}
-      {editing && data && (
-        <EditSecurityGroupDialog
-          projectId={projectId}
-          group={data}
-          onClose={() => setEditing(false)}
-        />
-      )}
-      <ConfirmDialog
-        isOpen={deletingRule !== null}
-        onOpenChange={(open) => !open && setDeletingRule(null)}
-        title="Delete rule?"
-        confirmLabel="Delete"
-        isPending={removeRule.isPending}
-        error={removeRule.error}
-        onConfirm={() => {
-          if (!deletingRule) return;
-          removeRule.mutate(
-            { groupId, ruleId: deletingRule.id },
-            {
-              onSuccess: () => {
-                notify.success("Rule deleted.");
-                setDeletingRule(null);
-              },
-            },
-          );
-        }}
-      >
-        {deletingRule && (
-          <p>
-            {deletingRule.direction}{" "}
-            {(deletingRule.protocol ?? "any").toUpperCase()}{" "}
-            {portRange(deletingRule)} from{" "}
-            {deletingRule.remote_ip_prefix ??
-              groupNames.get(deletingRule.remote_group_id ?? "") ??
-              "any"}
-          </p>
         )}
-      </ConfirmDialog>
-      <ConfirmDialog
-        isOpen={deletingGroup}
-        onOpenChange={setDeletingGroup}
-        title={`Delete security group ${data?.name ?? ""}?`}
-        confirmLabel="Delete"
-        isPending={removeGroup.isPending}
-        error={removeGroup.error}
-        onConfirm={() => {
-          removeGroup.mutate([groupId], {
-            onSuccess: () => {
-              notify.success(`Security group ${data?.name} deleted.`);
-              void navigate({ to: "/network/security-groups" });
-            },
-          });
-        }}
       >
-        <p>A group still applied to an instance cannot be deleted.</p>
-      </ConfirmDialog>
+        {(data) => (
+          <div className={styles.stack}>
+            <Panel title="Security group">
+              <KeyValueList
+                items={[
+                  { label: "Name", value: data.name },
+                  { label: "ID", value: <code>{data.id}</code> },
+                  { label: "Description", value: data.description },
+                  { label: "Created", value: formatDateTime(data.created_at) },
+                ]}
+              />
+            </Panel>
+            <Panel title="Rules">
+              <DataTable
+                id="security-group-rules"
+                label="Rules"
+                columns={columns}
+                rows={data.rules}
+                getRowId={(row) => row.id}
+                {...rules.tableProps}
+                isFetching={group.isFetching}
+                onRefresh={() => void group.refetch()}
+                emptyTitle="No rules"
+                emptyBody={
+                  <p>
+                    Without ingress rules nothing can reach instances in this
+                    group.
+                  </p>
+                }
+                defaultSort={{ column: "direction", direction: "ascending" }}
+                toolbarActions={
+                  <Button size="xs" onPress={() => setAddingRule(true)}>
+                    Add rule
+                  </Button>
+                }
+                rowActions={(row) => [
+                  {
+                    id: "delete",
+                    label: "Delete rule",
+                    tone: "danger",
+                    onAction: () => rules.run("delete", [row]),
+                  },
+                ]}
+              />
+            </Panel>
+          </div>
+        )}
+      </DetailPage>
+      {addingRule && group.data && (
+        <AddRuleDialog
+          group={group.data}
+          onClose={() => setAddingRule(false)}
+        />
+      )}
+      {actions.dialogs}
+      {rules.dialog}
     </>
   );
 }

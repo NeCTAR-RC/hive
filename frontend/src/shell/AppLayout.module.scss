@@ -1,29 +1,74 @@
 @use "mixins" as *;
 
+/// The signed-in frame: the service header over the body, a column that
+/// fills the app root under the mega menu exactly, so the window never
+/// scrolls (Horizon's layout, Hakkim 2026-10-21). It lays the canvas the
+/// sidebar and the page stand on (Grey-50) over the window's white; the
+/// header paints its own surface over it.
 .page {
   display: flex;
+  background: var(--hive-color-canvas);
+  flex: 1;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: 0;
 }
 
+/// The dashboard frame under the header: fluid across the window, as a data
+/// dashboard needs for its tables (Hakkim, 2026-10-15; gap "Dashboard
+/// content width"). It takes the rest of the frame's height, and the sidebar
+/// and the content column beside it each scroll within it, as Horizon's
+/// sidebar and content body do (Hakkim, 2026-10-21). It draws nothing of its
+/// own: the frame's canvas shows behind it, and the sidebar and the page
+/// are the panels on it ("Sidebar left" layout).
 .body {
-  flex: 1;
   display: flex;
-  align-items: stretch;
-  width: 100%;
-  min-width: 0;
+  flex: 1;
+  min-height: 0;
 }
 
-.main {
+/// The content column beside the sidebar: the page, then the agency footer
+/// at its end, scrolling together (Horizon puts its footer inside the
+/// content column). Two grid rows: the page takes at least the room the
+/// footer leaves, so a short page still sets the footer at the column's
+/// foot, and neither row ever shrinks below its content. The one column
+/// track is held to the column's width, so a wide table scrolls inside its
+/// own wrapper rather than widening the page. Positioned, so text hidden
+/// for screen readers inside it scrolls and clips with it rather than
+/// stretching the window.
+.content {
+  position: relative;
+  display: grid;
   flex: 1;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
-  padding: var(--hive-gutter);
+  overflow-y: auto;
+}
+
+/// The page's `main` ("Sidebar left" layout): one panel on the canvas, a
+/// gutter in from the column's edges and from the footer below it, its
+/// content a gutter in from the panel's. The panel is as tall as its page,
+/// so a short page leaves canvas above the footer. It takes focus from
+/// script after a navigation (`tabindex="-1"`) and shows no ring for it, as
+/// the global focus rule leaves such targets.
+.main {
+  @include panel-surface;
+
+  align-self: start;
+  margin: var(--hive-gutter);
+  // The rule is part of the inset, so the content sits a whole gutter in
+  // from the panel's edge, as it does in the sidebar's panel.
+  padding: calc(var(--hive-gutter) - var(--hive-border-width));
+
+  // On a phone the gutter twice over (margin and padding) would leave the
+  // page a quarter narrower than the window; the smaller inset keeps the
+  // panel readable while the canvas still shows around it.
+  @include down($bp-md) {
+    margin: var(--hive-space-4);
+    padding: calc(var(--hive-space-4) - var(--hive-border-width));
+  }
 
   &:focus {
     outline: none;
-  }
-
-  @include up($bp-lg) {
-    padding: var(--hive-space-6) var(--hive-space-8);
   }
 }

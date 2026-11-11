@@ -1,0 +1,17 @@
+@use "mixins" as *;
+
+/// The status pill under a detail page's title, 8px below it, as the
+/// instance page's status row (DERIVED-SPACING, 8px).
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hive-space-2);
+  margin-top: var(--hive-space-2);
+}
+
+/// Metadata pairs, one to a line 8px apart (library `sidebar-block-list`,
+/// the related list's row gap).
+.metadata {
+  @include sidebar-block-list;
+}

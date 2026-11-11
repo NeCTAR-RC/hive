@@ -4,9 +4,8 @@
 #   scripts/dev-stack.sh start     redis (docker compose), the API on :8000
 #                                  with reload and Vite on :5173
 #   scripts/dev-stack.sh restart   restart the API and Vite (redis and your
-#                                  session stay); use after backend edits,
-#                                  uvicorn's reload misses them on machines
-#                                  at the inotify watch limit
+#                                  session stay), for example after a
+#                                  settings change in .env
 #   scripts/dev-stack.sh stop      stop everything, redis included
 #   scripts/dev-stack.sh status    what is up, with log paths
 #   scripts/dev-stack.sh login [next]
@@ -25,7 +24,6 @@ RUN=.dev
 API_PORT=8000
 VITE_PORT=5173
 LOGIN_PORT=8765
-export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 mkdir -p "$RUN"
 
 # The API entry point: an existing tox or venv install if there is one,
@@ -111,7 +109,7 @@ start_services() {
   if alive vite; then
     echo "Vite already running (pid $(cat "$RUN/vite.pid"))"
   else
-    spawn vite bash -c "cd frontend && exec corepack pnpm dev"
+    spawn vite bash -c "cd frontend && exec pnpm dev"
   fi
   if ! wait_http "http://127.0.0.1:$API_PORT/healthz" 60; then
     echo "the API did not come up; see $RUN/api.log" >&2

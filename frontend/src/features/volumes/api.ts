@@ -1,169 +1,140 @@
-// Queries and mutations for the Volumes panels, keyed under
-// `['project', pid, 'volumes', ...]`. Attach and detach also touch the
-// instance's volume list, and upload to image touches the images list.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the Volumes panels, keyed by
+// `queryKeys.volumes`. Attach and detach also touch the instance's volume
+// list, and upload to image touches the images list.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
+import type { Accepted, Items } from "../../lib/api/types/common";
 import type {
   BackupCreateRequest,
-  Items,
+  MetadataUpdateRequest,
   RestoreRequest,
   RestoreResult,
+  RetypeRequest,
   SnapshotCreateRequest,
+  TransferAcceptRequest,
+  TransferCreateRequest,
   Volume,
+  VolumeAttached,
   VolumeBackup,
   VolumeCreateRequest,
+  VolumeExtended,
   VolumeLimits,
+  VolumeMetadataSaved,
   VolumeOptions,
   VolumeSnapshot,
+  VolumeTransferAccepted,
+  VolumeTransferCreated,
   VolumeUpdateRequest,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
-import { instancesQuery } from "../compute/api";
+  VolumeUploadedToImage,
+} from "../../lib/api/types/volumes";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, pollWhile, staleTimes } from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
 import { isTransitional } from "./status";
 
-export function volumesKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "volumes", ...rest] as const;
-}
-
-const POLL_MS = 5000;
+const keys = queryKeys.volumes;
 
 export function volumesQuery(projectId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "list"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<Volume>>("/api/volumes", { signal }),
+    queryKey: keys.volumes.list(projectId),
+    queryFn: getJson<Items<Volume>>("/api/volumes"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
     refetchInterval: (query) =>
-      query.state.data?.items.some(isTransitional) ? POLL_MS : false,
+      pollWhile(query, query.state.data?.items.some(isTransitional)),
   });
 }
 
 export function volumeQuery(projectId: string, volumeId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "list", volumeId),
-    queryFn: ({ signal }) =>
-      apiFetch<Volume>(`/api/volumes/${volumeId}`, { signal }),
+    queryKey: keys.volumes.detail(projectId, volumeId),
+    queryFn: getJson<Volume>(`/api/volumes/${volumeId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
+      pollWhile(query, query.state.data && isTransitional(query.state.data)),
   });
 }
 
 export function snapshotsQuery(projectId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "snapshots"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<VolumeSnapshot>>("/api/volumes/snapshots", { signal }),
+    queryKey: keys.snapshots.list(projectId),
+    queryFn: getJson<Items<VolumeSnapshot>>("/api/volumes/snapshots"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
     refetchInterval: (query) =>
-      query.state.data?.items.some(isTransitional) ? POLL_MS : false,
+      pollWhile(query, query.state.data?.items.some(isTransitional)),
   });
 }
 
 export function snapshotQuery(projectId: string, snapshotId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "snapshots", snapshotId),
-    queryFn: ({ signal }) =>
-      apiFetch<VolumeSnapshot>(`/api/volumes/snapshots/${snapshotId}`, {
-        signal,
-      }),
+    queryKey: keys.snapshots.detail(projectId, snapshotId),
+    queryFn: getJson<VolumeSnapshot>(`/api/volumes/snapshots/${snapshotId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
+      pollWhile(query, query.state.data && isTransitional(query.state.data)),
   });
 }
 
 export function backupsQuery(projectId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "backups"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<VolumeBackup>>("/api/volumes/backups", { signal }),
+    queryKey: keys.backups.list(projectId),
+    queryFn: getJson<Items<VolumeBackup>>("/api/volumes/backups"),
     staleTime: staleTimes.list,
-    refetchOnWindowFocus: true,
     refetchInterval: (query) =>
-      query.state.data?.items.some(isTransitional) ? POLL_MS : false,
+      pollWhile(query, query.state.data?.items.some(isTransitional)),
   });
 }
 
 export function backupQuery(projectId: string, backupId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "backups", backupId),
-    queryFn: ({ signal }) =>
-      apiFetch<VolumeBackup>(`/api/volumes/backups/${backupId}`, { signal }),
+    queryKey: keys.backups.detail(projectId, backupId),
+    queryFn: getJson<VolumeBackup>(`/api/volumes/backups/${backupId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data && isTransitional(query.state.data) ? POLL_MS : false,
+      pollWhile(query, query.state.data && isTransitional(query.state.data)),
   });
 }
 
 export function volumeOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "options"),
-    queryFn: ({ signal }) =>
-      apiFetch<VolumeOptions>("/api/volumes/options", { signal }),
+    queryKey: keys.options.all(projectId),
+    queryFn: getJson<VolumeOptions>("/api/volumes/options"),
     staleTime: staleTimes.list,
   });
 }
 
 export function volumeLimitsQuery(projectId: string) {
   return queryOptions({
-    queryKey: volumesKey(projectId, "limits"),
-    queryFn: ({ signal }) =>
-      apiFetch<VolumeLimits>("/api/volumes/limits", { signal }),
+    queryKey: keys.limits.all(projectId),
+    queryFn: getJson<VolumeLimits>("/api/volumes/limits"),
     staleTime: staleTimes.quota,
   });
 }
 
-/** The project's instances, for the Attached To column and the attach
- * picker: the Instances panel's own query, so the 1,000-row list is fetched
- * and cached once and attach/detach (which invalidate it) refresh both. */
-export function attachableInstancesQuery(projectId: string) {
-  return instancesQuery(projectId);
-}
+/**
+ * What creating, extending or deleting a volume or snapshot (and creating
+ * or restoring a backup) marks stale: the whole service, because the
+ * lists read each other (a volume's `has_snapshots`, a snapshot's volume
+ * name) and the project's limits count them all.
+ */
+export const volumeServiceWriteKeys = [keys.service.all];
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return (...rest: unknown[]) =>
-    queryClient.invalidateQueries({ queryKey: volumesKey(projectId, ...rest) });
-}
+/**
+ * What deleting a backup marks stale: the backups, and the limits that
+ * count them (Create backup greys out on the backup quota).
+ */
+export const backupWriteKeys = [keys.backups.all, keys.limits.all];
 
-// Attach, detach and upload to image change what the Compute panels show
-// too (an instance's volumes, the images list), so those keys go stale.
-function useInvalidateCompute(projectId: string) {
-  const queryClient = useQueryClient();
-  return (resource: string) =>
-    queryClient.invalidateQueries({
-      queryKey: ["project", projectId, "compute", resource],
-    });
-}
-
-async function deleteAll(paths: string[]) {
-  const results = await Promise.allSettled(
-    paths.map((path) => apiFetch<void>(path, { method: "DELETE" })),
-  );
-  const failed = results.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-  if (failed) throw failed.reason;
-}
-
-export function useCreateVolume(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateVolume() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: VolumeCreateRequest) =>
       apiFetch<Volume>("/api/volumes", { method: "POST", json: body }),
-    onSettled: () => invalidate(),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
   });
 }
 
-export function useUpdateVolume(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateVolume() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       volumeId,
@@ -173,21 +144,97 @@ export function useUpdateVolume(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("list"),
+    onSettled: () => invalidate(keys.volumes.all),
   });
 }
 
-export function useDeleteVolumes(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+/** What carries metadata here: a volume or a volume snapshot, by id. */
+export interface MetadataTarget {
+  kind: "volume" | "snapshot";
+  id: string;
+}
+
+/**
+ * Replaces the metadata of a volume or a snapshot; keys left out are
+ * removed. Only the target's own kind is marked stale.
+ */
+export function useSetMetadata() {
+  const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/volumes/${id}`)),
-    onSettled: () => invalidate(),
+    mutationFn: ({
+      kind,
+      id,
+      ...body
+    }: MetadataTarget & MetadataUpdateRequest) =>
+      apiFetch<VolumeMetadataSaved>(
+        kind === "volume"
+          ? `/api/volumes/${id}/metadata`
+          : `/api/volumes/snapshots/${id}/metadata`,
+        { method: "PUT", json: body },
+      ),
+    onSettled: (_data, _error, { kind }) =>
+      invalidate(kind === "volume" ? keys.volumes.all : keys.snapshots.all),
   });
 }
 
-export function useExtendVolume(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useRetypeVolume() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ volumeId, ...body }: RetypeRequest & { volumeId: string }) =>
+      apiFetch<Accepted>(`/api/volumes/${volumeId}/retype`, {
+        method: "POST",
+        json: body,
+      }),
+    onSettled: () => invalidate(keys.volumes.all),
+  });
+}
+
+/** Offers the volume to another project; the reply holds the one-time key. */
+export function useCreateTransfer() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({
+      volumeId,
+      ...body
+    }: TransferCreateRequest & { volumeId: string }) =>
+      apiFetch<VolumeTransferCreated>(`/api/volumes/${volumeId}/transfer`, {
+        method: "POST",
+        json: body,
+      }),
+    onSettled: () => invalidate(keys.volumes.all),
+  });
+}
+
+/** Cancels the transfer waiting on one volume; a batch sends it per volume. */
+export function cancelTransfer(volumeId: string) {
+  return apiFetch<void>(`/api/volumes/${volumeId}/transfer`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Takes a volume another project offered. The volume and the quota it
+ * uses arrive in this project, so the whole service is marked stale.
+ */
+export function useAcceptTransfer() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (body: TransferAcceptRequest) =>
+      apiFetch<VolumeTransferAccepted>("/api/volumes/transfers/accept", {
+        method: "POST",
+        json: body,
+      }),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
+  });
+}
+
+/** Deletes one volume; a batch sends it per volume. */
+export function deleteVolume(volumeId: string) {
+  return apiFetch<void>(`/api/volumes/${volumeId}`, { method: "DELETE" });
+}
+
+export function useExtendVolume() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       volumeId,
@@ -196,17 +243,16 @@ export function useExtendVolume(projectId: string) {
       volumeId: string;
       newSize: number;
     }) =>
-      apiFetch<{ status: string }>(`/api/volumes/${volumeId}/extend`, {
+      apiFetch<VolumeExtended>(`/api/volumes/${volumeId}/extend`, {
         method: "POST",
         json: { new_size: newSize },
       }),
-    onSettled: () => invalidate(),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
   });
 }
 
-export function useAttachVolume(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
+export function useAttachVolume() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       volumeId,
@@ -217,45 +263,45 @@ export function useAttachVolume(projectId: string) {
       instanceId: string;
       device?: string;
     }) =>
-      apiFetch<{ status: string; device: string | null }>(
-        `/api/volumes/${volumeId}/attach`,
-        {
-          method: "POST",
-          json: { instance_id: instanceId, ...(device ? { device } : {}) },
-        },
-      ),
-    onSettled: async () => {
-      await invalidate("list");
-      await invalidateCompute("instances");
-    },
-  });
-}
-
-export function useDetachVolume(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
-  return useMutation({
-    mutationFn: ({
-      volumeId,
-      instanceId,
-    }: {
-      volumeId: string;
-      instanceId: string;
-    }) =>
-      apiFetch<{ status: string }>(`/api/volumes/${volumeId}/detach`, {
+      apiFetch<VolumeAttached>(`/api/volumes/${volumeId}/attach`, {
         method: "POST",
-        json: { instance_id: instanceId },
+        json: { instance_id: instanceId, ...(device ? { device } : {}) },
       }),
-    onSettled: async () => {
-      await invalidate("list");
-      await invalidateCompute("instances");
-    },
+    onSettled: () =>
+      invalidate(keys.volumes.all, queryKeys.compute.instances.all),
   });
 }
 
-export function useUploadToImage(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  const invalidateCompute = useInvalidateCompute(projectId);
+/** What attaching or detaching a volume marks stale: both sides. */
+export const volumeAttachmentWriteKeys = [
+  keys.volumes.all,
+  queryKeys.compute.instances.all,
+];
+
+/** Detaches one volume from one instance. */
+export function detachVolume({
+  volumeId,
+  instanceId,
+}: {
+  volumeId: string;
+  instanceId: string;
+}) {
+  return apiFetch<Accepted>(`/api/volumes/${volumeId}/detach`, {
+    method: "POST",
+    json: { instance_id: instanceId },
+  });
+}
+
+export function useDetachVolume() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: detachVolume,
+    onSettled: () => invalidate(...volumeAttachmentWriteKeys),
+  });
+}
+
+export function useUploadToImage() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       volumeId,
@@ -266,31 +312,28 @@ export function useUploadToImage(projectId: string) {
       disk_format: string;
       force: boolean;
     }) =>
-      apiFetch<{ status: string; image_id: string | null }>(
+      apiFetch<VolumeUploadedToImage>(
         `/api/volumes/${volumeId}/upload-to-image`,
         { method: "POST", json: body },
       ),
-    onSettled: async () => {
-      await invalidate("list");
-      await invalidateCompute("images");
-    },
+    onSettled: () => invalidate(keys.volumes.all, queryKeys.compute.images.all),
   });
 }
 
-export function useCreateSnapshot(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateSnapshot() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: SnapshotCreateRequest) =>
       apiFetch<VolumeSnapshot>("/api/volumes/snapshots", {
         method: "POST",
         json: body,
       }),
-    onSettled: () => invalidate(),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
   });
 }
 
-export function useUpdateSnapshot(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateSnapshot() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       snapshotId,
@@ -304,42 +347,38 @@ export function useUpdateSnapshot(projectId: string) {
         method: "PATCH",
         json: body,
       }),
-    onSettled: () => invalidate("snapshots"),
+    onSettled: () => invalidate(keys.snapshots.all),
   });
 }
 
-export function useDeleteSnapshots(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/volumes/snapshots/${id}`)),
-    onSettled: () => invalidate(),
+/** Deletes one volume snapshot; a batch sends it per snapshot. */
+export function deleteSnapshot(snapshotId: string) {
+  return apiFetch<void>(`/api/volumes/snapshots/${snapshotId}`, {
+    method: "DELETE",
   });
 }
 
-export function useCreateBackup(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateBackup() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: BackupCreateRequest) =>
       apiFetch<VolumeBackup>("/api/volumes/backups", {
         method: "POST",
         json: body,
       }),
-    onSettled: () => invalidate(),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
   });
 }
 
-export function useDeleteBackups(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (ids: string[]) =>
-      deleteAll(ids.map((id) => `/api/volumes/backups/${id}`)),
-    onSettled: () => invalidate("backups"),
+/** Deletes one volume backup; a batch sends it per backup. */
+export function deleteBackup(backupId: string) {
+  return apiFetch<void>(`/api/volumes/backups/${backupId}`, {
+    method: "DELETE",
   });
 }
 
-export function useRestoreBackup(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useRestoreBackup() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       backupId,
@@ -349,6 +388,6 @@ export function useRestoreBackup(projectId: string) {
         method: "POST",
         json: body,
       }),
-    onSettled: () => invalidate(),
+    onSettled: () => invalidate(...volumeServiceWriteKeys),
   });
 }

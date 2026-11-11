@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { ReservationFlavor } from "../../lib/api/types";
+import type { ReservationFlavor } from "../../lib/api/types/reservations";
 import {
   addDays,
+  barColumn,
   buildRows,
+  dateSpan,
   dayFromOffset,
+  dayLabel,
   eligibleDays,
   ganttRange,
+  monthColumns,
   monthSpans,
+  plural,
+  searchCoverage,
   selectionFor,
   spanDays,
-  tipPosition,
+  type GanttBar,
 } from "./gantt";
 
 const flavor: ReservationFlavor = {
@@ -51,6 +57,19 @@ describe("gantt range", () => {
     expect(addDays("2026-10-30", 3)).toBe("2026-11-02");
     expect(spanDays("2026-10-01", "2026-10-07")).toBe(7);
     expect(spanDays("2026-10-07", "2026-10-01")).toBe(0);
+  });
+
+  it("says when the search stopped short of the chart", () => {
+    const range = { last: "2027-01-31" };
+    expect(searchCoverage(range, "2027-01-31")).toEqual({
+      searchedTo: "2027-01-31",
+      clamped: false,
+    });
+    expect(searchCoverage(range, "2027-01-12T00:00:00+00:00")).toEqual({
+      searchedTo: "2027-01-12",
+      clamped: true,
+    });
+    expect(searchCoverage(range, "2028-10-30").clamped).toBe(false);
   });
 
   it("maps a pointer offset to a day in the bar", () => {
@@ -161,27 +180,50 @@ describe("gantt rows", () => {
   });
 });
 
-describe("tipPosition", () => {
-  const viewport = { width: 1000, height: 800 };
-  const size = { width: 200, height: 60 };
-
-  it("sits below and right of the pointer when it fits", () => {
-    expect(tipPosition({ x: 100, y: 100 }, size, viewport)).toEqual({
-      left: 116,
-      top: 116,
-    });
+describe("chart placement", () => {
+  it("starts each month header where its first day sits, after the label column", () => {
+    const days = ["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"];
+    expect(monthColumns(days)).toEqual([
+      { label: "October 2026", count: 2, column: 2 },
+      { label: "November 2026", count: 2, column: 4 },
+    ]);
   });
 
-  it("flips left and above near the right and bottom edges", () => {
-    expect(tipPosition({ x: 900, y: 780 }, size, viewport)).toEqual({
-      left: 684,
-      top: 704,
-    });
+  it.each([
+    ["a one-day bar", { from: 0, to: 0 }, "1 / span 1"],
+    ["a bar mid-track", { from: 11, to: 20 }, "12 / span 10"],
+  ])("places %s on the track", (_, columns, expected) => {
+    const bar: GanttBar = {
+      kind: "free",
+      id: "bar",
+      first: "2026-10-12",
+      last: "2026-10-21",
+      note: null,
+      slot: null,
+      ...columns,
+    };
+    expect(barColumn(bar)).toBe(expected);
+  });
+});
+
+describe("chart labels", () => {
+  it("labels a day header with the day of the month", () => {
+    expect(dayLabel("2026-10-05")).toBe("05");
+    expect(dayLabel("2026-10-31")).toBe("31");
   });
 
-  it("never goes past the top or left edge", () => {
-    expect(
-      tipPosition({ x: 50, y: 30 }, { width: 990, height: 790 }, viewport),
-    ).toEqual({ left: 0, top: 0 });
+  it.each([
+    [0, "0 days"],
+    [1, "1 day"],
+    [7, "7 days"],
+  ])("counts %i as %s", (count, expected) => {
+    expect(plural(count, "day", "days")).toBe(expected);
+  });
+
+  it("names a span by its first and last day, or one day alone", () => {
+    expect(dateSpan("2026-10-12", "2026-10-31")).toBe(
+      "12 Oct 2026 to 31 Oct 2026",
+    );
+    expect(dateSpan("2026-10-12", "2026-10-12")).toBe("12 Oct 2026");
   });
 });

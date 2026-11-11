@@ -20,13 +20,18 @@ import html
 import http.server
 import json
 import os
-import shlex
+from pathlib import Path
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 import webbrowser
+
+# The credentials parser is shared with the live tests; it lives in the
+# package (standard library only), which this script runs beside.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from hive.devtools.cred import read_cred
 
 FORM = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Hive dev login</title></head>
@@ -38,24 +43,6 @@ FORM = """<!doctype html>
 <noscript><button type="submit">Continue</button></noscript>
 </form></body></html>
 """
-
-
-def read_cred(path: str) -> dict:
-    """Parse ``export KEY=VALUE`` (or ``KEY=VALUE``) lines."""
-    values = {}
-    with open(path, encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("export "):
-                line = line[len("export ") :]
-            if "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            parts = shlex.split(value) if value else [""]
-            values[key.strip()] = parts[0] if parts else ""
-    return values
 
 
 def credentials(args) -> dict:
@@ -125,7 +112,7 @@ class OneShotHandler(http.server.BaseHTTPRequestHandler):
     page = b""
     served = False
 
-    def do_GET(self):  # noqa: N802 - http.server API
+    def do_GET(self):  # http.server's name for the GET handler
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -135,7 +122,7 @@ class OneShotHandler(http.server.BaseHTTPRequestHandler):
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def log_message(self, format: str, *args) -> None:
-        return
+        """Silence the per-request log: the page carries the token."""
 
 
 def serve_once(page: bytes, port: int) -> str:

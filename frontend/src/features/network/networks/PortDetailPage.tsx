@@ -1,28 +1,40 @@
+// A port's detail page: its fields, addresses, device and groups.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { RowActionsMenu } from "../../../components/DataTable/DataTable";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
+import { AppLink } from "../../../components/AppLink/AppLink";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
+import { Panel } from "../../../components/Panel/Panel";
 import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import { ApiError } from "../../../lib/api/client";
+import { toRowActions } from "../../../lib/actions";
 import { formatDateTime } from "../../../lib/format";
-import { useProjectId } from "../../../lib/useProject";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { portRoute } from "../../../app/router";
-import { networkQuery, portQuery, securityGroupsQuery } from "../api";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
+import {
+  networkExtensionsQuery,
+  networkQuery,
+  portQuery,
+  securityGroupsQuery,
+} from "../api";
 import {
   adminStateLabel,
   availablePortActions,
-  portAttachmentLabel,
   statusLabel,
   statusTone,
 } from "../status";
-import { usePortActions } from "./NetworkActions";
+import { AddressPairsPanel } from "./AddressPairsPanel";
+import { AttachedDevice } from "./AttachedDevice";
+import { usePortActions } from "./PortActions";
 import styles from "./NetworkDetailPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
 
+const portRoute = getRouteApi("/app/network/ports/$portId");
+
+/**
+ * One port with its actions in the header, and its allowed address pairs
+ * where the cloud has the extension and the port keeps port security on
+ * (Neutron refuses pairs without it), as Horizon's tab is offered.
+ */
 export function PortDetailPage() {
   const projectId = useProjectId();
   const { portId } = portRoute.useParams();
@@ -34,12 +46,13 @@ export function PortDetailPage() {
     enabled: networkId !== "",
   });
   const groups = useQuery(securityGroupsQuery(projectId));
+  const extensions = useQuery(networkExtensionsQuery(projectId));
+  const pairsOffered = extensions.data?.allowed_address_pairs ?? false;
   const groupNames = useMemo(
     () => new Map((groups.data?.items ?? []).map((g) => [g.id, g.name])),
     [groups.data],
   );
   const actions = usePortActions(
-    projectId,
     network.data,
     () =>
       void navigate({
@@ -62,163 +75,148 @@ export function PortDetailPage() {
       : []),
   ];
 
-  if (port.isError) {
-    const notFound =
-      port.error instanceof ApiError && port.error.status === 404;
-    return (
-      <>
-        <PageHeader
-          title={notFound ? "Port not found" : "Port"}
-          crumbs={crumbs}
-        />
-        {notFound ? (
-          <p>
-            There is no port <code>{portId}</code> visible to this project.{" "}
-            <RouteLink to="/network/networks" search={{}}>
-              Back to networks
-            </RouteLink>
-          </p>
-        ) : (
-          <ErrorState error={port.error} onRetry={() => void port.refetch()} />
-        )}
-      </>
-    );
-  }
-
-  const data = port.data;
   return (
     <>
-      <PageHeader
-        title={data ? data.name || data.id : "Port"}
+      <DetailPage
+        query={port}
+        noun="port"
+        id={portId}
+        scope="visible"
         crumbs={crumbs}
-        actions={
-          data && (
-            <RowActionsMenu
-              actions={availablePortActions(data).map((action) => ({
-                id: action.id,
-                label: action.label,
-                onAction: () => actions.run(data, action.id),
-                isDisabled: action.isDisabled,
-                ...(action.disabledReason
-                  ? { disabledReason: action.disabledReason }
-                  : {}),
-                ...(action.tone ? { tone: action.tone } : {}),
-              }))}
-            />
-          )
-        }
-      />
-      <div className={styles.overview}>
-        {!data ? (
-          <SkeletonLines lines={10} />
-        ) : (
-          <KeyValueList
-            items={[
-              { label: "Name", value: data.name },
-              { label: "ID", value: <code>{data.id}</code> },
-              {
-                label: "Network",
-                value: data.network_id ? (
-                  <RouteLink
-                    to="/network/networks/$networkId"
-                    params={{ networkId: data.network_id }}
-                    search={{}}
-                  >
-                    {data.network_name ?? data.network_id}
-                  </RouteLink>
-                ) : null,
-              },
-              {
-                label: "Status",
-                value: (
-                  <StatusPill tone={statusTone(data.status)}>
-                    {statusLabel(data.status)}
-                  </StatusPill>
-                ),
-              },
-              {
-                label: "Admin state",
-                value: adminStateLabel(data.admin_state_up),
-              },
-              {
-                label: "Fixed IPs",
-                value:
-                  data.fixed_ips.length === 0 ? null : (
-                    <ul className={styles.plainList}>
-                      {data.fixed_ips.map((ip) => (
-                        <li key={`${ip.ip_address}-${ip.subnet_id}`}>
-                          <code>{ip.ip_address}</code>
-                          {ip.subnet_id && (
-                            <>
-                              {" on subnet "}
-                              <RouteLink
-                                to="/network/subnets/$subnetId"
-                                params={{ subnetId: ip.subnet_id }}
-                              >
-                                {network.data?.subnets.find(
-                                  (s) => s.id === ip.subnet_id,
-                                )?.name || ip.subnet_id}
-                              </RouteLink>
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ),
-              },
-              { label: "MAC address", value: <code>{data.mac_address}</code> },
-              { label: "Attached device", value: portAttachmentLabel(data) },
-              {
-                label: "Device ID",
-                value: data.device_id ? (
-                  data.device_type === "compute" ? (
-                    <RouteLink
-                      to="/compute/instances/$instanceId"
-                      params={{ instanceId: data.device_id }}
-                      search={{}}
-                    >
-                      {data.device_id}
-                    </RouteLink>
-                  ) : (
-                    <code>{data.device_id}</code>
-                  )
-                ) : null,
-              },
-              { label: "Device owner", value: data.device_owner || null },
-              {
-                label: "Port security",
-                value:
-                  data.port_security_enabled === null
-                    ? null
-                    : data.port_security_enabled
-                      ? "Enabled"
-                      : "Disabled",
-              },
-              {
-                label: "Security groups",
-                value:
-                  data.security_groups.length === 0 ? null : (
-                    <ul className={styles.plainList}>
-                      {data.security_groups.map((id) => (
-                        <li key={id}>
-                          <RouteLink
-                            to="/network/security-groups/$groupId"
-                            params={{ groupId: id }}
-                          >
-                            {groupNames.get(id) ?? id}
-                          </RouteLink>
-                        </li>
-                      ))}
-                    </ul>
-                  ),
-              },
-              { label: "VNIC type", value: data.vnic_type },
-              { label: "Created", value: formatDateTime(data.created_at) },
-              { label: "Updated", value: formatDateTime(data.updated_at) },
-            ]}
+        backTo={{ label: "networks", href: "/network/networks" }}
+        title={(data) => data.name || data.id}
+        actions={(data) => (
+          <RowActionsMenu
+            actions={toRowActions(availablePortActions(data), (id) =>
+              actions.run(id, [data]),
+            )}
           />
         )}
-      </div>
+      >
+        {(data) => (
+          <div className={styles.stack}>
+            <Panel title="Port">
+              <KeyValueList
+                items={[
+                  { label: "Name", value: data.name },
+                  { label: "ID", value: <code>{data.id}</code> },
+                  {
+                    label: "Network",
+                    value: data.network_id ? (
+                      <AppLink
+                        to="/network/networks/$networkId"
+                        params={{ networkId: data.network_id }}
+                        search={{}}
+                      >
+                        {data.network_name ?? data.network_id}
+                      </AppLink>
+                    ) : null,
+                  },
+                  {
+                    label: "Status",
+                    value: (
+                      <StatusPill tone={statusTone(data.status)}>
+                        {statusLabel(data.status)}
+                      </StatusPill>
+                    ),
+                  },
+                  {
+                    label: "Admin state",
+                    value: adminStateLabel(data.admin_state_up),
+                  },
+                  {
+                    label: "Fixed IPs",
+                    value:
+                      data.fixed_ips.length === 0 ? null : (
+                        <ul className={styles.plainList}>
+                          {data.fixed_ips.map((ip) => (
+                            <li key={`${ip.ip_address}-${ip.subnet_id}`}>
+                              <code>{ip.ip_address}</code>
+                              {ip.subnet_id && (
+                                <>
+                                  {" on subnet "}
+                                  <AppLink
+                                    to="/network/subnets/$subnetId"
+                                    params={{ subnetId: ip.subnet_id }}
+                                  >
+                                    {network.data?.subnets.find(
+                                      (s) => s.id === ip.subnet_id,
+                                    )?.name || ip.subnet_id}
+                                  </AppLink>
+                                </>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ),
+                  },
+                  {
+                    label: "MAC address",
+                    value: <code>{data.mac_address}</code>,
+                  },
+                  {
+                    label: "Attached device",
+                    value: <AttachedDevice port={data} />,
+                  },
+                  {
+                    label: "Device ID",
+                    value: data.device_id ? (
+                      data.device_type === "compute" ? (
+                        <AppLink
+                          to="/compute/instances/$instanceId"
+                          params={{ instanceId: data.device_id }}
+                          search={{}}
+                        >
+                          {data.device_id}
+                        </AppLink>
+                      ) : (
+                        <code>{data.device_id}</code>
+                      )
+                    ) : null,
+                  },
+                  { label: "Device owner", value: data.device_owner || null },
+                  {
+                    label: "Port security",
+                    value:
+                      data.port_security_enabled === null
+                        ? null
+                        : data.port_security_enabled
+                          ? "Enabled"
+                          : "Disabled",
+                  },
+                  {
+                    label: "Security groups",
+                    value:
+                      data.security_groups.length === 0 ? null : (
+                        <ul className={styles.plainList}>
+                          {data.security_groups.map((id) => (
+                            <li key={id}>
+                              <AppLink
+                                to="/network/security-groups/$groupId"
+                                params={{ groupId: id }}
+                              >
+                                {groupNames.get(id) ?? id}
+                              </AppLink>
+                            </li>
+                          ))}
+                        </ul>
+                      ),
+                  },
+                  { label: "VNIC type", value: data.vnic_type },
+                  { label: "Created", value: formatDateTime(data.created_at) },
+                  { label: "Updated", value: formatDateTime(data.updated_at) },
+                ]}
+              />
+            </Panel>
+            {pairsOffered && data.port_security_enabled !== false && (
+              <AddressPairsPanel
+                port={data}
+                onRefresh={() => void port.refetch()}
+              />
+            )}
+          </div>
+        )}
+      </DetailPage>
       {actions.dialogs}
     </>
   );

@@ -1,0 +1,7 @@
+---
+fixes:
+  - |
+    Loading ``/auth/login``, ``/terms``, ``/identity/credentials`` or
+    ``/auth/switch/<id>`` directly no longer causes a redirect loop. The
+    Horizon redirect for the trailing-slash form of these paths matched
+    the target path as well and redirected it to itself.

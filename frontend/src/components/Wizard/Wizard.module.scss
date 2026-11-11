@@ -1,0 +1,54 @@
+@use "mixins" as *;
+
+/// "Sidebar right" (layouts spec): the wizard beside its side column, the
+/// column span 4 of the grid (the sidebar block's 384px), 24px apart.
+/// Stacked until the page column has room for both (from 1280px).
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+  align-items: start;
+
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
+  }
+}
+
+/// The wizard's sections (notices, the steps, the error, the buttons) 32px
+/// apart, the content blocks' section gap (library `content-block-stack`);
+/// 32px is also the field group to submit row gap (DERIVED-SPACING).
+.main {
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
+
+  min-width: 0;
+}
+
+/// The notices above the steps, 12px apart (library
+/// `content-block-card-column`); gone when there is none.
+.notices {
+  @include content-block-card-column;
+
+  &:empty {
+    display: none;
+  }
+}
+
+/// A step's panel: the sidebar block chrome (library `sidebar-block`),
+/// which the library `Stepper` sets 24px under its strip
+/// (`$stepper-panel-gap`).
+.step {
+  @include panel;
+}
+
+/// Back and Next (or the submit button): 12px apart, start-aligned, no rule
+/// above (content blocks "Frame 1400").
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--hive-space-3);
+}

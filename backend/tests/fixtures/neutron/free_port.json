@@ -1,0 +1,16 @@
+{
+  "id": "vp-free",
+  "name": "spare",
+  "network_id": "net-priv",
+  "project_id": "p1",
+  "device_id": "",
+  "device_owner": "",
+  "admin_state_up": true,
+  "status": "DOWN",
+  "fixed_ips": [
+    {
+      "subnet_id": "sub-priv",
+      "ip_address": "192.168.1.21"
+    }
+  ]
+}

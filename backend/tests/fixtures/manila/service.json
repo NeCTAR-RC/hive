@@ -1,0 +1,8 @@
+{
+  "id": "ss-1",
+  "name": "corp-ad",
+  "type": "active_directory",
+  "dns_ip": "10.0.0.2",
+  "server": "ad",
+  "domain": "corp"
+}

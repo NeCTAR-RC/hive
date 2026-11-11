@@ -1,17 +1,22 @@
 @use "mixins" as *;
 
+/// The rows stacked 4px apart, the library's label to helper gap, no wider
+/// than a single field (gap "Reorderable list").
 .list {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-1);
-  max-width: 32rem;
-  outline: none;
+  max-width: var(--hive-field-max);
 
   &[data-focus-visible] {
     @include focus-ring;
   }
 }
 
+/// A row: handle, position and name 8px apart (DERIVED-SPACING, 8px), in a
+/// Grey-100 rule at the 4px radius on the surface, as the launch source
+/// list's box (gap "Option list with descriptions"); Grey-50 under the
+/// pointer, as a library table row.
 .item {
   display: flex;
   align-items: center;
@@ -20,36 +25,38 @@
   border: var(--hive-border-width) solid var(--hive-color-rule);
   border-radius: var(--hive-radius);
   background: var(--hive-color-surface);
-  outline: none;
-  transition: background-color var(--hive-transition-fast);
-
-  &[data-focus-visible] {
-    @include focus-ring;
-  }
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-text-body);
+  transition: background-color var(--hive-transition-base);
 
   &[data-hovered] {
     background: var(--hive-color-gray-50);
   }
 
-  // The row being dragged stays in place, faded, while its preview
-  // follows the pointer.
+  &[data-focus-visible] {
+    @include focus-ring;
+  }
+
+  /// The row being dragged stays in its place, faded, while its preview
+  /// follows the pointer (gap "Reorderable list").
   &[data-dragging] {
     opacity: 0.5;
   }
 
+  /// No colour fade for those who ask for less motion.
   @media (prefers-reduced-motion: reduce) {
     transition: none;
   }
 }
 
+/// The drag handle: the 16px icon frame with 4px around it, in Grey-500,
+/// the library field helper colour; a grab cursor while it is the target.
 .handle {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  padding: 0;
+  padding: var(--hive-space-1);
   border: 0;
   border-radius: var(--hive-radius-sm);
   background: none;
@@ -66,28 +73,36 @@
   }
 }
 
-.position {
-  flex: none;
-  min-width: 1.5rem;
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-  font-weight: var(--hive-font-weight-semibold);
+/// The grip glyph in the library's 16px icon frame.
+.grip {
+  width: var(--hive-icon-frame);
+  height: var(--hive-icon-frame);
 }
 
+/// The row's position: Body/14/Bold Grey-500, as wide as the icon frame so
+/// the names line up.
+.position {
+  flex: none;
+  min-width: var(--hive-icon-frame);
+  font: var(--hive-text-body-14-bold);
+  color: var(--hive-color-text-muted);
+}
+
+/// The row's name takes the rest and wraps a long one (long content wraps
+/// inside containers).
 .label {
   flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-// The line between two rows that marks where a drop would land: a hairline
-// kept in the layout so the rows do not jump, purple while it is the target.
+/// Where a drop would land: a line as thick as the library focus ring, kept
+/// in the layout so the rows do not jump, in the brand purple while it is
+/// the target, the library's selected and focus colour.
 .dropIndicator {
-  height: 2px;
-  margin: 0;
+  height: var(--hive-focus-ring-width);
   border-radius: var(--hive-radius-sm);
   background: transparent;
-  outline: none;
 
   &[data-drop-target] {
     background: var(--hive-color-brand-purple);

@@ -1,4 +1,7 @@
+from pydantic import SecretStr
 import pytest
+
+from tests.live.conftest import LIVE_ORIGIN
 
 pytestmark = pytest.mark.live
 
@@ -7,6 +10,7 @@ async def login(live_client, unscoped_token):
     response = await live_client.post(
         "/auth/websso/",
         data={"token": unscoped_token, "tenant_id": ""},
+        headers={"Origin": LIVE_ORIGIN},
         follow_redirects=False,
     )
     assert response.status_code == 303, response.text
@@ -26,7 +30,7 @@ async def test_token_from_token_inherits_expiry(live_app, unscoped_token):
     """Keystone bounds a token issued from a token to the original's
     expiry; the session cap relies on it."""
     keystone = live_app.state.keystone
-    first = await keystone.token_from_token(unscoped_token)
+    first = await keystone.token_from_token(SecretStr(unscoped_token))
     second = await keystone.token_from_token(first.token)
     assert second.expires_at <= first.expires_at
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Volume, VolumeSnapshot } from "../../lib/api/types";
+import type { Volume, VolumeSnapshot } from "../../lib/api/types/volumes";
 import {
   attachmentLabel,
   availableSnapshotActions,
@@ -30,6 +30,7 @@ function volume(overrides: Partial<Volume> = {}): Volume {
     created_at: "2026-10-01T00:00:00Z",
     updated_at: null,
     has_snapshots: false,
+    fault: null,
     ...overrides,
   };
 }
@@ -46,6 +47,8 @@ describe("status presentation", () => {
     expect(statusTone("in-use")).toBe("info");
     expect(statusTone("error_deleting")).toBe("danger");
     expect(statusTone("backing-up")).toBe("progress");
+    expect(statusLabel("awaiting-transfer")).toBe("Awaiting transfer");
+    expect(statusTone("awaiting-transfer")).toBe("warning");
     expect(isTransitional({ status: "extending" })).toBe(true);
     expect(isTransitional({ status: "available" })).toBe(false);
   });
@@ -69,7 +72,10 @@ describe("availableVolumeActions", () => {
       "attachments",
       "snapshot",
       "backup",
+      "retype",
       "upload-to-image",
+      "transfer",
+      "metadata",
       "delete",
     ]);
     const launch = offers.find((o) => o.id === "launch");
@@ -92,6 +98,16 @@ describe("availableVolumeActions", () => {
     expect(offers.find((o) => o.id === "backup")?.isDisabled).toBe(false);
   });
 
+  it("offers transfer for an available volume and cancel while it waits", () => {
+    const inUse = availableVolumeActions(volume({ status: "in-use" }));
+    expect(inUse.find((o) => o.id === "transfer")?.disabledReason).toBe(
+      "Not available while the status is In use",
+    );
+    expect(
+      enabled(availableVolumeActions(volume({ status: "awaiting-transfer" }))),
+    ).toEqual(["cancel-transfer"]);
+  });
+
   it("keeps a volume with snapshots from being deleted", () => {
     const offers = availableVolumeActions(volume({ has_snapshots: true }));
     const del = offers.find((o) => o.id === "delete");
@@ -102,7 +118,9 @@ describe("availableVolumeActions", () => {
   it("disables everything while creating", () => {
     const offers = availableVolumeActions(volume({ status: "creating" }));
     expect(enabled(offers)).toEqual([]);
-    expect(offers[0]?.disabledReason).toMatch(/status is creating/);
+    expect(offers[0]?.disabledReason).toBe(
+      "Not available while the status is Creating",
+    );
   });
 });
 
@@ -127,15 +145,16 @@ describe("availableSnapshotActions", () => {
       "launch",
       "backup",
       "edit",
+      "metadata",
       "delete",
     ]);
     expect(
       enabled(availableSnapshotActions({ ...snapshot, status: "backing-up" })),
     ).toEqual([]);
     const orphan = availableSnapshotActions({ ...snapshot, volume_id: null });
-    expect(enabled(orphan)).not.toContain("backup");
-    expect(orphan.find((a) => a.id === "backup")?.disabledReason).toMatch(
-      /no longer exists/,
-    );
+    expect(orphan.find((action) => action.id === "backup")).toMatchObject({
+      isDisabled: true,
+      disabledReason: "The snapshot's volume no longer exists",
+    });
   });
 });

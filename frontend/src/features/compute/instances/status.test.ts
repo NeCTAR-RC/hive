@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Instance } from "../../../lib/api/types";
+import { allows } from "../../../lib/actions";
+import type { Instance } from "../../../lib/api/types/compute";
+import { splitEligible } from "../../../lib/bulk";
 import {
-  addressSummary,
   availableActions,
-  batchTargets,
   isTransitional,
+  listedAddresses,
+  matchesStatusFilter,
   powerStateLabel,
   statusLabel,
   statusTone,
@@ -75,11 +77,31 @@ describe("status presentation", () => {
     expect(statusTone(instance({ status: "SHUTOFF" }))).toBe("neutral");
   });
 
-  it("marks floating addresses", () => {
-    expect(addressSummary(instance())).toEqual([
-      "203.0.113.5",
-      "203.0.113.9 (floating)",
+  it("lists fixed addresses first, then the floating ones", () => {
+    const [fixed, floating] = instance().addresses;
+    expect(
+      listedAddresses(instance({ addresses: [floating!, fixed!] })),
+    ).toEqual([
+      { addr: "203.0.113.5", floating: false },
+      { addr: "203.0.113.9", floating: true },
     ]);
+  });
+});
+
+describe("powerStateLabel", () => {
+  it("uses Horizon's wording for every Nova power state", () => {
+    expect(powerStateLabel({ power_state: "SHUTOFF" })).toBe("Shut off");
+    expect(powerStateLabel({ power_state: "SHUTDOWN" })).toBe("Shut down");
+    expect(powerStateLabel({ power_state: "RUNNING" })).toBe("Running");
+    expect(powerStateLabel({ power_state: "BUILDING" })).toBe("Building");
+    expect(powerStateLabel({ power_state: "NO STATE" })).toBe("No state");
+    expect(powerStateLabel({ power_state: "" })).toBe("No state");
+  });
+});
+
+describe("statusTone", () => {
+  it("reads a status alone, without the rest of the instance", () => {
+    expect(statusTone({ status: "SHUTOFF", task_state: null })).toBe("neutral");
   });
 });
 
@@ -102,6 +124,24 @@ describe("availableActions", () => {
     expect(offered).not.toContain("console");
   });
 
+  it("lists every action and says why one is unavailable", () => {
+    const actions = availableActions(instance({ status: "SHUTOFF" }));
+    expect(actions).toHaveLength(31);
+    const stop = actions.find((a) => a.id === "stop");
+    expect(stop?.isDisabled).toBe(true);
+    expect(stop?.disabledReason).toBe(
+      "Not available while the status is SHUTOFF",
+    );
+  });
+
+  it("disables everything while the instance is deleted", () => {
+    const actions = availableActions(
+      instance({ task_state: "deleting", status: "ACTIVE" }),
+    );
+    expect(actions.every((a) => a.isDisabled)).toBe(true);
+    expect(actions[0]?.disabledReason).toBe("The instance is being deleted");
+  });
+
   it("disables everything but delete while a task runs", () => {
     const actions = availableActions(instance({ task_state: "rebooting" }));
     const stop = actions.find((a) => a.id === "stop");
@@ -113,9 +153,88 @@ describe("availableActions", () => {
 
   it("keeps a locked instance from being deleted", () => {
     const actions = availableActions(instance({ locked: true }));
-    expect(actions.find((a) => a.id === "delete")?.isDisabled).toBe(true);
-    expect(actions.find((a) => a.id === "unlock")).toBeDefined();
-    expect(actions.find((a) => a.id === "lock")).toBeUndefined();
+    expect(actions.find((a) => a.id === "delete")?.disabledReason).toBe(
+      "Unlock the instance first",
+    );
+    expect(actions.find((a) => a.id === "unlock")?.isDisabled).toBe(false);
+    expect(actions.find((a) => a.id === "lock")?.disabledReason).toBe(
+      "The instance is already locked",
+    );
+  });
+
+  it("disables what Nova refuses on a locked instance", () => {
+    const locked = instance({ locked: true, volumes_attached: ["v1"] });
+    const reasons = new Map(
+      availableActions(locked).map((a) => [a.id, a.disabledReason]),
+    );
+    for (const id of [
+      "stop",
+      "soft-reboot",
+      "hard-reboot",
+      "pause",
+      "suspend",
+      "shelve",
+      "rescue",
+      "resize",
+      "rebuild",
+      "metadata",
+      "attach-interface",
+      "detach-interface",
+      "attach-volume",
+      "detach-volume",
+      "delete",
+    ] as const) {
+      expect(reasons.get(id), id).toBe("Unlock the instance first");
+    }
+    for (const id of [
+      "console",
+      "log",
+      "edit",
+      "security-groups",
+      "snapshot",
+      "associate-fip",
+      "unlock",
+    ] as const) {
+      expect(reasons.get(id), id).toBeUndefined();
+    }
+  });
+
+  it("gives the state reason before the lock", () => {
+    const stop = availableActions(
+      instance({ locked: true, status: "SHUTOFF" }),
+    ).find((a) => a.id === "stop");
+    expect(stop?.disabledReason).toBe(
+      "Not available while the status is SHUTOFF",
+    );
+  });
+
+  it("tells the two resumes apart", () => {
+    const labels = availableActions(instance()).map((a) => a.label);
+    expect(labels).toContain("Unpause instance");
+    expect(labels).toContain("Resume instance");
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("offers detach volume only with a volume attached", () => {
+    const detach = (i: Instance) =>
+      availableActions(i).find((a) => a.id === "detach-volume");
+    expect(detach(instance())?.disabledReason).toBe("No volumes are attached");
+    expect(detach(instance({ volumes_attached: ["v1"] }))?.isDisabled).toBe(
+      false,
+    );
+  });
+
+  it("offers a floating IP only to an instance with a reachable port", () => {
+    const associate = (targets?: ReadonlySet<string>) =>
+      availableActions(instance(), { floatingTargets: targets }).find(
+        (a) => a.id === "associate-fip",
+      );
+    expect(associate(new Set(["other"]))?.disabledReason).toMatch(
+      /classic network/,
+    );
+    expect(associate(new Set(["i-1"]))?.isDisabled).toBe(false);
+    // Not known yet: the dialog explains a missing port.
+    expect(associate(undefined)?.isDisabled).toBe(false);
   });
 
   it("explains why boot-from-volume instances cannot be rebuilt", () => {
@@ -133,47 +252,60 @@ describe("availableActions", () => {
   });
 });
 
-describe("batchTargets", () => {
-  const running = instance({ id: "a", name: "running" });
-  const off = instance({ id: "b", name: "off", status: "SHUTOFF" });
-  const locked = instance({ id: "c", name: "locked", locked: true });
-  const busy = instance({ id: "d", name: "busy", task_state: "rebooting" });
-
-  it("runs Start only on shut-off rows and names the rest", () => {
-    const { allowed, skipped } = batchTargets([running, off, busy], "start");
-    expect(allowed.map((i) => i.name)).toEqual(["off"]);
-    expect(skipped.map((i) => i.name)).toEqual(["running", "busy"]);
+describe("batch eligibility", () => {
+  const active = instance({ id: "a", name: "active" });
+  const shutoff = instance({
+    id: "s",
+    name: "shutoff",
+    status: "SHUTOFF",
+    power_state: "SHUTDOWN",
   });
+  const locked = instance({ id: "l", name: "locked", locked: true });
+  const busy = instance({ id: "b", name: "busy", task_state: "rebooting" });
+  const names = (rows: Instance[]) => rows.map((row) => row.name);
 
-  it("skips busy rows for Shut off and Soft reboot", () => {
-    expect(
-      batchTargets([running, busy], "stop").allowed.map((i) => i.name),
-    ).toEqual(["running"]);
-    expect(
-      batchTargets([running, off, busy], "soft-reboot").allowed.map(
-        (i) => i.name,
-      ),
-    ).toEqual(["running", "off"]);
-  });
-
-  it("skips locked rows for Delete", () => {
-    const { allowed, skipped } = batchTargets([running, locked], "delete");
-    expect(allowed.map((i) => i.name)).toEqual(["running"]);
-    expect(skipped.map((i) => i.name)).toEqual(["locked"]);
-  });
-
-  it("allows nothing when no row qualifies", () => {
-    expect(batchTargets([running], "start").allowed).toEqual([]);
+  it.each([
+    {
+      action: "start",
+      eligible: ["shutoff"],
+      skipped: ["active", "locked", "busy"],
+    },
+    {
+      action: "stop",
+      eligible: ["active"],
+      skipped: ["shutoff", "locked", "busy"],
+    },
+    {
+      action: "soft-reboot",
+      eligible: ["active", "shutoff"],
+      skipped: ["locked", "busy"],
+    },
+    {
+      action: "delete",
+      eligible: ["active", "shutoff", "busy"],
+      skipped: ["locked"],
+    },
+  ] as const)("$action runs on $eligible", ({ action, eligible, skipped }) => {
+    const targets = splitEligible([active, shutoff, locked, busy], (row) =>
+      allows(availableActions(row), action),
+    );
+    expect(names(targets.eligible)).toEqual(eligible);
+    expect(names(targets.skipped)).toEqual(skipped);
   });
 });
 
-describe("powerStateLabel", () => {
-  it("uses Horizon's wording for every nova power state", () => {
-    expect(powerStateLabel({ power_state: "SHUTOFF" })).toBe("Shut off");
-    expect(powerStateLabel({ power_state: "SHUTDOWN" })).toBe("Shut down");
-    expect(powerStateLabel({ power_state: "BLOCKED" })).toBe("Blocked");
-    expect(powerStateLabel({ power_state: "BUILDING" })).toBe("Building");
-    expect(powerStateLabel({ power_state: "NO STATE" })).toBe("No state");
-    expect(powerStateLabel({ power_state: "" })).toBe("No state");
+describe("matchesStatusFilter", () => {
+  it.each([
+    { filter: "", status: "ERROR", matches: true },
+    { filter: "ACTIVE", status: "ACTIVE", matches: true },
+    { filter: "ACTIVE", status: "SHUTOFF", matches: false },
+    { filter: "SHELVED", status: "SHELVED", matches: true },
+    { filter: "SHELVED", status: "SHELVED_OFFLOADED", matches: true },
+    { filter: "SHELVED", status: "SHUTOFF", matches: false },
+    // An id from an old link that is not a listed filter: exact status.
+    { filter: "SHELVED_OFFLOADED", status: "SHELVED_OFFLOADED", matches: true },
+    { filter: "SHELVED_OFFLOADED", status: "SHELVED", matches: false },
+  ])("$filter on $status: $matches", ({ filter, status, matches }) => {
+    expect(matchesStatusFilter({ status }, filter)).toBe(matches);
   });
 });

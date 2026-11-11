@@ -1,54 +1,71 @@
 """CloudKitty usage summaries and the Usage Trend and Allocation Usage
 pages (``nectar_dashboard/api/usage.py``, ``usage/allocation_usage``)."""
 
-import asyncio
 from datetime import date
 
-import httpx
-
-from hive.cache.redis import Cache, CacheResult
+from hive.cache import policy
+from hive.cache.redis import CacheResult
 from hive.clients.nectar import CloudKittyClient, GnocchiClient
 from hive.config import Settings
-from hive.errors import HiveError, ServiceNotEnabled
+from hive.errors import BadRequest, HiveError, ServiceNotEnabled
 from hive.nectar import allocation as allocation_rules
 from hive.nectar import usage as rules
+from hive.schemas.responses.usage import UsageOptions
 from hive.services import allocation_summary as allocation_service
-from hive.session.model import ScopedToken
+from hive.services.concurrency import bounded_gather
+from hive.services.context import Context
+from hive.times import today_utc
 
 DATE_FORMAT = rules.DATE_FORMAT
 DEFAULT_DAYS = rules.DEFAULT_DAYS
-TTL = 1800
-STALE_TTL = 10800
 GNOCCHI_BATCH = 100
 default_range = rules.default_range
 total_rate = rules.total_rate
 
 
+def requested_range(
+    begin: str | None, end: str | None, settings: Settings
+) -> tuple[str, str]:
+    """The date range a request asks for, validated; the default range
+    when either end is missing. Nothing before ``usage_data_from`` exists,
+    so an earlier start is raised to it."""
+    if not begin or not end:
+        return default_range()
+    try:
+        first = date.fromisoformat(begin)
+        last = date.fromisoformat(end)
+    except ValueError as exc:
+        raise BadRequest("Dates must be YYYY-MM-DD.") from exc
+    if last < first:
+        raise BadRequest("The end date must not be before the start date.")
+    first = max(first, date.fromisoformat(settings.usage_data_from))
+    return first.isoformat(), last.isoformat()
+
+
+def options(settings: Settings) -> UsageOptions:
+    begin, end = default_range()
+    return UsageOptions.model_validate(
+        {
+            "data_from": settings.usage_data_from,
+            "default_begin": begin,
+            "default_end": end,
+        }
+    )
+
+
 async def summary(
-    http: httpx.AsyncClient,
-    settings: Settings,
-    cache: Cache,
-    scoped: ScopedToken,
+    ctx: Context,
     *,
     begin: str | None = None,
     end: str | None = None,
     resource_type: str | None = None,
     groupby: str | None = None,
 ) -> CacheResult:
-    if not begin or not end:
-        begin, end = default_range()
-    key = cache.project_key(
-        scoped.project.id,
-        "usage",
-        begin,
-        end,
-        resource_type or "-",
-        groupby or "-",
-    )
+    begin, end = requested_range(begin, end, ctx.settings)
 
     async def fetch():
         filters = {"type": resource_type} if resource_type else None
-        rows = await CloudKittyClient(http, settings, scoped).summary_rows(
+        rows = await _cloudkitty(ctx).summary_rows(
             begin, end, filters=filters, groupby=groupby
         )
         return {
@@ -58,47 +75,41 @@ async def summary(
             "data": rows,
         }
 
-    return await cache.get_or_fetch(
-        key, fetch, ttl=TTL, stale_ttl=STALE_TTL, name="usage"
+    return await ctx.cached(
+        policy.USAGE, fetch, begin, end, resource_type or "-", groupby or "-"
     )
 
 
-async def _instance_resources(
-    http: httpx.AsyncClient,
-    settings: Settings,
-    scoped: ScopedToken,
-    ids: list[str],
-) -> list[dict]:
-    gnocchi = GnocchiClient(http, settings, scoped)
-    semaphore = asyncio.Semaphore(4)
+def _cloudkitty(ctx: Context) -> CloudKittyClient:
+    return CloudKittyClient(ctx.http, ctx.settings, ctx.scoped)
+
+
+async def _instance_resources(ctx: Context, ids: list[str]) -> list[dict]:
+    gnocchi = GnocchiClient(ctx.http, ctx.settings, ctx.scoped)
 
     async def batch(chunk: list[str]) -> list[dict]:
-        async with semaphore:
-            return await gnocchi.search_resources(
-                "instance", {"in": {"id": chunk}}, limit=len(chunk)
-            )
+        return await gnocchi.search_resources(
+            "instance", {"in": {"id": chunk}}, limit=len(chunk)
+        )
 
     chunks = [
         ids[i : i + GNOCCHI_BATCH] for i in range(0, len(ids), GNOCCHI_BATCH)
     ]
-    results = await asyncio.gather(*(batch(c) for c in chunks))
+    results = await bounded_gather(
+        chunks, batch, ctx.settings.upstream_fan_out
+    )
     return [resource for group in results for resource in group]
 
 
 async def instances(
-    http: httpx.AsyncClient,
-    settings: Settings,
-    cache: Cache,
-    scoped: ScopedToken,
-    begin: str,
-    end: str,
+    ctx: Context, begin: str | None = None, end: str | None = None
 ) -> CacheResult:
     """Per-instance SU over the range, named through Gnocchi; names are
     left out (``partial``) rather than failing when Gnocchi is down."""
-    key = cache.project_key(scoped.project.id, "usage-instances", begin, end)
+    begin, end = requested_range(begin, end, ctx.settings)
 
     async def fetch():
-        rows = await CloudKittyClient(http, settings, scoped).summary_rows(
+        rows = await _cloudkitty(ctx).summary_rows(
             begin, end, filters={"type": "instance"}, groupby="id"
         )
         ids = [row["id"] for row in rows if row.get("id")]
@@ -106,9 +117,7 @@ async def instances(
         errors = []
         if ids:
             try:
-                resources = await _instance_resources(
-                    http, settings, scoped, ids
-                )
+                resources = await _instance_resources(ctx, ids)
             except HiveError as exc:
                 errors.append(
                     {
@@ -128,31 +137,23 @@ async def instances(
             "errors": errors,
         }
 
-    return await cache.get_or_fetch(
-        key,
+    return await ctx.cached(
+        policy.USAGE_INSTANCES,
         fetch,
-        ttl=TTL,
-        stale_ttl=STALE_TTL,
-        name="usage-instances",
+        begin,
+        end,
         should_cache=lambda value: not value.get("partial"),
     )
 
 
 async def allocation_usage(
-    http: httpx.AsyncClient,
-    settings: Settings,
-    cache: Cache,
-    scoped: ScopedToken,
-    today: date | None = None,
+    ctx: Context, today: date | None = None
 ) -> CacheResult:
     """The burn-down against the SU budget of the current allocation."""
-    key = cache.project_key(scoped.project.id, "usage-allocation")
-    today = today or date.today()
+    today = today or today_utc()
 
     async def fetch():
-        summary_result = await allocation_service.allocation_summary(
-            http, settings, cache, scoped
-        )
+        summary_result = await allocation_service.allocation_summary(ctx)
         current = summary_result.value
         allocation = current.get("allocation")
         budget = current.get("su_budget")
@@ -176,12 +177,12 @@ async def allocation_usage(
         begin_text = allocation.get("start_date")
         end_text = allocation.get("end_date")
         if not begin_text or not end_text:
-            # As fetch_allocation_summary: no dates, nothing to chart.
+            # Nothing to chart, as the allocation summary treats it.
             base["reason"] = "This project's allocation has no dates."
             return base
         start = date.fromisoformat(begin_text)
         end = date.fromisoformat(end_text)
-        client = CloudKittyClient(http, settings, scoped)
+        client = _cloudkitty(ctx)
         try:
             daily = await client.summary_rows(
                 begin_text, end_text, groupby="time-1d"
@@ -212,11 +213,8 @@ async def allocation_usage(
             **rules.burn_down(budget, start, end, daily, today),
         }
 
-    return await cache.get_or_fetch(
-        key,
+    return await ctx.cached(
+        policy.USAGE_ALLOCATION,
         fetch,
-        ttl=TTL,
-        stale_ttl=STALE_TTL,
-        name="usage-allocation",
         should_cache=lambda value: not value.get("partial"),
     )

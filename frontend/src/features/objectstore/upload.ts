@@ -2,8 +2,12 @@
 // each file (or its segments) straight to Swift, then asks the backend to
 // write the large-object manifest. In proxy mode the file streams through
 // the backend instead. Progress is reported per file for the dialog.
-import { ApiError, csrfToken, envelopeFrom } from "../../lib/api/client";
-import type { UploadPlan, UploadPlanObject } from "../../lib/api/types";
+import { ApiError } from "../../lib/api/client";
+import { csrfHeader, xhrPut } from "../../lib/api/http";
+import type {
+  UploadPlan,
+  UploadPlanObject,
+} from "../../lib/api/types/objectstore";
 import { completeUpload, objectPath, requestUploadPlan } from "./api";
 
 export type UploadStatus = "pending" | "uploading" | "done" | "error";
@@ -49,8 +53,8 @@ export function sliceSegments(
 export const SEGMENT_CONCURRENCY = 3;
 
 /**
- * Run the tasks with at most `limit` in flight; the results keep the
- * tasks' order. The first failure rejects, and no new task starts after it.
+ * Runs `tasks` with at most `limit` in flight; the results keep the
+ * tasks' order. The first failure rejects, and no task starts after it.
  */
 export async function runPool<T>(
   tasks: (() => Promise<T>)[],
@@ -63,8 +67,9 @@ export async function runPool<T>(
     while (!failed && next < tasks.length) {
       const index = next++;
       const task = tasks[index];
+      if (!task) continue;
       try {
-        if (task) results[index] = await task();
+        results[index] = await task();
       } catch (error) {
         failed = true;
         throw error;
@@ -77,89 +82,26 @@ export async function runPool<T>(
   return results;
 }
 
-/** The message for a failed upload: the backend's own wording for a
- * proxied upload (411, 400 and 422 included), else the status. */
-export function uploadError(status: number, responseText: string): Error {
-  let body: unknown;
-  try {
-    body = responseText ? JSON.parse(responseText) : null;
-  } catch {
-    body = null;
-  }
-  if (body && typeof body === "object" && "message" in body) {
-    const error = new ApiError(status, envelopeFrom(body));
-    const detail = Array.isArray(error.detail)
-      ? (error.detail as { msg?: unknown }[])
-          .map((entry) => (typeof entry.msg === "string" ? entry.msg : ""))
+/**
+ * Why a file did not upload, for its row: the error's message, followed by
+ * each field message of a 422 (`detail[].msg`), which the bare message
+ * ("Request validation failed") would leave out.
+ */
+export function uploadErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const detail =
+    error instanceof ApiError && Array.isArray(error.detail)
+      ? error.detail
+          .map((entry: unknown) =>
+            entry && typeof entry === "object" && "msg" in entry
+              ? String(entry.msg)
+              : "",
+          )
           .filter(Boolean)
       : [];
-    if (detail.length > 0) {
-      return new ApiError(status, {
-        ...envelopeFrom(body),
-        message: `${error.message}: ${detail.join("; ")}`,
-      });
-    }
-    return error;
-  }
-  return new Error(`upload failed with status ${status}`);
-}
-
-/** A PUT with upload progress, which fetch() cannot report. */
-export function putWithProgress(
-  url: string,
-  body: Blob,
-  {
-    contentType,
-    sameOrigin,
-    onProgress,
-    signal,
-  }: {
-    contentType: string;
-    sameOrigin: boolean;
-    onProgress: (sent: number) => void;
-    signal?: AbortSignal | undefined;
-  },
-): Promise<{ etag: string | null }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.setRequestHeader("Content-Type", contentType);
-    if (sameOrigin) {
-      xhr.withCredentials = true;
-      xhr.setRequestHeader("X-CSRF-Token", csrfToken());
-    }
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(event.loaded);
-    };
-    const onAbort = () => xhr.abort();
-    const settle = () => signal?.removeEventListener("abort", onAbort);
-    xhr.onload = () => {
-      settle();
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ etag: xhr.getResponseHeader("ETag") });
-      } else {
-        reject(
-          sameOrigin
-            ? uploadError(xhr.status, xhr.responseText)
-            : new Error(`upload failed with status ${xhr.status}`),
-        );
-      }
-    };
-    xhr.onerror = () => {
-      settle();
-      reject(new Error("upload failed (network or CORS)"));
-    };
-    xhr.onabort = () => {
-      settle();
-      reject(new Error("upload cancelled"));
-    };
-    if (signal?.aborted) {
-      reject(new Error("upload cancelled"));
-      return;
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-    xhr.send(body);
-  });
+  return detail.length > 0
+    ? `${error.message}: ${detail.join("; ")}`
+    : error.message;
 }
 
 export async function uploadFiles({
@@ -208,7 +150,7 @@ export async function uploadFiles({
       item.status = "done";
     } catch (error) {
       item.status = "error";
-      item.error = error instanceof Error ? error.message : String(error);
+      item.error = uploadErrorMessage(error);
     }
     report();
   }
@@ -228,43 +170,40 @@ async function uploadOne(
       throw new Error("the file is too large to upload through the dashboard");
     }
     const url = `${objectPath(container, item.name)}?filename=${encodeURIComponent(item.file.name)}`;
-    await putWithProgress(url, item.file, {
-      contentType,
-      sameOrigin: true,
+    await xhrPut(url, item.file, {
+      headers: { "Content-Type": contentType, ...csrfHeader() },
       onProgress,
       signal,
+      withCredentials: true,
     });
     return;
   }
   const entry = plan.objects.find((o) => o.name === item.name);
   if (!entry) throw new Error("no upload plan for this file");
   if (entry.url) {
-    await putWithProgress(entry.url, item.file, {
-      contentType,
-      sameOrigin: false,
+    await xhrPut(entry.url, item.file, {
+      headers: { "Content-Type": contentType },
       onProgress,
       signal,
     });
     return;
   }
-  // Segments go up a few at a time; progress is the sum over segments and
-  // the manifest keeps the plan's order.
+  // Segments go up SEGMENT_CONCURRENCY at a time; the file's progress is
+  // what every segment has sent so far, and the manifest keeps their order.
   const segments = sliceSegments(item.file, entry);
   const sent = segments.map(() => 0);
-  const total = () => sent.reduce((sum, value) => sum + value, 0);
+  const progress = (index: number, bytes: number) => {
+    sent[index] = bytes;
+    onProgress(sent.reduce((sum, value) => sum + value, 0));
+  };
   const manifest = await runPool(
     segments.map((segment, index) => async () => {
-      const { etag } = await putWithProgress(segment.url, segment.blob, {
-        contentType: "application/octet-stream",
-        sameOrigin: false,
-        onProgress: (bytes) => {
-          sent[index] = bytes;
-          onProgress(total());
-        },
+      const { etag } = await xhrPut(segment.url, segment.blob, {
+        headers: { "Content-Type": "application/octet-stream" },
+        onProgress: (bytes) => progress(index, bytes),
         signal,
       });
-      sent[index] = segment.length;
-      onProgress(total());
+      progress(index, segment.length);
       return {
         path: segment.path,
         size_bytes: segment.length,

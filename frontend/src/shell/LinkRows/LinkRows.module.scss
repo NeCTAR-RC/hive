@@ -1,0 +1,81 @@
+@use "mixins" as *;
+
+/// Related list - Sidebar (sidebar-blocks spec, line 876): rows 8px apart.
+.list {
+  @include sidebar-block-list;
+}
+
+/// One row of that list (spec "List", line 899): the 16px chevron 4px before
+/// a Body/16/Bold Grey-700 label. Hover is the spec's Property 1=Hover cell
+/// (line 1909): the label in Purple-500, underlined. The focus ring is the
+/// library Link's (1.5px Purple-500 at the link offset). The current page
+/// reads in Purple-500 without the underline (own decision, see the gap
+/// "Vertical navigation: current page").
+.row {
+  @include sidebar-block-link-row;
+
+  width: fit-content;
+  padding: 0;
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
+  text-align: start;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  border-radius: var(--hive-radius);
+  outline: none;
+  cursor: pointer;
+
+  &[data-current] {
+    color: var(--hive-color-brand-purple);
+  }
+
+  &[data-hovered],
+  &[data-focus-visible] {
+    color: var(--hive-color-brand-purple);
+
+    .label {
+      text-decoration-line: underline;
+    }
+  }
+
+  &[data-focus-visible] {
+    outline: var(--hive-focus-ring);
+    outline-offset: var(--hive-focus-ring-offset-link);
+  }
+}
+
+/// The chevron's 16px frame (spec "Frame 514", line 909), via the library
+/// mixin that keeps it level with the first line of a wrapping label.
+.icon {
+  @include sidebar-block-link-icon;
+}
+
+/// A titled group of rows: the Info - Sidebar pair (line 133), a Body/16/Bold
+/// Grey-900 title 4px above its content.
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+}
+
+/// The group's title: the Info - Sidebar title (line 154), Body/16/Bold
+/// Grey-900.
+.heading {
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-900);
+}
+
+/// A titled group's rows sit 12px in under its title, as Darcelle's 15 Oct
+/// 2026 mockup indents the pages under "Compute"; an untitled run stays
+/// level with the titles around it.
+.heading + .list {
+  padding-inline-start: var(--hive-space-3);
+}
+
+/// Groups stack at the Info - Sidebar block's 20px gap (line 124).
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-5);
+}

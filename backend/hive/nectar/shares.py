@@ -6,10 +6,20 @@ presents them. Citations are to the installed plugin under
   (``nectar_dashboard/enabled/_9900_disable_share_networks.py``) and sets
   ``OPENSTACK_MANILA_FEATURES = {'enabled_share_protocols': ['NFS', 'CIFS',
   'CephFS']}`` (helm ``_local_settings.tpl:758-760``); every other feature
-  flag keeps its default of True.
+  flag keeps its default of True. Hive offers the protocols in its own
+  setting instead (CephFS by default, see ``config.py``), and offers
+  ``is_public`` only where the deployment says members may set it:
+  manila-ui shows the switch unless ``enable_public_shares`` is False
+  (``shares/forms.py:56-57,118``), but Manila's default policy keeps
+  ``create_public_share`` and ``set_public_share`` for admins
+  (``manila/policies/shares.py``) and refuses ``is_public`` true without
+  them (``manila/api/common.py`` ``validate_public_share_policy``).
 - Share statuses (``dashboards/project/shares/tables.py:205-219``):
   available is OK; creating, deleting, reverting, migrating, migrating_to
-  are transitional; the rest are errors.
+  are transitional; the listed ``*error*`` ones are errors. A status the
+  table does not list, such as extending or shrinking during a resize, is
+  also polled as in progress: Horizon's ``Cell.status`` returns ``None``
+  for an unlisted value (``horizon/tables/base.py:845-862``).
 - Row actions (``shares/tables.py:435-443``): edit and metadata need
   available or in-use; resize and revert need available (revert also
   ``revert_to_snapshot_support``); snapshot needs available or in-use and
@@ -21,23 +31,35 @@ presents them. Citations are to the installed plugin under
   flag. Resize (``forms.py:402-476``): a different positive size, growth
   within the gigabyte quota; extend or shrink accordingly.
 - Access rules (``forms.py:325-365``): type ip, user, cert or cephx; level
-  rw or ro; ``access_to`` up to 255 characters; ip must parse as a network.
+  rw or ro; ``access_to`` up to 255 characters, checked as Manila's API
+  checks it (``manila/api/common.py`` ``validate_access``): ip an address
+  or network, user 4 to 255 characters without ``"/\\[]:;|=,+*?<>``, cert a
+  common name of 1 to 64 characters, cephx without periods (Hive narrows
+  it to letters, digits, dashes and underscores).
 - Snapshots, security services, share groups and share group snapshots
   follow ``share_snapshots/``, ``security_services/``, ``share_groups/``
   and ``share_group_snapshots/`` tables and forms.
 """
 
 import ipaddress
+import re
 
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
+
+SHARE_OK = ("available",)
 SHARE_TRANSITIONAL = (
     "creating",
     "deleting",
     "reverting",
     "migrating",
     "migrating_to",
+    "extending",
+    "shrinking",
 )
 SHARE_EDITABLE = ("available", "in-use")
 SHARE_DELETABLE = ("AVAILABLE", "ERROR", "MANAGE_ERROR")
+SNAPSHOT_OK = ("available", "in-use")
 SNAPSHOT_TRANSITIONAL = ("creating",)
 GROUP_TRANSITIONAL = ("creating", "deleting")
 ACCESS_TYPES = ("ip", "user", "cert", "cephx")
@@ -48,15 +70,20 @@ SECURITY_SERVICE_LABELS = {
     "ldap": "LDAP",
     "kerberos": "Kerberos",
 }
+USERNAME = re.compile(r'^.[^"/\\\[\]:;|=,+*?<>]{3,254}$')
+# Manila takes any printable ID without periods; Hive asks for a plain name.
+CEPHX_USER = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def is_transitional(
     status: str | None, transitional=SHARE_TRANSITIONAL
 ) -> bool:
+    """Polled statuses (``shares/tables.py:205-219``)."""
     return (status or "").lower() in transitional
 
 
 def share_actions(share: dict, has_snapshot: bool) -> list[str]:
+    """Row actions (``shares/tables.py:435-443``)."""
     status = (share.get("status") or "").lower()
     actions = []
     if status in SHARE_EDITABLE:
@@ -75,6 +102,7 @@ def share_actions(share: dict, has_snapshot: bool) -> list[str]:
 
 
 def snapshot_actions(snapshot: dict, share: dict | None) -> list[str]:
+    """Row actions (``share_snapshots/tables.py``)."""
     status = (snapshot.get("status") or "").lower()
     actions = ["edit"]
     if status == "available":
@@ -87,6 +115,7 @@ def snapshot_actions(snapshot: dict, share: dict | None) -> list[str]:
 
 
 def group_actions(group: dict) -> list[str]:
+    """Row actions (``share_groups/tables.py``)."""
     status = (group.get("status") or "").lower()
     actions = []
     if status == "available":
@@ -97,6 +126,7 @@ def group_actions(group: dict) -> list[str]:
 
 
 def group_snapshot_actions(snapshot: dict) -> list[str]:
+    """Row actions (``share_group_snapshots/tables.py``)."""
     status = (snapshot.get("status") or "").lower()
     actions = []
     if status == "available":
@@ -115,17 +145,17 @@ def parse_metadata(text: str | None) -> dict[str, str]:
         if not line:
             continue
         if "=" not in line:
-            raise ValueError("Expected only pairs of key=value.")
+            raise RuleViolation("Expected only pairs of key=value.")
         key, value = line.split("=", 1)
         key, value = key.strip(), value.strip()
         if not key or not value or len(key) > 255 or len(value) > 255:
-            raise ValueError(
+            raise RuleViolation(
                 "Metadata keys and values must be 1 to 255 characters."
             )
         if " " in key:
-            raise ValueError("Metadata keys cannot contain spaces.")
+            raise RuleViolation("Metadata keys cannot contain spaces.")
         if key in metadata:
-            raise ValueError(f"Metadata key {key} is repeated.")
+            raise RuleViolation(f"Metadata key {key} is repeated.")
         metadata[key] = value
     return metadata
 
@@ -145,6 +175,7 @@ def can_create(limits: dict) -> tuple[bool, str | None]:
 
 
 def can_snapshot(limits: dict) -> tuple[bool, str | None]:
+    """Whether the snapshot quotas leave room for another (manila-ui)."""
     max_snaps = limits.get("maxTotalShareSnapshots", -1)
     used_snaps = limits.get("totalShareSnapshotsUsed", 0)
     max_gb = limits.get("maxTotalSnapshotGigabytes", -1)
@@ -163,16 +194,20 @@ def validate_create(
     size: int,
     share_type: str | None,
     snapshot: dict | None,
-) -> str | None:
+) -> None:
+    """Create form checks (``shares/forms.py:32-251``)."""
     if protocol not in protocols:
-        return f"The protocol must be one of {', '.join(protocols)}."
+        raise RuleViolation(
+            f"The protocol must be one of {', '.join(protocols)}."
+        )
     if size < 1:
-        return "The size must be at least 1 GiB."
+        raise RuleViolation("The size must be at least 1 GiB.")
     if not share_type:
-        return "Select a share type."
+        raise RuleViolation("Select a share type.")
     if snapshot and size < int(snapshot.get("size") or 0):
-        return f"The share size cannot be less than the snapshot size ({snapshot.get('size')}GiB)"
-    return None
+        raise RuleViolation(
+            f"The share size cannot be less than the snapshot size ({snapshot.get('size')}GiB)"
+        )
 
 
 def create_body(
@@ -188,6 +223,7 @@ def create_body(
     metadata: dict,
     is_public: bool,
 ) -> dict:
+    """The create-share body (``shares/forms.py:32-251``)."""
     body: dict = {
         "name": name,
         "description": description or "",
@@ -207,38 +243,71 @@ def create_body(
     return body
 
 
-def validate_resize(current: int, new_size: int, limits: dict) -> str | None:
+def validate_resize(current: int, new_size: int, limits: dict) -> None:
+    """Resize checks (``shares/forms.py:402-476``)."""
     if new_size == current:
-        return "The new size must differ from the current size."
+        raise RuleViolation("The new size must differ from the current size.")
     if new_size <= 0:
-        return "The new size must be greater than zero."
+        raise RuleViolation("The new size must be greater than zero.")
     max_gb = limits.get("maxTotalShareGigabytes", -1)
     used_gb = limits.get("totalShareGigabytesUsed", 0)
-    if new_size > current and max_gb not in (-1, None):
-        if new_size - current > max_gb - used_gb:
-            return (
-                "The share cannot grow by more than the remaining"
-                f" {max(max_gb - used_gb, 0)} GiB of quota."
-            )
-    return None
+    grows_past_quota = (
+        new_size > current
+        and max_gb not in (-1, None)
+        and new_size - current > max_gb - used_gb
+    )
+    if grows_past_quota:
+        raise RuleViolation(
+            "The share cannot grow by more than the remaining"
+            f" {max(max_gb - used_gb, 0)} GiB of quota."
+        )
 
 
 def validate_access(
     access_type: str, access_to: str, access_level: str
-) -> str | None:
+) -> None:
+    """Access rule checks (``shares/forms.py:325-365``)."""
     if access_type not in ACCESS_TYPES:
-        return "The access type must be ip, user, cert or cephx."
+        raise RuleViolation("The access type must be ip, user, cert or cephx.")
     if access_level not in ACCESS_LEVELS:
-        return "The access level must be rw or ro."
+        raise RuleViolation("The access level must be rw or ro.")
     value = (access_to or "").strip()
     if not value or len(value) > 255:
-        return "Enter who to grant access to (up to 255 characters)."
+        raise RuleViolation(
+            "Enter who to grant access to (up to 255 characters)."
+        )
     if access_type == "ip":
         try:
             ipaddress.ip_network(value, strict=False)
         except ValueError:
-            return f'"{value}" is not an IP address or network.'
-    return None
+            raise RuleViolation(
+                f'"{value}" is not an IP address or network.'
+            ) from None
+    elif access_type == "user" and (
+        not USERNAME.match(value) or not value.strip(". ")
+    ):
+        raise RuleViolation(
+            "A user or group name has 4 to 255 characters and none of "
+            '"/\\[]:;|=,+*?<>.'
+        )
+    elif access_type == "cert" and len(value) > 64:
+        raise RuleViolation(
+            "A certificate common name has 1 to 64 characters."
+        )
+    elif access_type == "cephx" and not CEPHX_USER.match(value):
+        raise RuleViolation(
+            "A CephX user has letters, digits, dashes and underscores only; "
+            'leave out the "client." prefix.'
+        )
+
+
+def validate_public(is_public: bool | None, allowed: bool) -> None:
+    """Making a share visible to all projects, where the deployment says
+    members may (Manila's ``validate_public_share_policy``)."""
+    if is_public and not allowed:
+        raise RuleViolation(
+            "Only administrators can make a share visible to all projects."
+        )
 
 
 def newest_snapshot(snapshots: list[dict]) -> dict | None:
@@ -248,22 +317,8 @@ def newest_snapshot(snapshots: list[dict]) -> dict | None:
     return max(snapshots, key=lambda s: s.get("created_at") or "")
 
 
-def newest_snapshot_ids(snapshots: list[dict]) -> dict[str, str]:
-    """The one snapshot per share that revert accepts, keyed by share id,
-    so the revert form never has to guess from list order (Manila lists
-    newest first; ``forms.py:479-521`` offers only the newest)."""
-    by_share: dict[str, list[dict]] = {}
-    for snapshot in snapshots:
-        if snapshot.get("share_id"):
-            by_share.setdefault(snapshot["share_id"], []).append(snapshot)
-    return {
-        share_id: newest["id"]
-        for share_id, group in by_share.items()
-        if (newest := newest_snapshot(group)) and newest.get("id")
-    }
-
-
 def share_summary(share: dict, has_snapshot: bool = False) -> dict:
+    """A share row (``shares/tables.py``)."""
     status = share.get("status")
     return {
         "id": share.get("id"),
@@ -279,7 +334,7 @@ def share_summary(share: dict, has_snapshot: bool = False) -> dict:
         "share_group_id": share.get("share_group_id"),
         "snapshot_id": share.get("snapshot_id"),
         "metadata": share.get("metadata") or {},
-        "created_at": share.get("created_at"),
+        "created_at": to_utc_iso(share.get("created_at")),
         "snapshot_support": bool(share.get("snapshot_support", True)),
         "revert_to_snapshot_support": bool(
             share.get("revert_to_snapshot_support")
@@ -292,17 +347,12 @@ def share_summary(share: dict, has_snapshot: bool = False) -> dict:
 
 
 def share_detail(
-    share: dict,
-    rules: list[dict],
-    locations: list[dict],
-    snapshots: list[dict],
+    share: dict, rules: list[dict], locations: list[dict], has_snapshot: bool
 ) -> dict:
-    """``newest_snapshot_id`` is the only snapshot revert accepts."""
-    summary = share_summary(share, bool(snapshots))
-    newest = newest_snapshot(snapshots)
+    """The share overview (``shares/tabs.py``)."""
+    summary = share_summary(share, has_snapshot)
     summary.update(
         {
-            "newest_snapshot_id": (newest or {}).get("id"),
             "host": share.get("host"),
             "task_state": share.get("task_state"),
             "export_locations": [
@@ -320,6 +370,7 @@ def share_detail(
 
 
 def access_summary(rule: dict) -> dict:
+    """An access rule row (``shares/tables.py``)."""
     return {
         "id": rule.get("id"),
         "access_type": rule.get("access_type"),
@@ -328,12 +379,13 @@ def access_summary(rule: dict) -> dict:
         "state": rule.get("state"),
         "access_key": rule.get("access_key"),
         "metadata": rule.get("metadata") or {},
-        "created_at": rule.get("created_at"),
-        "updated_at": rule.get("updated_at"),
+        "created_at": to_utc_iso(rule.get("created_at")),
+        "updated_at": to_utc_iso(rule.get("updated_at")),
     }
 
 
 def snapshot_summary(snapshot: dict, share: dict | None) -> dict:
+    """A snapshot row (``share_snapshots/tables.py``)."""
     status = snapshot.get("status")
     return {
         "id": snapshot.get("id"),
@@ -345,13 +397,14 @@ def snapshot_summary(snapshot: dict, share: dict | None) -> dict:
         "share_name": (share or {}).get("name"),
         "share_proto": snapshot.get("share_proto"),
         "share_size": snapshot.get("share_size"),
-        "created_at": snapshot.get("created_at"),
+        "created_at": to_utc_iso(snapshot.get("created_at")),
         "is_transitional": is_transitional(status, SNAPSHOT_TRANSITIONAL),
         "actions": snapshot_actions(snapshot, share),
     }
 
 
 def security_service_summary(service: dict) -> dict:
+    """A row (``security_services/tables.py``)."""
     stype = service.get("type")
     return {
         "id": service.get("id"),
@@ -365,7 +418,7 @@ def security_service_summary(service: dict) -> dict:
         "domain": service.get("domain"),
         "user": service.get("user"),
         "status": service.get("status"),
-        "created_at": service.get("created_at"),
+        "created_at": to_utc_iso(service.get("created_at")),
     }
 
 
@@ -375,6 +428,7 @@ def security_service_body(fields: dict) -> dict:
 
 
 def group_summary(group: dict) -> dict:
+    """A share group row (``share_groups/tables.py``)."""
     status = group.get("status")
     return {
         "id": group.get("id"),
@@ -390,13 +444,14 @@ def group_summary(group: dict) -> dict:
         "consistent_snapshot_support": group.get(
             "consistent_snapshot_support"
         ),
-        "created_at": group.get("created_at"),
+        "created_at": to_utc_iso(group.get("created_at")),
         "is_transitional": is_transitional(status, GROUP_TRANSITIONAL),
         "actions": group_actions(group),
     }
 
 
 def group_snapshot_summary(snapshot: dict, group: dict | None) -> dict:
+    """A row (``share_group_snapshots/tables.py``)."""
     status = snapshot.get("status")
     return {
         "id": snapshot.get("id"),
@@ -405,7 +460,7 @@ def group_snapshot_summary(snapshot: dict, group: dict | None) -> dict:
         "status": status,
         "share_group_id": snapshot.get("share_group_id"),
         "share_group_name": (group or {}).get("name"),
-        "created_at": snapshot.get("created_at"),
+        "created_at": to_utc_iso(snapshot.get("created_at")),
         "members": snapshot.get("members") or [],
         "is_transitional": is_transitional(status, SNAPSHOT_TRANSITIONAL),
         "actions": group_snapshot_actions(snapshot),
@@ -439,6 +494,7 @@ def group_body(
 
 
 def share_type_summary(share_type: dict) -> dict:
+    """A share type and its extra specs (manila-ui)."""
     specs = share_type.get("extra_specs") or {}
     dhss = str(specs.get("driver_handles_share_servers", "")).lower() in (
         "true",

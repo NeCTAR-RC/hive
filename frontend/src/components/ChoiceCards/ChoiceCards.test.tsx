@@ -29,13 +29,43 @@ describe("ChoiceCards", () => {
     expect(
       screen.getByRole("radiogroup", { name: "Flavour class" }),
     ).toBeInTheDocument();
-    const radios = screen.getAllByRole("radio");
-    expect(radios).toHaveLength(3);
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
     expect(screen.getByRole("radio", { name: /Balanced/ })).toBeChecked();
     expect(screen.getByText("Suited to most workloads.")).toBeVisible();
 
     // The card itself is the label, so its text is the click target.
     await user.click(screen.getByText("Tiny (t3)"));
     expect(onChange).toHaveBeenCalledWith("tiny-v3");
+  });
+
+  it("moves the choice with the arrow keys", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ChoiceCards
+        aria-label="Flavour class"
+        options={options}
+        value="standard-v3"
+        onChange={onChange}
+      />,
+    );
+    await user.tab();
+    expect(screen.getByRole("radio", { name: /Balanced/ })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith("tiny-v3");
+  });
+
+  it("chooses nothing for an empty value", () => {
+    render(
+      <ChoiceCards
+        aria-label="Flavour class"
+        options={options}
+        value=""
+        onChange={() => {}}
+      />,
+    );
+    for (const radio of screen.getAllByRole("radio")) {
+      expect(radio).not.toBeChecked();
+    }
   });
 });

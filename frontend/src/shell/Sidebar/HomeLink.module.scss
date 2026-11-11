@@ -1,0 +1,50 @@
+@use "mixins" as *;
+
+/// Home, after Darcelle's 15 Oct 2026 mockup: a row across its container's
+/// full width (it runs out by a gutter, to the sidebar panel's outer edge
+/// over the panel's rule, and to the edge of the navigation dialog's 24px
+/// padding), the glyph 8px before a Body/16/Bold label, 12px above and
+/// below. At rest Grey-700; on hover and keyboard focus the label turns
+/// Purple-500 and underlined, as the list rows do. The ring is drawn just
+/// inside the row, which reaches the container's edge.
+/// The current page fills the row in Purple-500 with the label and glyph in
+/// white, the only current state the mockup draws; the ring there takes the
+/// library's colour for a filled surface (Yellow-500).
+.home {
+  display: flex;
+  align-items: center;
+  gap: var(--hive-space-2);
+  margin-inline: calc(-1 * var(--hive-gutter));
+  padding: var(--hive-space-3) var(--hive-gutter);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
+  text-decoration: none;
+  outline: none;
+
+  &[data-hovered],
+  &[data-focus-visible] {
+    color: var(--hive-color-brand-purple);
+
+    .label {
+      text-decoration-line: underline;
+    }
+  }
+
+  &[data-focus-visible] {
+    outline: var(--hive-focus-ring);
+    outline-offset: calc(-1 * var(--hive-focus-ring-width));
+  }
+
+  &[data-current] {
+    color: var(--hive-color-white);
+    background: var(--hive-color-brand-purple);
+    outline-color: var(--hive-focus-ring-color-on-dark);
+  }
+}
+
+/// The house glyph at the accordion's 24px icon size, in the label's colour.
+.icon {
+  flex: none;
+  width: var(--hive-sidebar-home-icon);
+  height: var(--hive-sidebar-home-icon);
+}

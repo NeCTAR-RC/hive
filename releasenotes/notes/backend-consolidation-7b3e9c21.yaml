@@ -1,0 +1,24 @@
+---
+upgrade:
+  - |
+    The session is stored in a new shape (one Redis hash field per part,
+    version 2). Sessions from an earlier Hive read as logged out, so
+    every user signs in again once after this deploys.
+  - |
+    ``HIVE_UPSTREAM_MAX_PAGES`` (default 50) bounds how many pages Hive
+    follows for one list. It replaces the limit each client had fixed in
+    its code (20 pages for most lists, 50 for Trove and the object
+    store), and a list that reaches the cap is logged as a warning.
+fixes:
+  - |
+    When several requests are refused at the same time because a token
+    expired, they share one rescope of the project token.
+  - |
+    A home page widget whose service refuses Hive's token (Langstroth,
+    Varroa) answers ``502 upstream_error`` for that widget instead of
+    logging the user out.
+  - |
+    Rules that only look at the request, such as invalid names, CIDRs or
+    monitors, are checked in the request models and answer ``422
+    validation`` with the rule's own words, as the other request
+    validation does.

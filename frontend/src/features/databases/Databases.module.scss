@@ -1,33 +1,57 @@
 @use "mixins" as *;
 
+/// Page sections (an alert above the panels, the panels, a tab's parts)
+/// 32px apart (library `content-block-stack`, the content blocks' section
+/// gap).
 .stack {
+  @include content-block-stack;
+}
+
+/// The parts of one panel's content (a key and value list, then a meter),
+/// 20px apart: the gap the Info - Sidebar block stacks its pairs at
+/// (sidebar-blocks spec, line 120; the `info-block` gap).
+.panelStack {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-4);
+  gap: var(--hive-space-5);
 }
 
+/// The parts of a dialog body (the log controls, notes, the log) 12px
+/// apart, the library dialog's body gap.
+.dialogStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-dialog-body-gap);
+}
+
+/// Helper text and notes: Body/14 in Grey-500, the text field's helper
+/// style (text-input spec, "Input Field with Labels").
 .muted {
-  margin: 0;
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.mono {
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+/// An identifier or value in a table cell (a configuration name or value):
+/// the cell's own Body/14, breaking anywhere rather than widening the table.
+/// No code face (gap "Code face and copyable value").
+.identifier {
   overflow-wrap: anywhere;
 }
 
+/// Buttons in a page's action slot, 12px apart, the gap between controls in
+/// a row (content-blocks spec, Frame 1400; library dialog actions item gap).
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-3);
 }
 
+/// Two panels side by side from 1024px, span 6 each with the grid's 24px
+/// gap (grids spec, 12 columns); stacked below.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
   @include up($bp-lg) {
@@ -35,45 +59,70 @@
   }
 }
 
+/// The "Sidebar right" layout (layouts spec, "Single pages"): the form
+/// beside a span 4 side column (384px, the sidebar block's width), 24px
+/// apart. The side column joins from 1280px, where the form keeps more
+/// than 500px beside it; stacked below (gap "Breakpoints").
 .layout {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
-  @include up($bp-lg) {
-    grid-template-columns: minmax(0, 1fr) 20rem;
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// A page form: its field groups, then the button row 32px under them
+/// (DERIVED-SPACING: field group to primary action, 32px; library
+/// `content-block-stack`).
 .form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
+
   min-width: 0;
 }
 
+/// Field groups (a form's panels, a notice, a failure) 24px apart
+/// (DERIVED-SPACING: fieldset to fieldset, 24px).
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-6);
+}
+
+/// Fields in a group 16px apart (DERIVED-SPACING: inter-field row gap),
+/// in a span 6 column (588px, the 50-50 content column) so text fields do
+/// not run the panel's full width.
 .fields {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
-  max-width: 32rem;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-6);
 }
 
+/// The side column's summary stays in view while the form scrolls (gap
+/// "Sticky summary"), 16px under the window's top edge.
 .summary {
   position: sticky;
   top: var(--hive-space-4);
 }
 
+/// A form's buttons: 12px apart and start-aligned (content-blocks spec,
+/// Frame 1400), wrapping on a narrow column. No rule above them.
 .buttons {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--hive-space-2);
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
 }
 
+/// Quota meters above a list: the library `Meter`s 16px apart, the gap
+/// between labelled fields (DERIVED-SPACING: inter-field row gap), in a span
+/// 4 column (384px, the sidebar block's width; gap "Quota meters above a
+/// list").
 .meters {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-  max-width: 28rem;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-4);
 }

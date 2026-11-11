@@ -1,112 +1,124 @@
-// Snapshot row actions behind one hook, as useVolumeActions.
+// Every volume snapshot action behind one hook, as useVolumeActions:
+// `run(action, snapshots)` navigates, runs the delete on the batch after
+// asking, or opens the dialog that collects what the action needs. Create
+// volume opens the create dialog over the current page, as Horizon's modal
+// does, so closing it leaves the user where they were.
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import type { VolumeSnapshot } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useDeleteSnapshots } from "../api";
-import type { SnapshotActionId } from "../status";
-import { CreateBackupDialog } from "../volumes/VolumeDialogs";
-import { EditSnapshotDialog } from "./SnapshotDialogs";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import { allows } from "../../../lib/actions";
+import type { VolumeSnapshot } from "../../../lib/api/types/volumes";
+import { deleteSnapshot, volumeServiceWriteKeys } from "../api";
+import { availableSnapshotActions, type SnapshotActionId } from "../status";
+import { CreateBackupDialog } from "../volumes/dialogs/CreateBackupDialog";
+import { CreateVolumeDialog } from "../volumes/dialogs/CreateVolumeDialog";
+import { UpdateMetadataDialog } from "../volumes/dialogs/UpdateMetadataDialog";
+import { EditSnapshotDialog } from "./dialogs/EditSnapshotDialog";
 
-type Dialog =
-  | { kind: "delete"; snapshots: VolumeSnapshot[] }
-  | { kind: "edit" | "backup"; snapshot: VolumeSnapshot }
-  | null;
+/** The actions that open a dialog collecting what they need. */
+type DialogActionId = Exclude<SnapshotActionId, "delete" | "launch">;
 
-export function useSnapshotActions(projectId: string): {
-  run: (snapshot: VolumeSnapshot, action: SnapshotActionId) => void;
-  runDelete: (snapshots: VolumeSnapshot[]) => void;
-  dialogs: ReactNode;
-} {
+type Dialog = { kind: DialogActionId; snapshot: VolumeSnapshot } | null;
+
+const getId = (snapshot: VolumeSnapshot) => snapshot.id;
+const getName = (snapshot: VolumeSnapshot) => snapshot.name || snapshot.id;
+
+/**
+ * The snapshot actions for a list, a detail page and a volume's snapshot
+ * table. Delete runs on a batch, skipping the snapshots Horizon would not
+ * delete now; every other action works on the first snapshot given.
+ */
+export function useSnapshotActions() {
   const navigate = useNavigate();
-  const remove = useDeleteSnapshots(projectId);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const close = () => setDialog(null);
+  const bulk = useBulkAction<VolumeSnapshot, "delete">({
+    noun: { one: "snapshot", many: "snapshots" },
+    name: getName,
+    getId,
+    invalidates: volumeServiceWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        body: <p>Deleted volume snapshots are not recoverable.</p>,
+        eligible: (snapshot) =>
+          allows(availableSnapshotActions(snapshot), "delete"),
+        request: (snapshot) => deleteSnapshot(snapshot.id),
+      },
+    },
+  });
 
-  const run = (snapshot: VolumeSnapshot, action: SnapshotActionId) => {
+  const run = (action: SnapshotActionId, snapshots: VolumeSnapshot[]) => {
+    const [first] = snapshots;
+    if (!first) return;
     switch (action) {
-      case "create-volume":
-        void navigate({
-          to: "/storage/volumes",
-          search: { create: true, snapshot: snapshot.id },
-        });
+      case "delete":
+        bulk.run("delete", snapshots);
         return;
       case "launch":
         void navigate({
           to: "/compute/instances/launch",
-          search: { source: `volume_snapshot:${snapshot.id}` },
+          search: { source: `volume_snapshot:${first.id}` },
         });
         return;
-      case "delete":
-        setDialog({ kind: "delete", snapshots: [snapshot] });
-        return;
       default:
-        setDialog({ kind: action, snapshot });
+        setDialog({ kind: action, snapshot: first });
     }
   };
 
-  let dialogs: ReactNode = null;
-  if (dialog?.kind === "delete") {
-    const { snapshots } = dialog;
-    dialogs = (
-      <ConfirmDialog
-        isOpen
-        onOpenChange={(open) => !open && close()}
-        title={
-          snapshots.length === 1
-            ? `Delete snapshot ${snapshots[0]?.name || snapshots[0]?.id}?`
-            : `Delete ${snapshots.length} snapshots?`
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        isPending={remove.isPending}
-        error={remove.error}
-        onConfirm={() =>
-          remove.mutate(
-            snapshots.map((s) => s.id),
-            {
-              onSuccess: () => {
-                notify.success(
-                  snapshots.length === 1
-                    ? `Deleting snapshot ${snapshots[0]?.name || snapshots[0]?.id}.`
-                    : `Deleting ${snapshots.length} snapshots.`,
-                );
-                close();
-              },
-            },
-          )
-        }
-      >
-        <p>Deleted volume snapshots are not recoverable.</p>
-      </ConfirmDialog>
-    );
-  } else if (dialog?.kind === "edit") {
-    dialogs = (
-      <EditSnapshotDialog
-        projectId={projectId}
-        snapshot={dialog.snapshot}
-        onClose={close}
-      />
-    );
-  } else if (dialog?.kind === "backup" && dialog.snapshot.volume_id) {
-    dialogs = (
-      <CreateBackupDialog
-        projectId={projectId}
-        volume={{
-          id: dialog.snapshot.volume_id,
-          name: dialog.snapshot.volume_name ?? dialog.snapshot.volume_id,
-          status: "available",
-        }}
-        snapshotId={dialog.snapshot.id}
-        onClose={close}
-      />
-    );
+  const close = () => setDialog(null);
+
+  let formDialog: ReactNode = null;
+  if (dialog) {
+    switch (dialog.kind) {
+      case "create-volume":
+        formDialog = (
+          <CreateVolumeDialog
+            initialSource={{ type: "snapshot", id: dialog.snapshot.id }}
+            onClose={close}
+          />
+        );
+        break;
+      case "edit":
+        formDialog = (
+          <EditSnapshotDialog snapshot={dialog.snapshot} onClose={close} />
+        );
+        break;
+      case "metadata":
+        formDialog = (
+          <UpdateMetadataDialog
+            target={{ kind: "snapshot", id: dialog.snapshot.id }}
+            name={getName(dialog.snapshot)}
+            metadata={dialog.snapshot.metadata}
+            onClose={close}
+          />
+        );
+        break;
+      case "backup":
+        formDialog = (
+          <CreateBackupDialog
+            volume={{
+              id: dialog.snapshot.volume_id ?? "",
+              name:
+                dialog.snapshot.volume_name ?? dialog.snapshot.volume_id ?? "",
+              status: "available",
+            }}
+            snapshotId={dialog.snapshot.id}
+            onClose={close}
+          />
+        );
+        break;
+    }
   }
 
   return {
     run,
-    runDelete: (snapshots) => setDialog({ kind: "delete", snapshots }),
-    dialogs,
+    dialogs: (
+      <>
+        {formDialog}
+        {bulk.dialog}
+      </>
+    ),
+    tableProps: bulk.tableProps,
   };
 }

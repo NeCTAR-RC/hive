@@ -1,0 +1,45 @@
+@use "mixins" as *;
+
+/// "Related list - Sidebar" (sidebar-blocks spec, line 876): rows 8px apart
+/// (library `sidebar-block-list`).
+.list {
+  @include sidebar-block-list;
+}
+
+/// One row ("List", line 914): the chevron 4px before its label (library
+/// `sidebar-block-link-row`).
+.row {
+  @include sidebar-block-link-row;
+}
+
+/// The chevron's 16px Purple-500 frame ("Frame 514", line 927), level with
+/// the label's first line (library `sidebar-block-link-icon`).
+.icon {
+  @include sidebar-block-link-icon;
+}
+
+/// The label and its detail line, 4px apart (the Events - Sidebar pair gap,
+/// "Frame 246", line 2004). A link label wraps beside the chevron (library
+/// `sidebar-block-link-label`); plain text takes the row label's
+/// Body/16/Bold Grey-700.
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hive-space-1);
+  min-width: 0;
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
+  overflow-wrap: anywhere;
+
+  > a {
+    @include sidebar-block-link-label;
+  }
+}
+
+/// The detail line (a group's description, when an attachment was made):
+/// Body/14 Grey-700, as the home page's announcement meta.
+.meta {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-700);
+}

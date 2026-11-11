@@ -1,0 +1,16 @@
+/// An option with details: the library checkbox, then its details 4px under
+/// it, the library's label to helper gap (`$selection-gap-label-helper`).
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+  min-width: 0;
+}
+
+/// The details start in line with the checkbox's label: past the library's
+/// 16px indicator and its 8px gap to the label
+/// (`$selection-indicator-size`, `$selection-gap-indicator-label`).
+.details {
+  padding-inline-start: var(--hive-selection-label-inset);
+  min-width: 0;
+}

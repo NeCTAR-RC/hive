@@ -1,0 +1,16 @@
+{
+  "id": "hm-1",
+  "type": "HTTP",
+  "delay": 5,
+  "timeout": 5,
+  "max_retries": 3,
+  "http_method": "GET",
+  "url_path": "/",
+  "expected_codes": "200",
+  "pools": [
+    {
+      "id": "p-1"
+    }
+  ],
+  "provisioning_status": "ACTIVE"
+}

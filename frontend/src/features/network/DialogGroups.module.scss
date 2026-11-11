@@ -1,0 +1,33 @@
+/// Groups of fields in a dialog form (a network and its first subnet, a
+/// trunk and its subports): 24px apart, the fieldset to fieldset gap
+/// (DERIVED-SPACING, 24px), with no rule between them. The dialog form
+/// around them keeps its 16px field gap.
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-6);
+}
+
+/// One group: its heading and fields 16px apart, the inter-field row gap
+/// inside a fieldset (DERIVED-SPACING, 16px).
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  min-width: 0;
+}
+
+/// A group's heading: Heading/H5 in Grey-900 (typography spec), at every
+/// heading level and width.
+.heading {
+  font: var(--hive-text-h5);
+  color: var(--hive-color-text-heading);
+}
+
+/// A row of buttons 12px apart, start-aligned (content blocks "Frame 1400"),
+/// so a button inside the stacked fields keeps its own width.
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
+}

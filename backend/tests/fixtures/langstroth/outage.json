@@ -1,0 +1,11 @@
+{
+  "id": 11,
+  "title": "Storage maintenance",
+  "severity": 2,
+  "scheduled": true,
+  "scheduled_display": "Scheduled",
+  "status_display": "In progress",
+  "start": "2026-10-09T01:00:00Z",
+  "end": null,
+  "planned_end": "2026-10-09T05:00:00Z"
+}

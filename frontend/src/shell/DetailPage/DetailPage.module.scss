@@ -1,0 +1,8 @@
+@use "mixins" as *;
+
+/// A detail page that failed to load: the error alert over the link back to
+/// the list, 32px apart, as every page's sections (library
+/// `content-block-stack`).
+.failed {
+  @include content-block-stack;
+}

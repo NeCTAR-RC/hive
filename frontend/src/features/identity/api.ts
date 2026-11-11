@@ -7,69 +7,63 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
+import type { Items } from "../../lib/api/types/common";
 import type {
   ApplicationCredential,
   ApplicationCredentialCreateRequest,
+  ApplicationCredentialCreated,
   ApplicationCredentialOptions,
   Credential,
-  CredentialCreateRequest,
   Ec2Response,
-  Items,
   MemberAddRequest,
   MemberRow,
   MembersResponse,
-  Profile,
+  UserDetails,
   UserSearchResult,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/identity";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { useProjectId } from "../../lib/hooks/useProjectId";
+import { getJson, staleTimes } from "../../lib/queries";
+import { queryKeys, userKeys } from "../../lib/queryKeys";
+
+const keys = queryKeys.identity;
 
 export function membersQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "identity", "members"],
-    queryFn: ({ signal }) =>
-      apiFetch<MembersResponse>("/api/identity/members", { signal }),
+    queryKey: keys.members.list(projectId),
+    queryFn: getJson<MembersResponse>("/api/identity/members"),
     staleTime: staleTimes.list,
   });
 }
 
-export function useAddMember(projectId: string) {
-  const queryClient = useQueryClient();
+/** What a membership write makes stale. */
+export const memberWriteKeys = [keys.members.all];
+
+export function useAddMember() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: MemberAddRequest) =>
       apiFetch<MemberRow>("/api/identity/members", {
         method: "POST",
         json: body,
       }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "identity", "members"],
-      }),
+    onSettled: () => invalidate(...memberWriteKeys),
   });
 }
 
-export function useRemoveMember(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (row: { user_id: string; role_id: string }) =>
-      apiFetch<void>(
-        `/api/identity/members/${row.user_id}/roles/${row.role_id}`,
-        { method: "DELETE" },
-      ),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "identity", "members"],
-      }),
+/** Takes one role on the project away from a user. */
+export function removeMemberRole(userId: string, roleId: string) {
+  return apiFetch<void>(`/api/identity/members/${userId}/roles/${roleId}`, {
+    method: "DELETE",
   });
 }
 
 export function userSearchQuery(q: string) {
   return queryOptions({
-    queryKey: ["identity", "users", "search", q],
-    queryFn: ({ signal }) =>
-      apiFetch<Items<UserSearchResult>>("/api/identity/users/search", {
-        signal,
-        query: { q },
-      }),
+    queryKey: userKeys.users.list({ q }),
+    queryFn: getJson<Items<UserSearchResult>>("/api/identity/users/search", {
+      q,
+    }),
     staleTime: staleTimes.list,
     enabled: q.trim().length >= 3,
   });
@@ -77,137 +71,126 @@ export function userSearchQuery(q: string) {
 
 export function userDetailsQuery(userId: string) {
   return queryOptions({
-    queryKey: ["identity", "users", userId],
-    queryFn: ({ signal }) =>
-      apiFetch<Profile>(`/api/identity/users/${userId}`, { signal }),
+    queryKey: userKeys.users.detail(userId),
+    queryFn: getJson<UserDetails>(`/api/identity/users/${userId}`),
     staleTime: staleTimes.detail,
   });
 }
 
-// --- application credentials -------------------------------------------------
-
-const APP_CREDS = ["me", "application-credentials"] as const;
-
 export const appCredentialsQuery = queryOptions({
-  queryKey: APP_CREDS,
-  queryFn: ({ signal }) =>
-    apiFetch<Items<ApplicationCredential>>(
-      "/api/identity/application-credentials",
-      { signal },
-    ),
+  queryKey: userKeys.applicationCredentials.list(),
+  queryFn: getJson<Items<ApplicationCredential>>(
+    "/api/identity/application-credentials",
+  ),
   staleTime: staleTimes.list,
 });
 
 export function appCredentialQuery(credentialId: string) {
   return queryOptions({
-    queryKey: [...APP_CREDS, credentialId],
-    queryFn: ({ signal }) =>
-      apiFetch<ApplicationCredential>(
-        `/api/identity/application-credentials/${credentialId}`,
-        { signal },
-      ),
+    queryKey: userKeys.applicationCredentials.detail(credentialId),
+    queryFn: getJson<ApplicationCredential>(
+      `/api/identity/application-credentials/${credentialId}`,
+    ),
     staleTime: staleTimes.detail,
   });
 }
 
 export function appCredentialOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "identity", "app-cred-options"],
-    queryFn: ({ signal }) =>
-      apiFetch<ApplicationCredentialOptions>(
-        "/api/identity/application-credentials/options",
-        { signal },
-      ),
+    queryKey: keys.applicationCredentialOptions.all(projectId),
+    queryFn: getJson<ApplicationCredentialOptions>(
+      "/api/identity/application-credentials/options",
+    ),
     staleTime: staleTimes.static,
   });
 }
 
+/** What an application credential write makes stale. */
+export const appCredentialWriteKeys = [userKeys.applicationCredentials.all];
+
+/**
+ * Creates an application credential. Its secret goes to the page's
+ * one-time dialog only: the mutation leaves the cache as soon as the create
+ * dialog lets go of it (`gcTime: 0`) instead of staying for minutes.
+ */
 export function useCreateAppCredential() {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   return useMutation({
+    gcTime: 0,
     mutationFn: (body: ApplicationCredentialCreateRequest) =>
-      apiFetch<ApplicationCredential>("/api/identity/application-credentials", {
-        method: "POST",
-        json: body,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: APP_CREDS }),
+      apiFetch<ApplicationCredentialCreated>(
+        "/api/identity/application-credentials",
+        {
+          method: "POST",
+          json: body,
+        },
+      ),
+    onSettled: () => invalidate(...appCredentialWriteKeys),
   });
 }
 
-export function useDeleteAppCredential() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (credentialId: string) =>
-      apiFetch<void>(`/api/identity/application-credentials/${credentialId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: APP_CREDS }),
-  });
+/** Deletes one of the user's application credentials. */
+export function deleteAppCredential(credentialId: string) {
+  return apiFetch<void>(
+    `/api/identity/application-credentials/${credentialId}`,
+    { method: "DELETE" },
+  );
 }
-
-// --- EC2 and generic credentials ---------------------------------------------
 
 export function ec2Query(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "identity", "ec2"],
-    queryFn: ({ signal }) =>
-      apiFetch<Ec2Response>("/api/identity/ec2-credentials", { signal }),
+    queryKey: keys.ec2Credentials.all(projectId),
+    queryFn: getJson<Ec2Response>("/api/identity/ec2-credentials"),
     staleTime: staleTimes.detail,
   });
 }
 
-const CREDENTIALS = ["me", "credentials"] as const;
+/**
+ * What a credential write makes stale: the user's credentials and the
+ * project's EC2 pair, which is one of them.
+ */
+export const credentialWriteKeys = [
+  userKeys.credentials.all,
+  keys.ec2Credentials.all,
+];
 
-export const credentialsQuery = queryOptions({
-  queryKey: CREDENTIALS,
-  queryFn: ({ signal }) =>
-    apiFetch<Items<Credential>>("/api/identity/credentials", { signal }),
+export const userCredentialsQuery = queryOptions({
+  queryKey: userKeys.credentials.list(),
+  queryFn: getJson<Items<Credential>>("/api/identity/credentials"),
   staleTime: staleTimes.list,
 });
 
-function useEc2Mutation(projectId: string, path: string) {
+/** Creates the project's EC2 pair if it has none, and shows it at once. */
+export function useEnsureEc2() {
   const queryClient = useQueryClient();
+  const projectId = useProjectId();
+  const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: () => apiFetch<Ec2Response>(path, { method: "POST" }),
+    mutationFn: () =>
+      apiFetch<Ec2Response>("/api/identity/ec2-credentials", {
+        method: "POST",
+      }),
     onSuccess: (data) => {
       queryClient.setQueryData(ec2Query(projectId).queryKey, data);
-      void queryClient.invalidateQueries({ queryKey: CREDENTIALS });
+    },
+    onSettled: (_data, error) => {
+      // After a failure the server may still have changed the pair.
+      if (error) void invalidate(keys.ec2Credentials.all);
+      return invalidate(userKeys.credentials.all);
     },
   });
 }
 
-export function useEnsureEc2(projectId: string) {
-  return useEc2Mutation(projectId, "/api/identity/ec2-credentials");
-}
-
-export function useRecreateEc2(projectId: string) {
-  return useEc2Mutation(projectId, "/api/identity/ec2-credentials/recreate");
-}
-
-export function useCreateCredential() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: CredentialCreateRequest) =>
-      apiFetch<Credential>("/api/identity/credentials", {
-        method: "POST",
-        json: body,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: CREDENTIALS }),
+/** Replaces the project's EC2 pair; the old one is deleted. */
+export function recreateEc2Credentials() {
+  return apiFetch<Ec2Response>("/api/identity/ec2-credentials/recreate", {
+    method: "POST",
   });
 }
 
-export function useDeleteCredential(projectId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (credentialId: string) =>
-      apiFetch<void>(`/api/identity/credentials/${credentialId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: CREDENTIALS });
-      void queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "identity", "ec2"],
-      });
-    },
+/** Deletes one of the user's credentials. */
+export function deleteCredential(credentialId: string) {
+  return apiFetch<void>(`/api/identity/credentials/${credentialId}`, {
+    method: "DELETE",
   });
 }

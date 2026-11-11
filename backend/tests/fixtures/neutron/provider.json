@@ -1,0 +1,10 @@
+{
+  "id": "net-prov",
+  "name": "provider",
+  "project_id": "admin",
+  "shared": true,
+  "router:external": true,
+  "subnets": [
+    "sub-prov"
+  ]
+}

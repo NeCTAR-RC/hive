@@ -1,60 +1,57 @@
 import { useEffect, useState } from "react";
 import { Alert, Link } from "@ardc-ui/react";
-import type { Me, PublicConfig } from "../lib/api/types";
+import type { Me, PublicConfig } from "../lib/api/types/session";
 import { buildLoginUrl } from "../lib/login";
+import { secondsLeft, warningMinutes } from "./session-time";
 import styles from "./SessionTimeoutWarning.module.scss";
 
-const WARN_BEFORE = 10 * 60; // seconds
+/** How often the remaining time is worked out again. */
+const TICK_MS = 30_000;
 
 /**
  * Sessions are capped by the Keystone token and never renewed (as in
  * Horizon), so warn before the cap rather than surprising the user with a
- * 401 mid-task.
+ * 401 mid-task. The time left is measured on the server's clock (see
+ * secondsLeft) and worked out again whenever /api/me answers anew.
  */
 export function SessionTimeoutWarning({
   me,
+  meReceivedAt,
   config,
 }: {
   me: Me | undefined;
+  /** The browser's clock when `me` arrived (the query's dataUpdatedAt). */
+  meReceivedAt: number;
   config: PublicConfig | undefined;
 }) {
-  const expiresAt = me?.session.expires_at;
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  // Restart the countdown whenever the expiry changes (it is undefined
-  // until `me` arrives), reading the clock at once rather than waiting for
-  // the first tick.
   useEffect(() => {
-    const tick = () =>
-      setRemaining(
-        expiresAt ? Math.round(expiresAt - Date.now() / 1000) : null,
-      );
-    const first = window.setTimeout(tick, 0);
-    if (!expiresAt) return () => window.clearTimeout(first);
-    const timer = window.setInterval(tick, 30_000);
-    return () => {
-      window.clearTimeout(first);
-      window.clearInterval(timer);
-    };
-  }, [expiresAt]);
+    const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  if (remaining === null || remaining > WARN_BEFORE) return null;
-  const minutes = Math.max(1, Math.round(remaining / 60));
+  const minutes = me
+    ? warningMinutes(secondsLeft(me.session, meReceivedAt, now))
+    : null;
+  if (minutes === null) return null;
   const next = window.location.pathname + window.location.search;
   return (
-    <Alert tone="warning" role="status" className={styles.banner}>
-      <p>
-        Your login session ends in about {minutes}{" "}
-        {minutes === 1 ? "minute" : "minutes"}. Save your work, then{" "}
-        {config ? (
-          <Link variant="link" href={buildLoginUrl(config, next)}>
-            sign in again
-          </Link>
-        ) : (
-          "sign in again"
-        )}
-        .
-      </p>
-    </Alert>
+    <div className={styles.banner}>
+      <Alert tone="warning" role="status">
+        <p>
+          Your login session ends in about {minutes}{" "}
+          {minutes === 1 ? "minute" : "minutes"}. Save your work, then{" "}
+          {config ? (
+            <Link variant="link" href={buildLoginUrl(config, next)}>
+              sign in again
+            </Link>
+          ) : (
+            "sign in again"
+          )}
+          .
+        </p>
+      </Alert>
+    </div>
   );
 }

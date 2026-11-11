@@ -2,7 +2,9 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from hive.schemas import StrictModel
 
 # nectar_dashboard/user_info/update/forms.py:39-60
 Affiliation = Literal[
@@ -28,7 +30,7 @@ AFFILIATIONS: list[dict] = [
 ]
 
 
-class ProfileUpdate(BaseModel):
+class ProfileUpdate(StrictModel):
     affiliation: Affiliation
     phone_number: str | None = Field(default=None, max_length=64)
     mobile_number: str | None = Field(default=None, max_length=64)

@@ -1,79 +1,91 @@
 @use "mixins" as *;
 
+/// A page's sections (the quota panel over the clusters, an alert over the
+/// node groups) 32px apart (library `content-block-stack`, the content
+/// blocks' section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
 }
 
+/// Quota meters (library `Meter` through `QuotaMeter`) and their note, 16px
+/// apart, the inter-field row gap (DERIVED-SPACING, 16px), in a span 4
+/// column (384px, the sidebar block's width; gap "Quota meters above a
+/// list").
 .meters {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-  max-width: 28rem;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-4);
 }
 
-.muted {
-  margin: 0;
+/// Helper text: Body/14 in Grey-500 (library `body-14-muted`).
+.note {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.mono {
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+/// Labels and taints in a table cell: the cell's own Body/14 (library
+/// `$table-cell-font-size`), breaking anywhere rather than widening the
+/// column.
+.labels {
   overflow-wrap: anywhere;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-2);
-}
-
+/// Panels side by side, span 6 each from 1024px, 24px apart (grids spec,
+/// 12 columns with a 24px gap); stacked below.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  gap: var(--hive-grid-gap);
 
   @include up($bp-lg) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
+/// The create form beside its template summary from 1024px: the "Sidebar
+/// right" layout (layouts spec), the summary a span 4 column (384px, the
+/// sidebar block's width) 24px from the form; stacked below.
 .layout {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  gap: var(--hive-grid-gap);
 
   @include up($bp-lg) {
-    grid-template-columns: minmax(0, 1fr) 20rem;
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// The form's panels and its button row 32px apart: the content blocks'
+/// section gap, and the field group to submit gap (DERIVED-SPACING, 32px).
 .form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
+
   min-width: 0;
 }
 
+/// Fields 16px apart (DERIVED-SPACING, the inter-field row gap) in a span 6
+/// column (588px, the 50-50 content column).
 .fields {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
-  max-width: 32rem;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-6);
 }
 
+/// The template summary stays in view while the form scrolls, 16px from
+/// the top of the window (gap "Sticky summary").
 .summary {
   position: sticky;
   top: var(--hive-space-4);
 }
 
+/// The form's buttons 12px apart, start-aligned (content-blocks spec,
+/// "Frame 1400").
 .buttons {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--hive-space-2);
+  flex-wrap: wrap;
+  gap: var(--hive-space-3);
 }

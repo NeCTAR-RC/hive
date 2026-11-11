@@ -1,40 +1,26 @@
 import { queryOptions } from "@tanstack/react-query";
-import { apiFetch } from "../../lib/api/client";
-import type { Items } from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+import type {
+  ApiCredentials,
+  ServiceEndpoint,
+} from "../../lib/api/types/apiaccess";
+import type { Items } from "../../lib/api/types/common";
+import { getJson, staleTimes } from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
 
-export interface ServiceEndpoint {
-  type: string;
-  name: string;
-  url: string;
-  region: string | null;
-}
-
-export interface ApiCredentials {
-  username: string;
-  user_id: string;
-  user_domain_id: string;
-  project_id: string;
-  project_name: string;
-  project_domain_id: string;
-  auth_url: string;
-  region: string;
-}
+const keys = queryKeys.apiAccess;
 
 export function endpointsQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "api-access", "endpoints"],
-    queryFn: ({ signal }) =>
-      apiFetch<Items<ServiceEndpoint>>("/api/api-access/endpoints", { signal }),
+    queryKey: keys.endpoints.list(projectId),
+    queryFn: getJson<Items<ServiceEndpoint>>("/api/api-access/endpoints"),
     staleTime: staleTimes.static,
   });
 }
 
-export function credentialsQuery(projectId: string) {
+export function apiAccessCredentialsQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["project", projectId, "api-access", "credentials"],
-    queryFn: ({ signal }) =>
-      apiFetch<ApiCredentials>("/api/api-access/credentials", { signal }),
+    queryKey: keys.credentials.all(projectId),
+    queryFn: getJson<ApiCredentials>("/api/api-access/credentials"),
     staleTime: staleTimes.static,
   });
 }

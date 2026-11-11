@@ -1,11 +1,11 @@
 """Heat (orchestration) v1 client. The catalog endpoint already carries the
 project id; stacks are addressed as ``/stacks/{name}/{id}`` once known.
-Every caller-supplied path segment goes through ``seg``."""
+Stack bodies are not enveloped; replies are."""
 
-from urllib.parse import urlsplit
+from hive.clients.base import path, rebase, ServiceClient
 
-from hive.clients.base import seg, ServiceClient
-from hive.errors import UpstreamError
+# Heat validates and plans the whole template before it answers a write.
+STACK_TIMEOUT = 120
 
 
 class HeatClient(ServiceClient):
@@ -13,143 +13,114 @@ class HeatClient(ServiceClient):
     service_name = "heat"
 
     @staticmethod
-    def _path(name: str, stack_id: str) -> str:
-        return f"/stacks/{seg(name)}/{seg(stack_id)}"
+    def _path(name: str, stack_id: str, *rest: str) -> str:
+        return path("stacks", name, stack_id, *rest)
 
     async def stacks(self, **params) -> list[dict]:
-        body = await self.get_json("/stacks", params=params or None)
-        return (body or {}).get("stacks", [])
+        return await self.list("/stacks", "stacks", **params)
 
     async def find_stack(self, identity: str) -> dict:
         """``GET /stacks/{name_or_id}`` answers with a 302 to the canonical
         ``/stacks/{name}/{id}``. Only the path of the ``Location`` is
-        followed, against this client's endpoint, so an endpoint override
-        holds and the token never goes to a host Heat names."""
+        followed, re-based on this client's endpoint (``rebase``), so an
+        endpoint override holds and the token never goes to a host Heat
+        names."""
         resp = await self.request(
-            "GET", f"/stacks/{seg(identity)}", ok=(200, 302)
+            "GET", path("stacks", identity), ok=(200, 302)
         )
         if resp.status_code == 302:
-            location = urlsplit(resp.headers.get("location") or "")
-            start = location.path.find("/stacks/")
-            if start < 0:
-                raise UpstreamError(
-                    "heat redirected outside the stacks API",
-                    service=self.label,
-                )
-            target = location.path[start:]
-            if location.query:
-                target += f"?{location.query}"
-            resp = await self.request("GET", target)
-        return resp.json().get("stack", {})
+            location = resp.headers.get("location") or ""
+            resp = await self.request("GET", rebase(self.endpoint, location))
+        return resp.json().get("stack") or {}
 
     async def stack(self, name: str, stack_id: str, **params) -> dict:
-        body = await self.get_json(
-            self._path(name, stack_id), params=params or None
-        )
-        return (body or {}).get("stack", {})
+        return await self.get(self._path(name, stack_id), "stack", **params)
 
     async def create_stack(self, fields: dict) -> dict:
-        resp = await self.request("POST", "/stacks", json=fields, timeout=120)
-        return resp.json().get("stack", {})
+        reply = await self.action("/stacks", fields, timeout=STACK_TIMEOUT)
+        return reply.get("stack") or {}
 
     async def preview_stack(self, fields: dict) -> dict:
-        resp = await self.request(
-            "POST", "/stacks/preview", json=fields, timeout=120
+        reply = await self.action(
+            "/stacks/preview", fields, timeout=STACK_TIMEOUT
         )
-        return resp.json().get("stack", {})
+        return reply.get("stack") or {}
 
     async def update_stack(
         self, name: str, stack_id: str, fields: dict, existing: bool = False
     ) -> None:
-        await self.request(
-            "PATCH" if existing else "PUT",
+        await self.update(
             self._path(name, stack_id),
-            json=fields,
-            timeout=120,
-            ok=(200, 202),
+            None,
+            fields,
+            method="PATCH" if existing else "PUT",
+            timeout=STACK_TIMEOUT,
         )
 
     async def delete_stack(self, name: str, stack_id: str) -> None:
-        await self.request("DELETE", self._path(name, stack_id), ok=(204,))
+        await self.delete(self._path(name, stack_id))
 
     async def stack_action(
         self, name: str, stack_id: str, action: str
     ) -> None:
-        await self.request(
-            "POST",
-            f"{self._path(name, stack_id)}/actions",
-            json={action: None},
-            ok=(200, 202),
+        await self.action(
+            self._path(name, stack_id, "actions"), {action: None}
         )
 
     async def resources(
         self, name: str, stack_id: str, **params
     ) -> list[dict]:
-        body = await self.get_json(
-            f"{self._path(name, stack_id)}/resources", params=params or None
+        return await self.list(
+            self._path(name, stack_id, "resources"), "resources", **params
         )
-        return (body or {}).get("resources", [])
 
     async def resource(self, name: str, stack_id: str, resource: str) -> dict:
-        body = await self.get_json(
-            f"{self._path(name, stack_id)}/resources/{seg(resource)}"
+        return await self.get(
+            self._path(name, stack_id, "resources", resource), "resource"
         )
-        return (body or {}).get("resource", {})
 
     async def events(self, name: str, stack_id: str, **params) -> list[dict]:
-        body = await self.get_json(
-            f"{self._path(name, stack_id)}/events", params=params or None
+        return await self.list(
+            self._path(name, stack_id, "events"), "events", **params
         )
-        return (body or {}).get("events", [])
 
     async def template(self, name: str, stack_id: str) -> dict:
-        return (
-            await self.get_json(f"{self._path(name, stack_id)}/template") or {}
-        )
+        return await self.get(self._path(name, stack_id, "template"))
 
     async def environment(self, name: str, stack_id: str) -> dict:
-        return (
-            await self.get_json(f"{self._path(name, stack_id)}/environment")
-            or {}
-        )
+        return await self.get(self._path(name, stack_id, "environment"))
 
     async def outputs(self, name: str, stack_id: str) -> list[dict]:
-        body = await self.get_json(f"{self._path(name, stack_id)}/outputs")
-        return (body or {}).get("outputs", [])
+        return await self.list(
+            self._path(name, stack_id, "outputs"), "outputs"
+        )
 
     async def output(self, name: str, stack_id: str, key: str) -> dict:
-        body = await self.get_json(
-            f"{self._path(name, stack_id)}/outputs/{seg(key)}"
+        return await self.get(
+            self._path(name, stack_id, "outputs", key), "output"
         )
-        return (body or {}).get("output", {})
 
     async def resource_types(self, with_description: bool = False) -> list:
-        params = {"with_description": "true"} if with_description else None
-        body = await self.get_json("/resource_types", params=params)
-        return (body or {}).get("resource_types", [])
+        params = {"with_description": "true"} if with_description else {}
+        return await self.list("/resource_types", "resource_types", **params)
 
     async def resource_type(self, name: str) -> dict:
-        return await self.get_json(f"/resource_types/{seg(name)}") or {}
+        return await self.get(path("resource_types", name))
 
     async def resource_type_template(self, name: str, template_type="hot"):
-        return (
-            await self.get_json(
-                f"/resource_types/{seg(name)}/template",
-                params={"template_type": template_type},
-            )
-            or {}
+        return await self.get(
+            path("resource_types", name, "template"),
+            template_type=template_type,
         )
 
     async def template_versions(self) -> list[dict]:
-        body = await self.get_json("/template_versions")
-        return (body or {}).get("template_versions", [])
+        return await self.list("/template_versions", "template_versions")
 
     async def template_functions(self, version: str) -> list[dict]:
-        body = await self.get_json(
-            f"/template_versions/{seg(version)}/functions"
+        return await self.list(
+            path("template_versions", version, "functions"),
+            "template_functions",
         )
-        return (body or {}).get("template_functions", [])
 
     async def validate(self, fields: dict) -> dict:
-        resp = await self.request("POST", "/validate", json=fields, timeout=60)
-        return resp.json() if resp.content else {}
+        return await self.action("/validate", fields, timeout=60)

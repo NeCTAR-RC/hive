@@ -18,6 +18,9 @@ the panel being reproduced there.
 - `frontend/`: Vite + React 19 + TypeScript; see `frontend/README.md`.
 - `backend/hive/data/horizon-redirects.json`: the Horizon URL map, served
   as 301s by the backend and imported by the SPA.
+- `backend/scripts/export_openapi.py`: the OpenAPI document the SPA's API
+  types are generated from; after a route or model change run
+  `pnpm -C frontend generate:api` (see `frontend/README.md`, API contract).
 - The helm chart is the separate `hive-helm` repository.
 
 ## Rules
@@ -45,9 +48,10 @@ the panel being reproduced there.
 ```
 make env && make start          # redis + API :8000 + Vite :5173, in the background
 make login                      # one-shot login URL (consumed on first use)
-make restart                    # after backend edits (reload misses them here)
+make restart                    # after settings or dependency changes
 make status | make stop         # logs and pids live in .dev/
-node frontend/scripts/live-smoke.mjs <one-shot url>   # browser smoke + axe
+HIVE_LIVE_URL=http://127.0.0.1:8000 HIVE_LIVE_LOGIN_URL='<one-shot url>' \
+  pnpm -C frontend exec playwright test     # live browser smoke + axe (opt-in projects)
 ```
 
 `scripts/dev-stack.sh` is behind those targets; `make dev` is the

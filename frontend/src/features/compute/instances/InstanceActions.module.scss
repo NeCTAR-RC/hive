@@ -1,23 +1,8 @@
+/// The instances a batch action applies to, in a confirm dialog: a bulleted
+/// list that scrolls after `--hive-list-max-height` (gap "List cap").
 .names {
   margin: 0;
   padding-left: var(--hive-space-5);
-  max-height: 12rem;
+  max-height: var(--hive-list-max-height);
   overflow: auto;
-}
-
-.metadata {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-3);
-}
-
-.metadataRow {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: var(--hive-space-2);
-  align-items: end;
-}
-
-.removeRow {
-  margin-bottom: var(--hive-space-2);
 }

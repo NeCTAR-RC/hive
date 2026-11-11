@@ -1,10 +1,8 @@
-// Queries and mutations for the DNS panels (Designate), keyed under
-// `['project', pid, 'dns', ...]`. Lists poll while anything is PENDING.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the DNS panels (Designate), keyed by
+// `queryKeys.dns`. Lists poll while anything is PENDING, and every write
+// refreshes the whole service. Queries pass React Query's abort signal on,
+// so leaving a page cancels its requests.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
 import type {
   RecordSet,
@@ -13,60 +11,56 @@ import type {
   Zone,
   ZoneCreateRequest,
   ZonesResponse,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/dns";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, pollWhile, staleTimes } from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
 
-export function dnsKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "dns", ...rest] as const;
-}
+const keys = queryKeys.dns;
 
 const BASE = "/api/dns";
-const POLL_MS = 5000;
+
+/** What any DNS write marks stale: the whole service, zones and records. */
+export const dnsWriteKeys = [keys.service.all];
 
 export function zonesQuery(projectId: string) {
   return queryOptions({
-    queryKey: dnsKey(projectId, "zones"),
-    queryFn: ({ signal }) =>
-      apiFetch<ZonesResponse>(`${BASE}/zones`, { signal }),
+    queryKey: keys.zones.list(projectId),
+    queryFn: getJson<ZonesResponse>(`${BASE}/zones`),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
-      query.state.data?.items.some((z) => z.is_transitional) ? POLL_MS : false,
+      pollWhile(
+        query,
+        query.state.data?.items.some((z) => z.is_transitional),
+      ),
   });
 }
 
 export function recordSetsQuery(projectId: string, zoneId: string) {
   return queryOptions({
-    queryKey: dnsKey(projectId, "recordsets", zoneId),
-    queryFn: ({ signal }) =>
-      apiFetch<RecordSetsResponse>(`${BASE}/zones/${zoneId}/recordsets`, {
-        signal,
-      }),
+    queryKey: [...keys.zones.detail(projectId, zoneId), "recordsets"],
+    queryFn: getJson<RecordSetsResponse>(`${BASE}/zones/${zoneId}/recordsets`),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
-      query.state.data?.items.some((r) => r.is_transitional) ||
-      query.state.data?.zone.is_transitional
-        ? POLL_MS
-        : false,
+      pollWhile(
+        query,
+        query.state.data?.items.some((r) => r.is_transitional) ||
+          query.state.data?.zone.is_transitional,
+      ),
   });
 }
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return () =>
-    void queryClient.invalidateQueries({ queryKey: dnsKey(projectId) });
-}
-
-export function useCreateZone(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateZone() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: ZoneCreateRequest) =>
       apiFetch<Zone>(`${BASE}/zones`, { method: "POST", json: body }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...dnsWriteKeys),
   });
 }
 
-export function useUpdateZone(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateZone() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       id,
@@ -78,21 +72,17 @@ export function useUpdateZone(projectId: string) {
       description?: string;
     }) =>
       apiFetch<Zone>(`${BASE}/zones/${id}`, { method: "PATCH", json: body }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...dnsWriteKeys),
   });
 }
 
-export function useDeleteZone(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<void>(`${BASE}/zones/${id}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-  });
+/** Deletes one zone with its record sets; a batch sends it per zone. */
+export function deleteZone(zoneId: string) {
+  return apiFetch<void>(`${BASE}/zones/${zoneId}`, { method: "DELETE" });
 }
 
-export function useCreateRecordSet(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateRecordSet() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       zoneId,
@@ -102,12 +92,12 @@ export function useCreateRecordSet(projectId: string) {
         method: "POST",
         json: body,
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...dnsWriteKeys),
   });
 }
 
-export function useUpdateRecordSet(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useUpdateRecordSet() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({
       zoneId,
@@ -117,7 +107,7 @@ export function useUpdateRecordSet(projectId: string) {
       zoneId: string;
       id: string;
       records: string[];
-      /** null restores the zone default; leaving it out keeps the TTL. */
+      /** Null restores the zone's default TTL; left out keeps the current. */
       ttl?: number | null;
       description?: string;
     }) =>
@@ -125,17 +115,13 @@ export function useUpdateRecordSet(projectId: string) {
         method: "PUT",
         json: body,
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...dnsWriteKeys),
   });
 }
 
-export function useDeleteRecordSet(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: ({ zoneId, id }: { zoneId: string; id: string }) =>
-      apiFetch<void>(`${BASE}/zones/${zoneId}/recordsets/${id}`, {
-        method: "DELETE",
-      }),
-    onSuccess: invalidate,
+/** Deletes one record set of a zone; a batch sends it per record set. */
+export function deleteRecordSet(zoneId: string, recordSetId: string) {
+  return apiFetch<void>(`${BASE}/zones/${zoneId}/recordsets/${recordSetId}`, {
+    method: "DELETE",
   });
 }

@@ -1,10 +1,18 @@
-import styles from "./StackedMeter.module.scss";
+import { Meter, Text } from "@ardc-ui/react";
+import { formatNumber } from "../../lib/format";
 
 /**
- * A meter with two segments: what is already used and what the current
- * choice would add, against a limit. Over the limit, the whole bar turns to
- * the danger colour (Horizon's used + pending progress bars on the reserve
- * modal). Reads out as one meter with the combined value.
+ * What is already used against a limit, and what the current choice would
+ * add (a reservation's days, its service units). The library `Meter`, as
+ * shipped, fills to the used share; the pending share and the combined
+ * total are said in its description ("7 of 20 days with 5 added"), with
+ * "over the limit" once the two together pass it. The library meter has one
+ * fill and no warning tone (the gap "Meter with threshold tones" in
+ * DESIGN-NOTES.md), so the words carry what a second segment would.
+ *
+ * The meter has no visible label (the caller shows the figure above it), so
+ * `label` is its accessible name. A limit of zero or less reads as a full
+ * bar: nothing more fits.
  */
 export function StackedMeter({
   label,
@@ -19,25 +27,21 @@ export function StackedMeter({
   max: number;
   valueText: string;
 }) {
-  const total = used + pending;
-  const over = max <= 0 || total > max;
-  const usedPercent = over ? 0 : (Math.max(used, 0) / max) * 100;
-  const pendingPercent = over ? 100 : (Math.max(pending, 0) / max) * 100;
+  const over = max <= 0 || used + pending > max;
+  // Rounded as the callers round the combined figure they pass in.
+  const added = Math.round(Math.max(pending, 0));
+  const total =
+    added > 0 ? `${valueText} with ${formatNumber(added)} added` : valueText;
+  const description = over ? `${total}: over the limit` : total;
+  const limited = max > 0;
   return (
-    <div
-      role="meter"
+    <Meter
       aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={Math.max(max, 0)}
-      aria-valuenow={Math.min(Math.max(total, 0), Math.max(max, 0))}
-      aria-valuetext={valueText}
-      className={[styles.track, over ? styles.over : ""].join(" ").trim()}
+      minValue={0}
+      maxValue={limited ? max : 1}
+      value={limited ? Math.min(Math.max(used, 0), max) : 1}
     >
-      <span className={styles.used} style={{ width: `${usedPercent}%` }} />
-      <span
-        className={styles.pending}
-        style={{ width: `${pendingPercent}%` }}
-      />
-    </div>
+      <Text slot="description">{description}</Text>
+    </Meter>
   );
 }

@@ -1,7 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 
+// The DOM types declare these, but jsdom does not implement them.
+const dom: Partial<Pick<typeof window, "matchMedia" | "ResizeObserver">> =
+  window;
+
 // jsdom has no matchMedia; components only need a non-matching stub.
-if (!window.matchMedia) {
+if (!dom.matchMedia) {
   window.matchMedia = (query: string) =>
     ({
       matches: false,
@@ -15,12 +19,12 @@ if (!window.matchMedia) {
     }) as MediaQueryList;
 }
 
-// jsdom has no ResizeObserver; the design system's Tabs, Menu and overlay
-// scrollbars (Modal, Combobox, Select popovers) measure themselves with one.
-if (typeof globalThis.ResizeObserver === "undefined") {
-  globalThis.ResizeObserver = class {
+// jsdom has no ResizeObserver; the library's dropdowns (Select, Combobox)
+// observe their list to draw a scrollbar thumb, which tests never look at.
+if (!dom.ResizeObserver) {
+  window.ResizeObserver = class {
     observe() {}
     unobserve() {}
     disconnect() {}
-  } as unknown as typeof ResizeObserver;
+  };
 }

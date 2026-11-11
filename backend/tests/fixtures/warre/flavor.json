@@ -1,0 +1,18 @@
+{
+  "id": "f1",
+  "name": "ardc.g3.xlarge",
+  "description": "L4 with 24GB of GPU RAM",
+  "vcpu": 64,
+  "memory_mb": 49152,
+  "disk_gb": 30,
+  "ephemeral_gb": 200,
+  "active": true,
+  "max_length_hours": 168,
+  "slots": 1,
+  "is_public": true,
+  "extra_specs": {
+    "nectar:rate": "0.899"
+  },
+  "category": "GPU",
+  "availability_zone": "ardctest-artm"
+}

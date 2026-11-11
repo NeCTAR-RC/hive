@@ -1,13 +1,22 @@
 """DNS (Designate): zones and record sets."""
 
+import asyncio
+import contextlib
+
 from hive.clients.designate import DesignateClient
-from hive.errors import BadRequest, Conflict, QuotaExceeded
+from hive.errors import BadRequest, Conflict, HiveError, QuotaExceeded
 from hive.nectar import dns as rules
 from hive.schemas.dns import (
     RecordSetCreate,
     RecordSetUpdate,
     ZoneCreate,
     ZoneUpdate,
+)
+from hive.schemas.responses.dns import (
+    RecordSet,
+    RecordSetsResponse,
+    Zone,
+    ZonesResponse,
 )
 from hive.services.context import Context
 
@@ -20,45 +29,42 @@ async def quotas(ctx: Context) -> dict:
     return await _designate(ctx).quotas()
 
 
-async def list_zones(ctx: Context) -> dict:
+async def list_zones(ctx: Context) -> ZonesResponse:
     zones = await _designate(ctx).zones()
     items = [rules.zone_summary(z) for z in zones]
     items.sort(key=lambda z: z["name"] or "")
     quota = {}
-    try:
+    # The quota only decorates the list; the zones matter more.
+    with contextlib.suppress(HiveError):
         quota = await quotas(ctx)
-    except Exception:  # noqa: BLE001 - quota is decoration
-        quota = {}
-    return {
-        "items": items,
-        "quota": quota,
-        "record_types": list(rules.RECORD_TYPES),
-    }
-
-
-async def get_zone(ctx: Context, zone_id: str) -> dict:
-    return rules.zone_summary(await _designate(ctx).zone(zone_id))
-
-
-async def create_zone(ctx: Context, data: ZoneCreate) -> dict:
-    problem = rules.validate_zone(
-        data.name, data.email, data.ttl, data.type, data.masters
+    return ZonesResponse.model_validate(
+        {
+            "items": items,
+            "quota": quota,
+            "record_types": list(rules.RECORD_TYPES),
+        }
     )
-    if problem:
-        raise BadRequest(problem)
+
+
+async def get_zone(ctx: Context, zone_id: str) -> Zone:
+    return Zone.model_validate(
+        rules.zone_summary(await _designate(ctx).zone(zone_id))
+    )
+
+
+async def create_zone(ctx: Context, data: ZoneCreate) -> Zone:
     designate = _designate(ctx)
     try:
-        quota = await designate.quotas()
-        zones = await designate.zones()
-        limit = quota.get("zones")
-        if isinstance(limit, int) and limit >= 0 and len(zones) >= limit:
-            raise QuotaExceeded(
-                f"This project may have at most {limit} zones."
-            )
-    except QuotaExceeded:
-        raise
-    except Exception:  # noqa: BLE001 - the server enforces the quota anyway
-        pass
+        quota, zones = await asyncio.gather(
+            designate.quotas(), designate.zones()
+        )
+    except HiveError:
+        # The pre-check only gives a clearer message; Designate enforces
+        # the quota itself.
+        quota, zones = {}, []
+    limit = quota.get("zones")
+    if isinstance(limit, int) and limit >= 0 and len(zones) >= limit:
+        raise QuotaExceeded(f"This project may have at most {limit} zones.")
     created = await designate.create_zone(
         rules.zone_body(
             data.name,
@@ -69,10 +75,10 @@ async def create_zone(ctx: Context, data: ZoneCreate) -> dict:
             data.masters,
         )
     )
-    return rules.zone_summary(created)
+    return Zone.model_validate(rules.zone_summary(created))
 
 
-async def update_zone(ctx: Context, zone_id: str, data: ZoneUpdate) -> dict:
+async def update_zone(ctx: Context, zone_id: str, data: ZoneUpdate) -> Zone:
     fields: dict = {}
     if data.email is not None:
         if not rules.EMAIL.match(data.email):
@@ -87,7 +93,7 @@ async def update_zone(ctx: Context, zone_id: str, data: ZoneUpdate) -> dict:
     if not fields:
         return await get_zone(ctx, zone_id)
     updated = await _designate(ctx).update_zone(zone_id, fields)
-    return rules.zone_summary(updated)
+    return Zone.model_validate(rules.zone_summary(updated))
 
 
 async def delete_zone(ctx: Context, zone_id: str) -> None:
@@ -100,7 +106,7 @@ async def delete_zone(ctx: Context, zone_id: str) -> None:
     await designate.delete_zone(zone_id)
 
 
-async def list_recordsets(ctx: Context, zone_id: str) -> dict:
+async def list_recordsets(ctx: Context, zone_id: str) -> RecordSetsResponse:
     designate = _designate(ctx)
     zone = await designate.zone(zone_id)
     zone_name = zone.get("name") or ""
@@ -113,12 +119,14 @@ async def list_recordsets(ctx: Context, zone_id: str) -> dict:
             r["type"] or "",
         )
     )
-    return {"zone": rules.zone_summary(zone), "items": items}
+    return RecordSetsResponse.model_validate(
+        {"zone": rules.zone_summary(zone), "items": items}
+    )
 
 
 async def create_recordset(
     ctx: Context, zone_id: str, data: RecordSetCreate
-) -> dict:
+) -> RecordSet:
     designate = _designate(ctx)
     zone = await designate.zone(zone_id)
     zone_name = zone.get("name") or ""
@@ -128,23 +136,21 @@ async def create_recordset(
         if data.type in ("TXT", "SPF")
         else data.records
     )
-    problem = rules.validate_recordset(
-        zone_name, name, data.type, records, data.ttl
-    )
-    if problem:
-        raise BadRequest(problem)
+    rules.validate_recordset(zone_name, name, data.type, records, data.ttl)
     created = await designate.create_recordset(
         zone_id,
         rules.recordset_body(
             name, data.type, records, data.ttl, data.description
         ),
     )
-    return rules.recordset_summary(created, zone_name)
+    return RecordSet.model_validate(
+        rules.recordset_summary(created, zone_name)
+    )
 
 
 async def update_recordset(
     ctx: Context, zone_id: str, recordset_id: str, data: RecordSetUpdate
-) -> dict:
+) -> RecordSet:
     designate = _designate(ctx)
     zone = await designate.zone(zone_id)
     zone_name = zone.get("name") or ""
@@ -159,11 +165,9 @@ async def update_recordset(
         if rtype in ("TXT", "SPF")
         else data.records
     )
-    problem = rules.validate_recordset(
+    rules.validate_recordset(
         zone_name, current.get("name") or "", rtype, records, data.ttl
     )
-    if problem:
-        raise BadRequest(problem)
     fields: dict = {"records": [r.strip() for r in records]}
     # An explicit ``"ttl": null`` goes to Designate as null, which restores
     # the zone's default TTL; an omitted ttl leaves the current one.
@@ -172,7 +176,9 @@ async def update_recordset(
     if data.description is not None:
         fields["description"] = data.description
     updated = await designate.update_recordset(zone_id, recordset_id, fields)
-    return rules.recordset_summary(updated, zone_name)
+    return RecordSet.model_validate(
+        rules.recordset_summary(updated, zone_name)
+    )
 
 
 async def delete_recordset(

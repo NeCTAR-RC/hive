@@ -1,0 +1,28 @@
+[
+  {
+    "id": "rp-gw",
+    "network_id": "net-float",
+    "device_id": "r-1",
+    "device_owner": "network:router_gateway",
+    "status": "ACTIVE",
+    "fixed_ips": [
+      {
+        "subnet_id": "sub-float",
+        "ip_address": "203.0.113.50"
+      }
+    ]
+  },
+  {
+    "id": "rp-int",
+    "network_id": "net-priv",
+    "device_id": "r-1",
+    "device_owner": "network:router_interface",
+    "status": "ACTIVE",
+    "fixed_ips": [
+      {
+        "subnet_id": "sub-priv",
+        "ip_address": "192.168.1.1"
+      }
+    ]
+  }
+]

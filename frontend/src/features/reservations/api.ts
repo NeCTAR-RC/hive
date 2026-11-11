@@ -1,56 +1,63 @@
-// Queries and mutations for the Reservations panel (warre), keyed under
-// `['project', pid, 'reservations', ...]`.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the Reservations panel (warre), keyed by
+// `queryKeys.reservations`. A new reservation leaves PENDING_CREATE within
+// seconds, so it polls on the quick interval; every write refreshes the
+// whole service, without the mutation waiting for the refetch. Queries pass
+// React Query's abort signal on, so leaving a page cancels its requests.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
 import type {
   ExtendWindow,
   Reservation,
+  ReservationDetail,
   ReservationCreateRequest,
   ReservationOptions,
   ReservationsResponse,
   SlotsResponse,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/reservations";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import {
+  getJson,
+  pollWhile,
+  pollIntervals,
+  staleTimes,
+} from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
+import { isPending } from "./status";
 
-export function reservationKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "reservations", ...rest] as const;
-}
-
-const POLL_MS = 3000;
+const keys = queryKeys.reservations;
 
 export function reservationsQuery(projectId: string) {
   return queryOptions({
-    queryKey: reservationKey(projectId, "list"),
-    queryFn: ({ signal }) =>
-      apiFetch<ReservationsResponse>("/api/reservations", { signal }),
+    queryKey: keys.reservations.list(projectId),
+    queryFn: getJson<ReservationsResponse>("/api/reservations"),
     staleTime: staleTimes.list,
     refetchInterval: (query) =>
-      query.state.data?.items.some((r) => r.status === "PENDING_CREATE")
-        ? POLL_MS
-        : false,
+      pollWhile(
+        query,
+        query.state.data?.items.some(isPending),
+        pollIntervals.quick,
+      ),
   });
 }
 
 export function reservationQuery(projectId: string, reservationId: string) {
   return queryOptions({
-    queryKey: reservationKey(projectId, "detail", reservationId),
-    queryFn: ({ signal }) =>
-      apiFetch<Reservation>(`/api/reservations/${reservationId}`, { signal }),
+    queryKey: keys.reservations.detail(projectId, reservationId),
+    queryFn: getJson<ReservationDetail>(`/api/reservations/${reservationId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.status === "PENDING_CREATE" ? POLL_MS : false,
+      pollWhile(
+        query,
+        query.state.data && isPending(query.state.data),
+        pollIntervals.quick,
+      ),
   });
 }
 
 export function reservationOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: reservationKey(projectId, "options"),
-    queryFn: ({ signal }) =>
-      apiFetch<ReservationOptions>("/api/reservations/options", { signal }),
+    queryKey: keys.options.all(projectId),
+    queryFn: getJson<ReservationOptions>("/api/reservations/options"),
     staleTime: staleTimes.list,
   });
 }
@@ -64,64 +71,58 @@ export type SlotParams = {
 
 export function slotsQuery(projectId: string, params: SlotParams) {
   return queryOptions({
-    queryKey: reservationKey(projectId, "slots", params),
-    queryFn: ({ signal }) =>
-      apiFetch<SlotsResponse>("/api/reservations/slots", {
-        signal,
-        query: params,
-      }),
+    queryKey: keys.slots.list(projectId, params),
+    queryFn: getJson<SlotsResponse>("/api/reservations/slots", params),
     staleTime: staleTimes.list,
   });
 }
 
 export function extendOptionsQuery(projectId: string, reservationId: string) {
   return queryOptions({
-    queryKey: reservationKey(projectId, "extend", reservationId),
-    queryFn: ({ signal }) =>
-      apiFetch<ExtendWindow>(
-        `/api/reservations/${reservationId}/extend-options`,
-        { signal },
-      ),
-    staleTime: 0,
+    queryKey: [
+      ...keys.reservations.detail(projectId, reservationId),
+      "extend-options",
+    ],
+    queryFn: getJson<ExtendWindow>(
+      `/api/reservations/${reservationId}/extend-options`,
+    ),
+    staleTime: staleTimes.none,
   });
 }
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  // Not awaited: the mutation settles without waiting for the refetches.
-  return () =>
-    void queryClient.invalidateQueries({ queryKey: reservationKey(projectId) });
-}
+/** What every reservation write makes stale: the whole service. */
+export const reservationWriteKeys = [keys.service.all];
 
-export function useCreateReservation(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+export function useCreateReservation() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: (body: ReservationCreateRequest) =>
       apiFetch<Reservation>("/api/reservations", {
         method: "POST",
         json: body,
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...reservationWriteKeys),
   });
 }
 
-export function useExtendReservation(projectId: string) {
-  const invalidate = useInvalidate(projectId);
+/**
+ * Extends a reservation. When the backend refuses (400, the date is past the
+ * free window; 409, the slot after the reservation has gone) the settle
+ * refreshes the reservation's extend window, which the open dialog reads.
+ */
+export function useExtendReservation() {
+  const invalidate = useInvalidate();
   return useMutation({
     mutationFn: ({ id, end }: { id: string; end: string }) =>
       apiFetch<Reservation>(`/api/reservations/${id}/extend`, {
         method: "POST",
         json: { end },
       }),
-    onSuccess: invalidate,
+    onSettled: () => void invalidate(...reservationWriteKeys),
   });
 }
 
-export function useDeleteReservation(projectId: string) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<void>(`/api/reservations/${id}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-  });
+/** Deletes one reservation; a batch sends it per reservation. */
+export function deleteReservation(id: string) {
+  return apiFetch<void>(`/api/reservations/${id}`, { method: "DELETE" });
 }

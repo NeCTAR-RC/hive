@@ -1,5 +1,7 @@
+// The pure rule behind ReorderList: where the dragged rows land.
 import type { Key } from "react-aria-components";
 
+/** The drop target React Aria reports for a reorder: a row and a side. */
 export interface DropTargetLike {
   key: Key;
   dropPosition: "before" | "after" | "on";
@@ -7,9 +9,9 @@ export interface DropTargetLike {
 
 /**
  * The ids in their order after a drop, as React Aria reports it: the moved
- * keys land before or after the target, keeping their own relative order. A
- * drop onto one of the moved items, or onto an unknown target, changes
- * nothing.
+ * keys land before or after the target, keeping their own relative order.
+ * A drop onto one of the moved items, or onto an unknown target, changes
+ * nothing. Always returns a new array.
  */
 export function reorderKeys(
   ids: readonly string[],

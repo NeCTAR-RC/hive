@@ -1,0 +1,10 @@
+{
+  "id": "m-1",
+  "address": "192.168.1.20",
+  "protocol_port": 80,
+  "subnet_id": "subnet-1",
+  "weight": 1,
+  "provisioning_status": "ACTIVE",
+  "operating_status": "ONLINE",
+  "admin_state_up": true
+}

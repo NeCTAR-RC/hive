@@ -10,6 +10,8 @@
 * New images default to private visibility (``CREATE_IMAGE_DEFAULTS``).
 """
 
+from hive.times import to_utc_iso
+
 # Glance attributes that are not user metadata.
 BASE_ATTRIBUTES = {
     "id",
@@ -84,9 +86,10 @@ class ImageRules:
             "container_format": image.get("container_format"),
             "min_disk": image.get("min_disk"),
             "min_ram": image.get("min_ram"),
-            "created_at": image.get("created_at"),
-            "updated_at": image.get("updated_at"),
+            "created_at": to_utc_iso(image.get("created_at")),
+            "updated_at": to_utc_iso(image.get("updated_at")),
             "protected": image.get("protected", False),
+            "checksum": image.get("checksum"),
             "os_distro": image.get("os_distro"),
             "os_version": image.get("os_version"),
             "tags": image.get("tags") or [],

@@ -1,196 +1,175 @@
-// Queries and mutations for the Share panels (Manila), keyed under
-// `['project', pid, 'manila', ...]`. Lists poll while anything is busy.
-import {
-  queryOptions,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+// Queries and mutations for the Share panels (Manila), keyed by
+// `queryKeys.shares`. Lists poll while anything is busy, and every write
+// refreshes the whole service.
+import { queryOptions, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../lib/api/client";
+import type { Items } from "../../lib/api/types/common";
 import type {
-  ShareAccessRule,
-  Items,
   SecurityService,
-  SecurityServiceCreateRequest,
-  SecurityServiceUpdateRequest,
+  SecurityServiceRequest,
+  SecurityServiceUpdate,
   Share,
   ShareAccessResponse,
+  ShareAccessRule,
   ShareCreateRequest,
   ShareDetail,
   ShareGroup,
   ShareGroupDetail,
   ShareGroupSnapshot,
+  ShareMetadataSaved,
   ShareOptions,
   ShareSnapshot,
   ShareSnapshotDetail,
   ShareSnapshotsResponse,
   SharesResponse,
-} from "../../lib/api/types";
-import { staleTimes } from "../../lib/queries";
+} from "../../lib/api/types/shares";
+import { useInvalidate } from "../../lib/hooks/useInvalidate";
+import { getJson, pollWhile, staleTimes } from "../../lib/queries";
+import { queryKeys } from "../../lib/queryKeys";
 
-export function manilaKey(projectId: string, ...rest: unknown[]) {
-  return ["project", projectId, "manila", ...rest] as const;
-}
+const keys = queryKeys.shares;
 
 const BASE = "/api/shares";
-const POLL_MS = 5000;
-
-function pollWhile<T extends { is_transitional: boolean }>(
-  data: Items<T> | undefined,
-) {
-  return data?.items.some((i) => i.is_transitional) ? POLL_MS : false;
+function pollWhileAnyBusy<T extends { is_transitional: boolean }>(query: {
+  state: { data?: Items<T> | undefined };
+}) {
+  return pollWhile(
+    query,
+    query.state.data?.items.some((i) => i.is_transitional),
+  );
 }
 
 export function shareOptionsQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "options"),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareOptions>(`${BASE}/options`, { signal }),
+    queryKey: keys.options.all(projectId),
+    queryFn: getJson<ShareOptions>(`${BASE}/options`),
     staleTime: staleTimes.list,
   });
 }
 
 export function sharesQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "shares"),
-    queryFn: ({ signal }) =>
-      apiFetch<SharesResponse>(`${BASE}/shares`, { signal }),
+    queryKey: keys.shares.list(projectId),
+    queryFn: getJson<SharesResponse>(`${BASE}/shares`),
     staleTime: staleTimes.list,
-    refetchInterval: (query) => pollWhile(query.state.data),
+    refetchInterval: pollWhileAnyBusy,
   });
 }
 
 export function shareQuery(projectId: string, shareId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "share", shareId),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareDetail>(`${BASE}/shares/${shareId}`, { signal }),
+    queryKey: keys.shares.detail(projectId, shareId),
+    queryFn: getJson<ShareDetail>(`${BASE}/shares/${shareId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.is_transitional ? POLL_MS : false,
+      pollWhile(query, query.state.data?.is_transitional),
   });
 }
 
 export function shareAccessQuery(projectId: string, shareId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "share", shareId, "access"),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareAccessResponse>(`${BASE}/shares/${shareId}/access`, {
-        signal,
-      }),
+    queryKey: [...keys.shares.detail(projectId, shareId), "access"],
+    queryFn: getJson<ShareAccessResponse>(`${BASE}/shares/${shareId}/access`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.items.some((r) =>
-        ["queued_to_apply", "applying", "queued_to_deny", "denying"].includes(
-          r.state ?? "",
+      pollWhile(
+        query,
+        query.state.data?.items.some((r) =>
+          ["queued_to_apply", "applying", "queued_to_deny", "denying"].includes(
+            r.state ?? "",
+          ),
         ),
-      )
-        ? POLL_MS
-        : false,
+      ),
   });
 }
 
 export function shareSnapshotsQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "snapshots"),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareSnapshotsResponse>(`${BASE}/snapshots`, { signal }),
+    queryKey: keys.snapshots.list(projectId),
+    queryFn: getJson<ShareSnapshotsResponse>(`${BASE}/snapshots`),
     staleTime: staleTimes.list,
-    refetchInterval: (query) => pollWhile(query.state.data),
+    refetchInterval: pollWhileAnyBusy,
   });
 }
 
 export function shareSnapshotQuery(projectId: string, snapshotId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "snapshot", snapshotId),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareSnapshotDetail>(`${BASE}/snapshots/${snapshotId}`, {
-        signal,
-      }),
+    queryKey: keys.snapshots.detail(projectId, snapshotId),
+    queryFn: getJson<ShareSnapshotDetail>(`${BASE}/snapshots/${snapshotId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.is_transitional ? POLL_MS : false,
+      pollWhile(query, query.state.data?.is_transitional),
   });
 }
 
 export function securityServicesQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "security-services"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<SecurityService> & { types: string[] }>(
-        `${BASE}/security-services`,
-        { signal },
-      ),
+    queryKey: keys.securityServices.list(projectId),
+    queryFn: getJson<Items<SecurityService> & { types: string[] }>(
+      `${BASE}/security-services`,
+    ),
     staleTime: staleTimes.list,
   });
 }
 
 export function securityServiceQuery(projectId: string, serviceId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "security-service", serviceId),
-    queryFn: ({ signal }) =>
-      apiFetch<SecurityService>(`${BASE}/security-services/${serviceId}`, {
-        signal,
-      }),
+    queryKey: keys.securityServices.detail(projectId, serviceId),
+    queryFn: getJson<SecurityService>(`${BASE}/security-services/${serviceId}`),
     staleTime: staleTimes.detail,
   });
 }
 
 export function shareGroupsQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "groups"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<ShareGroup>>(`${BASE}/groups`, { signal }),
+    queryKey: keys.groups.list(projectId),
+    queryFn: getJson<Items<ShareGroup>>(`${BASE}/groups`),
     staleTime: staleTimes.list,
-    refetchInterval: (query) => pollWhile(query.state.data),
+    refetchInterval: pollWhileAnyBusy,
   });
 }
 
 export function shareGroupQuery(projectId: string, groupId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "group", groupId),
-    queryFn: ({ signal }) =>
-      apiFetch<ShareGroupDetail>(`${BASE}/groups/${groupId}`, { signal }),
+    queryKey: keys.groups.detail(projectId, groupId),
+    queryFn: getJson<ShareGroupDetail>(`${BASE}/groups/${groupId}`),
     staleTime: staleTimes.detail,
     refetchInterval: (query) =>
-      query.state.data?.is_transitional ? POLL_MS : false,
+      pollWhile(query, query.state.data?.is_transitional),
   });
 }
 
 export function shareGroupSnapshotsQuery(projectId: string) {
   return queryOptions({
-    queryKey: manilaKey(projectId, "group-snapshots"),
-    queryFn: ({ signal }) =>
-      apiFetch<Items<ShareGroupSnapshot>>(`${BASE}/group-snapshots`, {
-        signal,
-      }),
+    queryKey: keys.groupSnapshots.list(projectId),
+    queryFn: getJson<Items<ShareGroupSnapshot>>(`${BASE}/group-snapshots`),
     staleTime: staleTimes.list,
-    refetchInterval: (query) => pollWhile(query.state.data),
+    refetchInterval: pollWhileAnyBusy,
   });
 }
 
-function useInvalidate(projectId: string) {
-  const queryClient = useQueryClient();
-  return () =>
-    void queryClient.invalidateQueries({ queryKey: manilaKey(projectId) });
-}
+/** What every Manila write makes stale: the whole service. */
+export const shareWriteKeys = [keys.service.all];
 
+/** A mutation that refreshes every Manila query once it settles. */
 function useSimpleMutation<TArgs, TResult>(
-  projectId: string,
   fn: (args: TArgs) => Promise<TResult>,
 ) {
-  const invalidate = useInvalidate(projectId);
-  return useMutation({ mutationFn: fn, onSuccess: invalidate });
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: fn,
+    onSettled: () => void invalidate(...shareWriteKeys),
+  });
 }
 
-export function useCreateShare(projectId: string) {
-  return useSimpleMutation(projectId, (body: ShareCreateRequest) =>
+export function useCreateShare() {
+  return useSimpleMutation((body: ShareCreateRequest) =>
     apiFetch<Share>(`${BASE}/shares`, { method: "POST", json: body }),
   );
 }
 
-export function useUpdateShare(projectId: string) {
+export function useUpdateShare() {
   return useSimpleMutation(
-    projectId,
     ({
       id,
       ...body
@@ -204,31 +183,27 @@ export function useUpdateShare(projectId: string) {
   );
 }
 
-export function useSetShareMetadata(projectId: string) {
+export function useSetShareMetadata() {
   return useSimpleMutation(
-    projectId,
     ({ id, metadata }: { id: string; metadata: string }) =>
-      apiFetch<{ metadata: Record<string, string> }>(
-        `${BASE}/shares/${id}/metadata`,
-        { method: "PUT", json: { metadata } },
-      ),
-  );
-}
-
-export function useResizeShare(projectId: string) {
-  return useSimpleMutation(
-    projectId,
-    ({ id, size }: { id: string; size: number }) =>
-      apiFetch<unknown>(`${BASE}/shares/${id}/resize`, {
-        method: "POST",
-        json: { size },
+      apiFetch<ShareMetadataSaved>(`${BASE}/shares/${id}/metadata`, {
+        method: "PUT",
+        json: { metadata },
       }),
   );
 }
 
-export function useRevertShare(projectId: string) {
+export function useResizeShare() {
+  return useSimpleMutation(({ id, size }: { id: string; size: number }) =>
+    apiFetch<unknown>(`${BASE}/shares/${id}/resize`, {
+      method: "POST",
+      json: { size },
+    }),
+  );
+}
+
+export function useRevertShare() {
   return useSimpleMutation(
-    projectId,
     ({ id, snapshotId }: { id: string; snapshotId: string }) =>
       apiFetch<unknown>(`${BASE}/shares/${id}/revert`, {
         method: "POST",
@@ -237,15 +212,13 @@ export function useRevertShare(projectId: string) {
   );
 }
 
-export function useDeleteShare(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/shares/${id}`, { method: "DELETE" }),
-  );
+/** Deletes one share; a batch sends it per share. */
+export function deleteShare(id: string) {
+  return apiFetch<void>(`${BASE}/shares/${id}`, { method: "DELETE" });
 }
 
-export function useAllowAccess(projectId: string) {
+export function useAllowAccess() {
   return useSimpleMutation(
-    projectId,
     ({
       shareId,
       ...body
@@ -262,19 +235,15 @@ export function useAllowAccess(projectId: string) {
   );
 }
 
-export function useDenyAccess(projectId: string) {
-  return useSimpleMutation(
-    projectId,
-    ({ shareId, accessId }: { shareId: string; accessId: string }) =>
-      apiFetch<void>(`${BASE}/shares/${shareId}/access/${accessId}`, {
-        method: "DELETE",
-      }),
-  );
+/** Removes one access rule from a share. */
+export function denyAccess(shareId: string, accessId: string) {
+  return apiFetch<void>(`${BASE}/shares/${shareId}/access/${accessId}`, {
+    method: "DELETE",
+  });
 }
 
-export function useCreateSnapshot(projectId: string) {
+export function useCreateSnapshot() {
   return useSimpleMutation(
-    projectId,
     (body: { share_id: string; name: string; description?: string }) =>
       apiFetch<ShareSnapshot>(`${BASE}/snapshots`, {
         method: "POST",
@@ -283,26 +252,23 @@ export function useCreateSnapshot(projectId: string) {
   );
 }
 
-export function useUpdateSnapshot(projectId: string) {
+export function useUpdateSnapshot() {
   return useSimpleMutation(
-    projectId,
     ({ id, ...body }: { id: string; name?: string; description?: string }) =>
-      apiFetch<ShareSnapshotDetail>(`${BASE}/snapshots/${id}`, {
+      apiFetch<ShareSnapshot>(`${BASE}/snapshots/${id}`, {
         method: "PATCH",
         json: body,
       }),
   );
 }
 
-export function useDeleteSnapshot(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/snapshots/${id}`, { method: "DELETE" }),
-  );
+/** Deletes one share snapshot. */
+export function deleteSnapshot(id: string) {
+  return apiFetch<void>(`${BASE}/snapshots/${id}`, { method: "DELETE" });
 }
 
-export function useSnapshotAllowAccess(projectId: string) {
+export function useSnapshotAllowAccess() {
   return useSimpleMutation(
-    projectId,
     ({
       snapshotId,
       ...body
@@ -318,18 +284,15 @@ export function useSnapshotAllowAccess(projectId: string) {
   );
 }
 
-export function useSnapshotDenyAccess(projectId: string) {
-  return useSimpleMutation(
-    projectId,
-    ({ snapshotId, accessId }: { snapshotId: string; accessId: string }) =>
-      apiFetch<void>(`${BASE}/snapshots/${snapshotId}/access/${accessId}`, {
-        method: "DELETE",
-      }),
-  );
+/** Removes one access rule from a mountable share snapshot. */
+export function denySnapshotAccess(snapshotId: string, accessId: string) {
+  return apiFetch<void>(`${BASE}/snapshots/${snapshotId}/access/${accessId}`, {
+    method: "DELETE",
+  });
 }
 
-export function useCreateSecurityService(projectId: string) {
-  return useSimpleMutation(projectId, (body: SecurityServiceCreateRequest) =>
+export function useCreateSecurityService() {
+  return useSimpleMutation((body: SecurityServiceRequest) =>
     apiFetch<SecurityService>(`${BASE}/security-services`, {
       method: "POST",
       json: body,
@@ -337,10 +300,9 @@ export function useCreateSecurityService(projectId: string) {
   );
 }
 
-export function useUpdateSecurityService(projectId: string) {
+export function useUpdateSecurityService() {
   return useSimpleMutation(
-    projectId,
-    ({ id, ...body }: SecurityServiceUpdateRequest & { id: string }) =>
+    ({ id, ...body }: SecurityServiceUpdate & { id: string }) =>
       apiFetch<SecurityService>(`${BASE}/security-services/${id}`, {
         method: "PATCH",
         json: body,
@@ -348,15 +310,15 @@ export function useUpdateSecurityService(projectId: string) {
   );
 }
 
-export function useDeleteSecurityService(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/security-services/${id}`, { method: "DELETE" }),
-  );
+/** Deletes one security service. */
+export function deleteSecurityService(id: string) {
+  return apiFetch<void>(`${BASE}/security-services/${id}`, {
+    method: "DELETE",
+  });
 }
 
-export function useCreateShareGroup(projectId: string) {
+export function useCreateShareGroup() {
   return useSimpleMutation(
-    projectId,
     (body: {
       name: string;
       description?: string;
@@ -369,9 +331,8 @@ export function useCreateShareGroup(projectId: string) {
   );
 }
 
-export function useUpdateShareGroup(projectId: string) {
+export function useUpdateShareGroup() {
   return useSimpleMutation(
-    projectId,
     ({ id, ...body }: { id: string; name?: string; description?: string }) =>
       apiFetch<ShareGroup>(`${BASE}/groups/${id}`, {
         method: "PATCH",
@@ -380,15 +341,13 @@ export function useUpdateShareGroup(projectId: string) {
   );
 }
 
-export function useDeleteShareGroup(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/groups/${id}`, { method: "DELETE" }),
-  );
+/** Deletes one (empty) share group. */
+export function deleteShareGroup(id: string) {
+  return apiFetch<void>(`${BASE}/groups/${id}`, { method: "DELETE" });
 }
 
-export function useCreateShareGroupSnapshot(projectId: string) {
+export function useCreateShareGroupSnapshot() {
   return useSimpleMutation(
-    projectId,
     (body: { share_group_id: string; name: string; description?: string }) =>
       apiFetch<ShareGroupSnapshot>(`${BASE}/group-snapshots`, {
         method: "POST",
@@ -397,9 +356,8 @@ export function useCreateShareGroupSnapshot(projectId: string) {
   );
 }
 
-export function useUpdateShareGroupSnapshot(projectId: string) {
+export function useUpdateShareGroupSnapshot() {
   return useSimpleMutation(
-    projectId,
     ({ id, ...body }: { id: string; name?: string; description?: string }) =>
       apiFetch<ShareGroupSnapshot>(`${BASE}/group-snapshots/${id}`, {
         method: "PATCH",
@@ -408,8 +366,7 @@ export function useUpdateShareGroupSnapshot(projectId: string) {
   );
 }
 
-export function useDeleteShareGroupSnapshot(projectId: string) {
-  return useSimpleMutation(projectId, (id: string) =>
-    apiFetch<void>(`${BASE}/group-snapshots/${id}`, { method: "DELETE" }),
-  );
+/** Deletes one share group snapshot. */
+export function deleteShareGroupSnapshot(id: string) {
+  return apiFetch<void>(`${BASE}/group-snapshots/${id}`, { method: "DELETE" });
 }

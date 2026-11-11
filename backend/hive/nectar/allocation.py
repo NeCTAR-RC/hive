@@ -37,6 +37,7 @@ def pick_current(allocations: list[dict]) -> dict | None:
 
 
 def quotas_by_resource(allocation: dict) -> dict[str, dict]:
+    """The allocation's quotas by resource (``quota_list``)."""
     quotas: dict[str, dict] = {}
     for entry in allocation.get("quotas") or []:
         resource = entry.get("resource")
@@ -49,6 +50,7 @@ def quotas_by_resource(allocation: dict) -> dict[str, dict]:
 
 
 def quota(allocation: dict, resource_code: str):
+    """One resource's quota (``AllocationRequest.get_quota``)."""
     entry = quotas_by_resource(allocation).get(resource_code)
     return None if entry is None else entry.get("quota")
 
@@ -65,8 +67,10 @@ def su_budget(allocation: dict) -> int | None:
 
 
 def summary_fields(allocation: dict) -> dict:
+    """The allocation fields the home page shows (``/rest_api/``)."""
     return {field: allocation.get(field) for field in SUMMARY_FIELDS}
 
 
 def is_trial(project_name: str, prefix: str) -> bool:
+    """A trial project: the name has the trial prefix (Nectar ``pt-``)."""
     return bool(prefix) and project_name.startswith(prefix)

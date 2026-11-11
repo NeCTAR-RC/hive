@@ -1,5 +1,6 @@
 // One application credential (Horizon _detail_overview.html).
 import { useQuery } from "@tanstack/react-query";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import {
   Cell,
   Column,
@@ -8,73 +9,87 @@ import {
   TableBody,
   TableHeader,
 } from "@ardc-ui/react";
-import { ErrorState } from "../../../components/ErrorState/ErrorState";
+import { RowActionsMenu } from "../../../components/DataTable/RowActionsMenu";
 import { KeyValueList } from "../../../components/KeyValueList/KeyValueList";
 import { Panel } from "../../../components/Panel/Panel";
-import { SkeletonLines } from "../../../components/Skeleton/Skeleton";
 import { formatDateTime } from "../../../lib/format";
-import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { appCredentialRoute } from "../../../app/router";
+import { DetailPage } from "../../../shell/DetailPage/DetailPage";
 import { appCredentialQuery } from "../api";
+import { useApplicationCredentialActions } from "./ApplicationCredentialActions";
 import styles from "./ApplicationCredentialsPage.module.scss";
 
+const appCredentialRoute = getRouteApi(
+  "/app/identity/application-credentials/$credentialId",
+);
+
+const CRUMBS = [
+  { label: "Identity" },
+  {
+    label: "Application credentials",
+    href: "/identity/application-credentials",
+  },
+];
+
+/**
+ * One application credential: its overview, roles and access rules, with
+ * the list row's actions menu; a delete returns to the list.
+ */
 export function ApplicationCredentialDetailPage() {
   const { credentialId } = appCredentialRoute.useParams();
+  const navigate = useNavigate();
   const credential = useQuery(appCredentialQuery(credentialId));
+  const { rowActions, dialogs } = useApplicationCredentialActions(
+    () => void navigate({ to: "/identity/application-credentials" }),
+  );
   return (
     <>
-      <PageHeader
-        title={credential.data?.name ?? "Application credential"}
-        crumbs={[
-          { label: "Identity" },
-          {
-            label: "Application Credentials",
-            href: "/identity/application-credentials",
-          },
-        ]}
-      />
-      <div className={styles.stack}>
-        {credential.isPending ? (
-          <SkeletonLines lines={8} />
-        ) : credential.isError ? (
-          <ErrorState
-            error={credential.error}
-            onRetry={() => credential.refetch()}
-          />
-        ) : (
-          <>
+      <DetailPage
+        query={credential}
+        noun="application credential"
+        id={credentialId}
+        scope="none"
+        crumbs={CRUMBS}
+        backTo={{
+          label: "application credentials",
+          href: "/identity/application-credentials",
+        }}
+        title={(data) => data.name}
+        actions={(data) => <RowActionsMenu actions={rowActions(data)} />}
+      >
+        {(data) => (
+          <div className={styles.stack}>
             <Panel title="Overview">
               <KeyValueList
                 items={[
-                  { label: "Name", value: credential.data.name },
-                  { label: "ID", value: <code>{credential.data.id}</code> },
+                  { label: "Name", value: data.name },
+                  { label: "ID", value: <code>{data.id}</code> },
                   {
                     label: "Project ID",
-                    value: <code>{credential.data.project_id ?? ""}</code>,
+                    value: <code>{data.project_id ?? ""}</code>,
                   },
                   {
                     label: "Description",
-                    value: credential.data.description || "-",
+                    value: data.description,
                   },
                   {
                     label: "Expires",
-                    value: credential.data.expires_at
-                      ? formatDateTime(credential.data.expires_at)
+                    value: data.expires_at
+                      ? formatDateTime(data.expires_at)
                       : "Never",
                   },
                   {
                     label: "Unrestricted",
-                    value: credential.data.unrestricted ? "Yes" : "No",
+                    value: data.unrestricted ? "Yes" : "No",
                   },
                 ]}
               />
             </Panel>
             <Panel title="Roles">
-              {credential.data.roles.length === 0 ? (
+              {data.roles.length === 0 ? (
                 <p>No roles recorded.</p>
               ) : (
-                <ul className={styles.plainList}>
-                  {credential.data.roles.map((role) => (
+                <ul className={styles.list}>
+                  {data.roles.map((role) => (
                     <li key={role.id ?? role.name}>
                       {role.name}{" "}
                       {role.id && (
@@ -88,7 +103,7 @@ export function ApplicationCredentialDetailPage() {
               )}
             </Panel>
             <Panel title="Access rules">
-              {credential.data.access_rules.length === 0 ? (
+              {data.access_rules.length === 0 ? (
                 <p>
                   No access rules: the credential may call any API its roles
                   allow.
@@ -102,28 +117,24 @@ export function ApplicationCredentialDetailPage() {
                     <Column id="method">Method</Column>
                     <Column id="path">Path</Column>
                   </TableHeader>
-                  <TableBody
-                    items={credential.data.access_rules.map((rule, index) => ({
-                      ...rule,
-                      key: String(index),
-                    }))}
-                  >
-                    {(rule) => (
-                      <Row id={rule.key}>
+                  <TableBody>
+                    {data.access_rules.map((rule, index) => (
+                      <Row key={index} id={index}>
                         <Cell>{rule.service ?? ""}</Cell>
                         <Cell>{rule.method ?? ""}</Cell>
                         <Cell>
                           <code>{rule.path ?? ""}</code>
                         </Cell>
                       </Row>
-                    )}
+                    ))}
                   </TableBody>
                 </Table>
               )}
             </Panel>
-          </>
+          </div>
         )}
-      </div>
+      </DetailPage>
+      {dialogs}
     </>
   );
 }

@@ -1,18 +1,19 @@
 """Shared behaviour for every upstream service client.
 
-A client resolves its endpoint from the session's scoped catalog (or a
+A client resolves its endpoint from the scoped token's endpoints (or a
 configured override for in-cluster URLs), sends the scoped token, pins a
 microversion where the service has one, records latency, and maps upstream
 failures onto the error envelope. Clients never apply Nectar policy; that
 lives in ``hive.nectar``.
 """
 
-from collections.abc import AsyncIterable, Awaitable, Callable
+import builtins
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 import re
 import time
-from urllib.parse import quote
-import uuid
+from typing import Any
+from urllib.parse import quote, urlsplit
 
 import httpx
 import structlog
@@ -33,6 +34,7 @@ from hive.errors import (
     UpstreamUnreachable,
 )
 from hive.observability import metrics
+from hive.observability.request_id import upstream_request_id
 from hive.session.model import ScopedToken
 
 log = structlog.get_logger("hive.upstream")
@@ -62,47 +64,109 @@ FLAT_MESSAGE_KEYS = (
 )
 
 
-# Rescopes the request's project token from the unscoped token. Called at
-# most once per client request when an upstream answers 401, so a service
-# rejecting a token (a keystonemiddleware cache blip) does not end the whole
-# session. ``hive.deps`` binds one per request; a client may also be given
-# one explicitly.
-Refresh = Callable[[], Awaitable[ScopedToken]]
+DOT_SEGMENTS = frozenset({".", ".."})
+
+# Replaces a project token an upstream refused with a fresh one
+# (``SessionContext.rescope``). It is given the refused token, so requests
+# refused together share one rescope (``AuthService.ensure_scoped``).
+type Refresh = Callable[[ScopedToken], Awaitable[ScopedToken]]
 _refresh: ContextVar[Refresh | None] = ContextVar("hive_refresh", default=None)
 
 
 def bind_refresh(refresh: Refresh | None) -> None:
-    """Make ``refresh`` the fallback for clients built in this context."""
+    """Make ``refresh`` the rescope for every client used in the current
+    request (and the background work it starts)."""
     _refresh.set(refresh)
 
 
-def seg(value: str) -> str:
-    """Percent-encode one URL path segment built from user input.
+def quote_segment(segment: str | int) -> str:
+    """One URL path segment, percent-encoded so it cannot leave its slot.
 
-    Starlette decodes ``%2F`` and ``%3F`` in path parameters, so an id such
-    as ``x?all_tenants=1`` or ``../other`` would otherwise rewrite the
-    upstream path or query. Every client builds its paths through this.
+    Ids reach upstream URLs from the browser (path parameters and body
+    fields). Starlette has already decoded them, so ``..``, ``?`` or ``#``
+    would otherwise change which upstream path or query is called.
     """
-    return quote(str(value), safe="")
+    text = str(segment)
+    if not text or text in DOT_SEGMENTS:
+        raise BadRequest(f"invalid identifier: {text!r}")
+    return quote(text, safe="")
 
 
-def catalog_endpoint(
-    catalog: list[dict],
-    service_type: str,
-    interface: str = "public",
-    region: str | None = None,
-) -> str | None:
+def path(*segments: str | int) -> str:
+    """An upstream path built from one argument per segment.
+
+    ``path("servers", server_id, "action")`` gives ``/servers/<id>/action``
+    with every segment encoded; never interpolate an id into a path with
+    an f-string.
+    """
+    return "".join("/" + quote_segment(segment) for segment in segments)
+
+
+def rebase(endpoint: str, link: str) -> str:
+    """A pagination link re-based on the client's own endpoint.
+
+    Upstreams name the next page with the URL they believe they live at
+    (often the public one), which may differ from the endpoint Hive uses
+    (an in-cluster override) or point at another host altogether. Only the
+    link's path and query are kept; a leading copy of the endpoint's own
+    path is dropped, so the token only ever goes to the endpoint.
+    """
+    parts = urlsplit(link)
+    base_path = urlsplit(endpoint).path.rstrip("/")
+    link_path = parts.path
+    if base_path and link_path.startswith(base_path + "/"):
+        link_path = link_path[len(base_path) :]
+    query = f"?{parts.query}" if parts.query else ""
+    return endpoint + link_path + query
+
+
+def unwrap(body: Any, key: str | None, default: Any) -> Any:
+    """The resource inside an OpenStack envelope (``{"server": {...}}``).
+
+    ``key=None`` is for APIs without an envelope; a missing body, key or a
+    ``null`` value gives ``default``.
+    """
+    if key is None:
+        return body if body is not None else default
+    if not isinstance(body, dict):
+        return default
+    value = body.get(key)
+    return value if value is not None else default
+
+
+def api_wg_next(body: Any, key: str) -> str | None:
+    """The next-page link in the API-WG style Nova, Cinder and Neutron use:
+    ``{"<key>_links": [{"rel": "next", "href": ...}]}``."""
+    if not isinstance(body, dict):
+        return None
+    for link in body.get(f"{key}_links") or []:
+        if link.get("rel") == "next" and link.get("href"):
+            return link["href"]
+    return None
+
+
+def endpoints_for(
+    catalog: list[dict], interface: str, region: str | None
+) -> dict[str, str]:
+    """The catalog cut down to what a client needs: one URL per service
+    type, on ``interface`` and in ``region`` (an endpoint that names no
+    region serves every region). The first match wins, as in
+    keystoneauth's endpoint lookup."""
+    found: dict[str, str] = {}
     for service in catalog:
-        if service.get("type") != service_type:
+        stype = service.get("type")
+        if not stype or stype in found:
             continue
-        for endpoint in service.get("endpoints", []):
+        for endpoint in service.get("endpoints") or []:
             if endpoint.get("interface") != interface:
                 continue
             ep_region = endpoint.get("region") or endpoint.get("region_id")
             if region and ep_region and ep_region != region:
                 continue
-            return endpoint.get("url")
-    return None
+            if endpoint.get("url"):
+                found[stype] = endpoint["url"]
+                break
+    return found
 
 
 def extract_message(resp: httpx.Response) -> str:
@@ -125,11 +189,25 @@ def extract_message(resp: httpx.Response) -> str:
     return (resp.text or "")[:300]
 
 
-def map_upstream_error(service: str, resp: httpx.Response) -> HiveError:
-    message = extract_message(resp)
-    rid = resp.headers.get("x-openstack-request-id") or resp.headers.get(
+def _json_or_none(resp: httpx.Response) -> Any:
+    """A reply's JSON body, or ``None`` when it has none."""
+    return resp.json() if resp.content else None
+
+
+def _upstream_id(resp: httpx.Response) -> str | None:
+    return resp.headers.get("x-openstack-request-id") or resp.headers.get(
         "x-compute-request-id"
     )
+
+
+def map_upstream_error(
+    service: str, resp: httpx.Response, *, ends_session: bool = True
+) -> HiveError:
+    """The envelope error for a failed upstream reply. A 401 ends the
+    session only when the service vouches for the user's token
+    (``ends_session``); from anyone else it is that service's failure."""
+    message = extract_message(resp)
+    rid = _upstream_id(resp)
     status = resp.status_code
 
     def make(cls: type[HiveError], default: str, **extra) -> HiveError:
@@ -142,7 +220,9 @@ def map_upstream_error(service: str, resp: httpx.Response) -> HiveError:
         )
 
     if status == 401:
-        return make(SessionExpired, "upstream rejected the token")
+        if ends_session:
+            return make(SessionExpired, "upstream rejected the token")
+        return make(UpstreamError, f"{service} refused the request")
     if status == 403:
         return make(Forbidden, "forbidden")
     if status == 404:
@@ -165,27 +245,32 @@ def map_upstream_error(service: str, resp: httpx.Response) -> HiveError:
 
 
 class ServiceClient:
-    """Base for one upstream service. Subclasses set ``service_type``."""
+    """Base for one upstream service. Subclasses set ``service_type``.
+
+    ``ends_session_on_401`` says whether this service's 401 means the
+    user's token is gone (the OpenStack services, which validate it with
+    Keystone) or only that the service itself failed (the home page's
+    Nectar widgets, which must not log the user out).
+    """
 
     service_type: str = ""
     service_name: str = ""
     microversion_header: str | None = None
     microversion_prefix: str | None = None
+    ends_session_on_401: bool = True
 
     def __init__(
         self,
         http: httpx.AsyncClient,
         settings: Settings,
-        scoped: ScopedToken,
+        scoped: ScopedToken | None,
         *,
         microversion: str | None = None,
-        refresh: Refresh | None = None,
     ):
         self._http = http
         self.settings = settings
         self.scoped = scoped
         self.microversion = microversion
-        self.refresh = refresh
         self._endpoint: str | None = None
 
     @property
@@ -195,13 +280,10 @@ class ServiceClient:
     @property
     def endpoint(self) -> str:
         if self._endpoint is None:
-            override = self.settings.endpoint_overrides.get(self.service_type)
-            url = override or catalog_endpoint(
-                self.scoped.catalog,
-                self.service_type,
-                self.settings.endpoint_interface,
-                self.settings.region,
-            )
+            endpoints = self.scoped.endpoints if self.scoped else {}
+            url = self.settings.endpoint_overrides.get(
+                self.service_type
+            ) or endpoints.get(self.service_type)
             if not url:
                 raise ServiceNotEnabled(
                     f"service '{self.service_type}' is not available",
@@ -211,13 +293,12 @@ class ServiceClient:
         return self._endpoint
 
     def headers(self) -> dict[str, str]:
-        # Hive's own request id, so upstream logs correlate with ours.
-        rid = structlog.contextvars.get_contextvars().get("request_id")
         hdrs = {
-            "X-Auth-Token": self.scoped.token,
             "Accept": "application/json",
-            "X-OpenStack-Request-ID": rid or f"req-{uuid.uuid4()}",
+            "X-OpenStack-Request-ID": upstream_request_id(),
         }
+        if self.scoped is not None:
+            hdrs["X-Auth-Token"] = self.scoped.token.get_secret_value()
         if self.microversion and self.microversion_header:
             value = self.microversion
             if self.microversion_prefix:
@@ -231,59 +312,65 @@ class ServiceClient:
         path: str,
         *,
         params: dict | None = None,
-        json: dict | None = None,
+        json: dict | list | None = None,
         content: bytes | AsyncIterable[bytes] | None = None,
         headers: dict | None = None,
         timeout: float | None = None,
         ok: tuple[int, ...] = OK_STATUSES,
         follow_redirects: bool = False,
     ) -> httpx.Response:
+        """Send one request and map a failed reply to its error.
+
+        A 401 from a service that vouches for the token is first answered
+        by rescoping once and sending again (``bind_refresh``): a service
+        refusing a still-valid token (a keystonemiddleware cache blip)
+        then does not end the whole session. A streamed body cannot be
+        sent twice, so it is not retried.
+        """
         url = path if path.startswith("http") else self.endpoint + path
-        resp = await self._send(
-            method,
-            url,
-            params,
-            json,
-            content,
-            headers,
-            timeout,
-            follow_redirects,
-        )
-        refresh = self.refresh or _refresh.get()
-        # A streamed body cannot be replayed, so only bytes are retried.
-        replayable = content is None or isinstance(content, bytes)
+
+        async def send() -> httpx.Response:
+            return await self._send(
+                method,
+                url,
+                params=params,
+                json=json,
+                content=content,
+                headers=headers,
+                timeout=timeout,
+                follow_redirects=follow_redirects,
+            )
+
+        resp = await send()
+        refresh = _refresh.get()
         if (
             resp.status_code == 401
             and 401 not in ok
             and refresh is not None
-            and replayable
+            and self.scoped is not None
+            and self.ends_session_on_401
+            and (content is None or isinstance(content, bytes))
         ):
-            self.scoped = await refresh()
-            resp = await self._send(
-                method,
-                url,
-                params,
-                json,
-                content,
-                headers,
-                timeout,
-                follow_redirects,
-            )
+            self.scoped = await refresh(self.scoped)
+            resp = await send()
         if resp.status_code not in ok:
-            raise map_upstream_error(self.label, resp)
+            raise self.map_error(resp)
         return resp
 
     async def _send(
         self,
         method: str,
         url: str,
+        *,
         params: dict | None,
-        json: dict | None,
+        json: dict | list | None,
         content: bytes | AsyncIterable[bytes] | None,
         headers: dict | None,
         timeout: float | None,
         follow_redirects: bool,
     ) -> httpx.Response:
+        """One HTTP exchange with the current token; transport failures
+        become the error envelope's upstream errors."""
         hdrs = self.headers()
         if headers:
             hdrs.update(headers)
@@ -319,22 +406,175 @@ class ServiceClient:
                 f"{self.label} request failed: {exc}", service=self.label
             ) from exc
         self._observe(method, str(resp.status_code), started)
-        # Method, path and status only: never headers, query or bodies.
         log.debug(
-            "upstream",
+            "upstream call",
             service=self.label,
             method=method,
-            path=httpx.URL(url).path,
+            path=resp.request.url.path,
             status=resp.status_code,
-            upstream_request_id=resp.headers.get("x-openstack-request-id"),
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+            upstream_request_id=_upstream_id(resp),
         )
         return resp
+
+    def map_error(self, resp: httpx.Response) -> HiveError:
+        """The error a failed reply becomes; a client whose service
+        speaks differently overrides it."""
+        return map_upstream_error(
+            self.label, resp, ends_session=self.ends_session_on_401
+        )
 
     async def get_json(self, path: str, **kwargs):
         resp = await self.request("GET", path, **kwargs)
         if resp.status_code == 204 or not resp.content:
             return None
         return resp.json()
+
+    async def get(self, path: str, key: str | None = None, **params) -> dict:
+        """One resource, unwrapped from its envelope ``key``."""
+        body = await self.get_json(path, params=params or None)
+        return unwrap(body, key, {})
+
+    async def list(self, path: str, key: str, **params) -> builtins.list:
+        """One page of a collection, unwrapped from its envelope ``key``.
+
+        (``builtins.list`` in this class's annotations: the method name
+        shadows the type here, and only here.)
+        """
+        body = await self.get_json(path, params=params or None)
+        return unwrap(body, key, [])
+
+    async def create(
+        self,
+        path: str,
+        key: str | None,
+        fields: dict | builtins.list,
+        *,
+        timeout: float | None = None,
+    ) -> dict:
+        """``POST`` a new resource as ``{key: fields}`` and return the
+        created resource (``key=None`` posts and returns the bare body)."""
+        body = {key: fields} if key else fields
+        resp = await self.request("POST", path, json=body, timeout=timeout)
+        return unwrap(_json_or_none(resp), key, {})
+
+    async def update(
+        self,
+        path: str,
+        key: str | None,
+        fields: dict | builtins.list,
+        method: str = "PUT",
+        *,
+        timeout: float | None = None,
+    ) -> dict:
+        """Write ``{key: fields}`` with ``method`` and return the updated
+        resource, or ``{}`` when the upstream answers with no body."""
+        body = {key: fields} if key else fields
+        resp = await self.request(method, path, json=body, timeout=timeout)
+        return unwrap(_json_or_none(resp), key, {})
+
+    async def delete(
+        self,
+        path: str,
+        *,
+        ok: tuple[int, ...] = OK_STATUSES,
+        params: dict | None = None,
+    ) -> None:
+        """``DELETE`` a resource; ``ok`` lists the statuses that count as
+        done."""
+        await self.request("DELETE", path, params=params, ok=ok)
+
+    async def action(
+        self,
+        path: str,
+        body: dict | None,
+        *,
+        timeout: float | None = None,
+    ) -> Any:
+        """``POST`` an action body as is and return the reply, ``{}`` when
+        there is none."""
+        resp = await self.request("POST", path, json=body, timeout=timeout)
+        reply = _json_or_none(resp)
+        return {} if reply is None else reply
+
+    def next_link(self, body: Any, key: str) -> str | None:
+        """Where the page after ``body`` is. The default reads the API-WG
+        ``<key>_links``; a client whose API links pages differently
+        overrides this."""
+        return api_wg_next(body, key)
+
+    async def paginate[Cursor, Page](
+        self,
+        fetch_page: Callable[[Cursor | None], Awaitable[Page]],
+        next_of: Callable[[Page], Cursor | None],
+    ) -> AsyncIterator[Page]:
+        """Every page of a list, the first fetched with cursor ``None``.
+
+        ``next_of`` reads the next cursor (a link, a marker, an offset)
+        from a page and answers ``None`` on the last one. The walk stops
+        at ``settings.upstream_max_pages`` with a warning, so a runaway
+        list costs a bounded number of calls and is never silent.
+        """
+        cursor: Cursor | None = None
+        for _ in range(self.settings.upstream_max_pages):
+            page = await fetch_page(cursor)
+            yield page
+            cursor = next_of(page)
+            if cursor is None:
+                return
+        log.warning(
+            "pagination cap reached",
+            service=self.label,
+            pages=self.settings.upstream_max_pages,
+        )
+
+    async def list_all(
+        self, path: str, key: str, *, timeout: float | None = None, **params
+    ) -> builtins.list:
+        """Every item of a collection, following next-page links.
+
+        Links are re-based on this client's endpoint (``rebase``). An
+        upstream that answers a bare JSON list is read as a single page.
+        """
+
+        async def fetch(link: str | None) -> Any:
+            if link is None:
+                return await self.get_json(
+                    path, params=params or None, timeout=timeout
+                )
+            return await self.get_json(
+                rebase(self.endpoint, link), timeout=timeout
+            )
+
+        items: builtins.list = []
+        async for body in self.paginate(
+            fetch, lambda body: self.next_link(body, key)
+        ):
+            items.extend(
+                body if isinstance(body, list) else unwrap(body, key, [])
+            )
+        return items
+
+    async def list_by_offset(
+        self,
+        fetch: Callable[[int], Awaitable[builtins.list]],
+        page_size: int,
+    ) -> builtins.list:
+        """Every item of a list paged by offset: ``fetch(offset)`` gives
+        one page, and a short page is the last."""
+
+        async def fetch_page(offset: int | None) -> tuple[int, builtins.list]:
+            start = offset or 0
+            return start, await fetch(start)
+
+        def next_offset(page: tuple[int, builtins.list]) -> int | None:
+            start, items = page
+            return start + len(items) if len(items) >= page_size else None
+
+        items: builtins.list = []
+        async for _start, page_items in self.paginate(fetch_page, next_offset):
+            items.extend(page_items)
+        return items
 
     def _observe(self, method: str, status: str, started: float) -> None:
         metrics.upstream_request_seconds.labels(

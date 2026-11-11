@@ -2,14 +2,16 @@
 
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from hive.schemas import StrictModel
 
 
-class ReservationCreate(BaseModel):
+class ReservationCreate(StrictModel):
     flavor_id: str = Field(min_length=1)
     start: date
     end: date
 
 
-class ReservationExtend(BaseModel):
+class ReservationExtend(StrictModel):
     end: date

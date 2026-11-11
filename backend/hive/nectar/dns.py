@@ -17,8 +17,12 @@ designate-dashboard ones).
   ``algorithm type fingerprint``, CAA ``flags tag "value"``.
 """
 
+from collections.abc import Callable
 import ipaddress
 import re
+
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
 
 RECORD_TYPES = (
     "A",
@@ -42,18 +46,21 @@ EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def is_transitional(item: dict) -> bool:
+    """A zone or record set still PENDING (designate-dashboard)."""
     return item.get("status") in TRANSITIONAL
 
 
-def validate_fqdn(name: str, what: str = "name") -> str | None:
+def validate_fqdn(name: str, what: str = "name") -> None:
+    """An absolute domain name (Designate v2 API reference)."""
     if not name or not name.endswith("."):
-        return f"The {what} must end with a dot, such as example.com."
+        raise RuleViolation(
+            f"The {what} must end with a dot, such as example.com."
+        )
     labels = name[:-1].split(".")
     if len(name.encode()) > 255 or any(
         not LABEL.match(label) for label in labels
     ):
-        return f"The {what} is not a valid domain name."
-    return None
+        raise RuleViolation(f"The {what} is not a valid domain name.")
 
 
 def validate_zone(
@@ -62,19 +69,19 @@ def validate_zone(
     ttl: int | None,
     ztype: str,
     masters: list[str] | None,
-) -> str | None:
-    problem = validate_fqdn(name, "zone name")
-    if problem:
-        return problem
+) -> None:
+    """The zone form checks (designate-dashboard create zone)."""
+    validate_fqdn(name, "zone name")
     if not EMAIL.match(email or ""):
-        return "Enter a valid contact email address."
+        raise RuleViolation("Enter a valid contact email address.")
     if ttl is not None and ttl < 0:
-        return "The TTL cannot be negative."
+        raise RuleViolation("The TTL cannot be negative.")
     if ztype not in ZONE_TYPES:
-        return "The zone type must be PRIMARY or SECONDARY."
+        raise RuleViolation("The zone type must be PRIMARY or SECONDARY.")
     if ztype == "SECONDARY" and not masters:
-        return "A secondary zone needs at least one master server."
-    return None
+        raise RuleViolation(
+            "A secondary zone needs at least one master server."
+        )
 
 
 def zone_body(
@@ -85,6 +92,7 @@ def zone_body(
     ztype: str,
     masters: list[str] | None,
 ) -> dict:
+    """The create-zone body (Designate v2 ``POST /v2/zones``)."""
     body: dict = {"name": name, "email": email, "type": ztype}
     if ttl is not None:
         body["ttl"] = ttl
@@ -109,35 +117,72 @@ def _is_ipv6(value: str) -> bool:
         return False
 
 
-def validate_record(rtype: str, record: str) -> str | None:
+def _check_a(value: str) -> str | None:
+    return None if _is_ipv4(value) else f'"{value}" is not an IPv4 address.'
+
+
+def _check_aaaa(value: str) -> str | None:
+    return None if _is_ipv6(value) else f'"{value}" is not an IPv6 address.'
+
+
+def _check_target(rtype: str) -> Callable[[str], str | None]:
+    def check(value: str) -> str | None:
+        return validate_fqdn(value, f"{rtype} target")
+
+    return check
+
+
+def _check_mx(value: str) -> str | None:
+    parts = value.split()
+    if len(parts) != 2 or not parts[0].isdigit():
+        return "MX records look like: 10 mail.example.com."
+    return validate_fqdn(parts[1], "MX host")
+
+
+def _check_srv(value: str) -> str | None:
+    parts = value.split()
+    if len(parts) != 4 or not all(p.isdigit() for p in parts[:3]):
+        return "SRV records look like: 10 5 5060 sip.example.com."
+    return validate_fqdn(parts[3], "SRV target")
+
+
+def _check_sshfp(value: str) -> str | None:
+    parts = value.split()
+    if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
+        return "SSHFP records look like: 1 1 <fingerprint>."
+    return None
+
+
+def _check_caa(value: str) -> str | None:
+    parts = value.split(None, 2)
+    if len(parts) != 3 or not parts[0].isdigit():
+        return 'CAA records look like: 0 issue "letsencrypt.org".'
+    return None
+
+
+# One check per record type; types without one (TXT, SPF) take any text.
+RECORD_CHECKS: dict[str, Callable[[str], str | None]] = {
+    "A": _check_a,
+    "AAAA": _check_aaaa,
+    "CNAME": _check_target("CNAME"),
+    "NS": _check_target("NS"),
+    "PTR": _check_target("PTR"),
+    "MX": _check_mx,
+    "SRV": _check_srv,
+    "SSHFP": _check_sshfp,
+    "CAA": _check_caa,
+}
+
+
+def validate_record(rtype: str, record: str) -> None:
+    """One record in its type's format (designate-dashboard)."""
     value = (record or "").strip()
     if not value:
-        return "Records cannot be empty."
-    if rtype == "A" and not _is_ipv4(value):
-        return f'"{value}" is not an IPv4 address.'
-    if rtype == "AAAA" and not _is_ipv6(value):
-        return f'"{value}" is not an IPv6 address.'
-    if rtype in ("CNAME", "NS", "PTR"):
-        return validate_fqdn(value, f"{rtype} target")
-    if rtype == "MX":
-        parts = value.split()
-        if len(parts) != 2 or not parts[0].isdigit():
-            return "MX records look like: 10 mail.example.com."
-        return validate_fqdn(parts[1], "MX host")
-    if rtype == "SRV":
-        parts = value.split()
-        if len(parts) != 4 or not all(p.isdigit() for p in parts[:3]):
-            return "SRV records look like: 10 5 5060 sip.example.com."
-        return validate_fqdn(parts[3], "SRV target")
-    if rtype == "SSHFP":
-        parts = value.split()
-        if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
-            return "SSHFP records look like: 1 1 <fingerprint>."
-    if rtype == "CAA":
-        parts = value.split(None, 2)
-        if len(parts) != 3 or not parts[0].isdigit():
-            return 'CAA records look like: 0 issue "letsencrypt.org".'
-    return None
+        raise RuleViolation("Records cannot be empty.")
+    check = RECORD_CHECKS.get(rtype)
+    problem = check(value) if check else None
+    if problem:
+        raise RuleViolation(problem)
 
 
 def in_zone(name: str, zone_name: str) -> bool:
@@ -148,25 +193,23 @@ def in_zone(name: str, zone_name: str) -> bool:
 
 def validate_recordset(
     zone_name: str, name: str, rtype: str, records: list[str], ttl: int | None
-) -> str | None:
+) -> None:
+    """The record set form checks (designate-dashboard)."""
     if rtype not in RECORD_TYPES:
-        return f"Record type {rtype} is not supported."
-    problem = validate_fqdn(name, "record set name")
-    if problem:
-        return problem
+        raise RuleViolation(f"Record type {rtype} is not supported.")
+    validate_fqdn(name, "record set name")
     if not in_zone(name, zone_name):
-        return f"The name must end with the zone name {zone_name}"
+        raise RuleViolation(
+            f"The name must end with the zone name {zone_name}"
+        )
     if not records:
-        return "Add at least one record."
+        raise RuleViolation("Add at least one record.")
     if rtype == "CNAME" and len(records) > 1:
-        return "A CNAME record set holds one record."
+        raise RuleViolation("A CNAME record set holds one record.")
     for record in records:
-        problem = validate_record(rtype, record)
-        if problem:
-            return problem
+        validate_record(rtype, record)
     if ttl is not None and ttl < 0:
-        return "The TTL cannot be negative."
-    return None
+        raise RuleViolation("The TTL cannot be negative.")
 
 
 def recordset_name(zone_name: str, name: str) -> str:
@@ -187,6 +230,7 @@ def recordset_body(
     ttl: int | None,
     description: str | None,
 ) -> dict:
+    """The record set body (Designate v2 ``recordsets``)."""
     body: dict = {
         "name": name,
         "type": rtype,
@@ -212,15 +256,15 @@ def quote_txt(records: list[str]) -> list[str]:
 
 
 def can_edit_recordset(recordset: dict, zone_name: str) -> bool:
+    """SOA and apex NS sets are Designate's own (dashboard)."""
     rtype = recordset.get("type")
     if rtype in MANAGED_TYPES:
         return False
-    if rtype == "NS" and recordset.get("name") == zone_name:
-        return False
-    return True
+    return not (rtype == "NS" and recordset.get("name") == zone_name)
 
 
 def zone_summary(zone: dict) -> dict:
+    """A zone row (designate-dashboard zones table)."""
     return {
         "id": zone.get("id"),
         "name": zone.get("name"),
@@ -233,13 +277,14 @@ def zone_summary(zone: dict) -> dict:
         "action": zone.get("action"),
         "masters": zone.get("masters") or [],
         "shared": bool(zone.get("shared")),
-        "created_at": zone.get("created_at"),
-        "updated_at": zone.get("updated_at"),
+        "created_at": to_utc_iso(zone.get("created_at")),
+        "updated_at": to_utc_iso(zone.get("updated_at")),
         "is_transitional": is_transitional(zone),
     }
 
 
 def recordset_summary(recordset: dict, zone_name: str) -> dict:
+    """A record set row (designate-dashboard record sets)."""
     return {
         "id": recordset.get("id"),
         "zone_id": recordset.get("zone_id"),
@@ -250,8 +295,8 @@ def recordset_summary(recordset: dict, zone_name: str) -> dict:
         "records": recordset.get("records") or [],
         "status": recordset.get("status"),
         "action": recordset.get("action"),
-        "created_at": recordset.get("created_at"),
-        "updated_at": recordset.get("updated_at"),
+        "created_at": to_utc_iso(recordset.get("created_at")),
+        "updated_at": to_utc_iso(recordset.get("updated_at")),
         "is_transitional": is_transitional(recordset),
         "can_edit": can_edit_recordset(recordset, zone_name),
     }

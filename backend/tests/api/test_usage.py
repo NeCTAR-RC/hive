@@ -5,17 +5,9 @@ import json
 import httpx
 
 from tests.conftest import CLOUDKITTY, GNOCCHI, HORIZON
+from tests.fixtures.loader import fixture
 
-ALLOCATION = {
-    "id": 42,
-    "project_id": "p1",
-    "project_name": "pt-50",
-    "status": "A",
-    "start_date": "2026-01-01",
-    "end_date": "2026-12-31",
-    "bundle": "Silver",
-    "quotas": [{"zone": "nectar", "resource": "rating.budget", "quota": 3650}],
-}
+ALLOCATION = fixture("allocations", "allocation")
 
 
 def allocations(request):
@@ -194,9 +186,12 @@ async def test_allocation_usage_without_dates(logged_in, upstream):
             200, json={"results": [undated], "next": None}
         )
     )
-    upstream.get(f"{CLOUDKITTY}/v2/summary").mock(side_effect=cloudkitty)
+    route = upstream.get(f"{CLOUDKITTY}/v2/summary").mock(
+        side_effect=cloudkitty
+    )
     response = await logged_in.get("/api/usage/allocation")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["available"] is False
     assert body["reason"] == "This project's allocation has no dates."
+    assert not route.called

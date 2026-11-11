@@ -6,32 +6,21 @@ Paths and parameters mirror the python client libraries Horizon uses
 PATCH), so behaviour stays recognisable to anyone who maintains those.
 """
 
-from hive.clients.base import seg, ServiceClient
+from typing import Any, override
 
-MAX_PAGES = 20
+from hive.clients.base import path, ServiceClient
+
+# CloudKitty summary rows per page (its own default limit).
+SUMMARY_PAGE = 1000
 
 
 class PagedClient(ServiceClient):
-    """A client whose list endpoints follow the nectarclient_lib shape."""
+    """A client whose lists follow the nectarclient_lib shape: ``{results,
+    next}``, with ``next`` an absolute URL."""
 
-    async def list_all(
-        self, path: str, params: dict | None = None, **kwargs
-    ) -> list[dict]:
-        items: list[dict] = []
-        url = path
-        for _ in range(MAX_PAGES):
-            body = await self.get_json(url, params=params, **kwargs)
-            if body is None:
-                break
-            if isinstance(body, list):
-                items.extend(body)
-                break
-            items.extend(body.get("results") or [])
-            url = body.get("next") or ""
-            params = None  # the next link carries its own query
-            if not url:
-                break
-        return items
+    @override
+    def next_link(self, body: Any, key: str) -> str | None:
+        return body.get("next") if isinstance(body, dict) else None
 
 
 class ManukaClient(ServiceClient):
@@ -39,40 +28,42 @@ class ManukaClient(ServiceClient):
     service_name = "manuka"
 
     async def get_user(self, keystone_user_id: str) -> dict:
-        return await self.get_json(f"/v1/users/{seg(keystone_user_id)}/") or {}
+        return await self.get(path("v1", "users", keystone_user_id) + "/")
 
     async def update_user(self, keystone_user_id: str, **fields) -> dict:
-        resp = await self.request(
-            "PATCH", f"/v1/users/{seg(keystone_user_id)}/", json=fields
+        return await self.update(
+            path("v1", "users", keystone_user_id) + "/",
+            None,
+            fields,
+            method="PATCH",
         )
-        return resp.json() if resp.content else {}
 
     async def search_users(self, query: str) -> list[dict]:
-        resp = await self.request(
-            "POST", "/v1/users/search/", json={"search": query}
-        )
-        body = resp.json()
+        body = await self.action("/v1/users/search/", {"search": query})
         return body.get("results", body) if isinstance(body, dict) else body
 
     async def user_by_name(self, name: str) -> dict:
-        path = f"/v1/keystone-ext/user-by-name/{seg(name)}/"
-        return await self.get_json(path) or {}
+        return await self.get(
+            path("v1", "keystone-ext", "user-by-name", name) + "/"
+        )
 
 
 class LangstrothClient(PagedClient):
     service_type = "nectar-ops"
     service_name = "langstroth"
+    ends_session_on_401 = False
 
     async def outages(self, **params) -> list[dict]:
-        return await self.list_all("/v1/outages/", params=params)
+        return await self.list_all("/v1/outages/", "results", **params)
 
 
 class VarroaClient(PagedClient):
     service_type = "security"
     service_name = "varroa"
+    ends_session_on_401 = False
 
     async def security_risks(self, **params) -> list[dict]:
-        return await self.list_all("/v1/security-risks/", params=params)
+        return await self.list_all("/v1/security-risks/", "results", **params)
 
 
 class WarreClient(PagedClient):
@@ -82,34 +73,30 @@ class WarreClient(PagedClient):
     service_name = "warre"
 
     async def reservations(self, **params) -> list[dict]:
-        return await self.list_all("/v1/reservations/", params=params)
+        return await self.list_all("/v1/reservations/", "results", **params)
 
     async def reservation(self, reservation_id: str) -> dict:
-        return (
-            await self.get_json(f"/v1/reservations/{seg(reservation_id)}/")
-            or {}
-        )
+        return await self.get(path("v1", "reservations", reservation_id) + "/")
 
     async def create_reservation(self, fields: dict) -> dict:
-        resp = await self.request("POST", "/v1/reservations/", json=fields)
-        return resp.json() if resp.content else {}
+        return await self.create("/v1/reservations/", None, fields)
 
     async def update_reservation(self, reservation_id: str, fields: dict):
-        resp = await self.request(
-            "PATCH", f"/v1/reservations/{seg(reservation_id)}/", json=fields
+        return await self.update(
+            path("v1", "reservations", reservation_id) + "/",
+            None,
+            fields,
+            method="PATCH",
         )
-        return resp.json() if resp.content else {}
 
     async def delete_reservation(self, reservation_id: str) -> None:
-        await self.request(
-            "DELETE", f"/v1/reservations/{seg(reservation_id)}/"
-        )
+        await self.delete(path("v1", "reservations", reservation_id) + "/")
 
     async def flavors(self, **params) -> list[dict]:
-        return await self.list_all("/v1/flavors/", params=params)
+        return await self.list_all("/v1/flavors/", "results", **params)
 
     async def flavor(self, flavor_id: str) -> dict:
-        return await self.get_json(f"/v1/flavors/{seg(flavor_id)}/") or {}
+        return await self.get(path("v1", "flavors", flavor_id) + "/")
 
     async def free_slots(
         self, flavor_id: str, start: str | None = None, end: str | None = None
@@ -120,16 +107,16 @@ class WarreClient(PagedClient):
         if end:
             params["end"] = end
         body = await self.get_json(
-            f"/v1/flavors/{seg(flavor_id)}/freeslots/", params=params or None
+            path("v1", "flavors", flavor_id, "freeslots") + "/",
+            params=params or None,
         )
         return body if isinstance(body, list) else []
 
     async def limits(self) -> dict:
-        body = await self.get_json("/v1/limits/")
-        return (body or {}).get("absolute") or {}
+        return await self.get("/v1/limits/", "absolute")
 
     async def maintenance_windows(self) -> list[dict]:
-        return await self.list_all("/v1/maintenancewindows/")
+        return await self.list_all("/v1/maintenancewindows/", "results")
 
 
 class CloudKittyClient(ServiceClient):
@@ -171,28 +158,22 @@ class CloudKittyClient(ServiceClient):
         *,
         filters: dict | None = None,
         groupby: str | list[str] | None = None,
-        limit: int = 1000,
     ) -> list[dict]:
         """Every row of a summary, following ``offset`` pages (Horizon
         stops at the first 1000 rows, ``nectar_dashboard/api/usage.py:48``)."""
-        rows: list[dict] = []
-        for page in range(MAX_PAGES):
+
+        async def page(offset: int) -> list[dict]:
             body = await self.summary(
                 begin,
                 end,
                 filters=filters,
                 groupby=groupby,
-                limit=limit,
-                offset=page * limit,
+                limit=SUMMARY_PAGE,
+                offset=offset,
             )
-            results = body.get("results") or []
-            rows.extend(results)
-            total = body.get("total")
-            if not results or len(results) < limit:
-                break
-            if isinstance(total, int) and len(rows) >= total:
-                break
-        return rows
+            return body.get("results") or []
+
+        return await self.list_by_offset(page, SUMMARY_PAGE)
 
 
 class GnocchiClient(ServiceClient):
@@ -204,7 +185,7 @@ class GnocchiClient(ServiceClient):
     ) -> list[dict]:
         resp = await self.request(
             "POST",
-            f"/v1/search/resource/{seg(resource_type)}",
+            path("v1", "search", "resource", resource_type),
             params={"limit": limit},
             json=query,
             timeout=60,
@@ -218,6 +199,7 @@ class AllocationsClient(PagedClient):
 
     service_type = "allocations"
     service_name = "allocations"
+    ends_session_on_401 = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -225,4 +207,4 @@ class AllocationsClient(PagedClient):
             self._endpoint = self.settings.allocation_api_url.rstrip("/")
 
     async def allocations(self, **params) -> list[dict]:
-        return await self.list_all("/allocations/", params=params)
+        return await self.list_all("/allocations/", "results", **params)

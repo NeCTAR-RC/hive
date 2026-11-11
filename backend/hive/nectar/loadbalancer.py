@@ -29,6 +29,8 @@
 import ipaddress
 import re
 
+from hive.nectar.violation import RuleViolation
+
 TRANSITIONAL = ("PENDING_CREATE", "PENDING_UPDATE", "PENDING_DELETE")
 DELETABLE = ("ACTIVE", "ERROR")
 LISTENER_PROTOCOLS = (
@@ -78,14 +80,17 @@ UDP_LIKE = ("UDP", "SCTP")
 
 
 def is_transitional(lb: dict) -> bool:
+    """A ``PENDING_*`` provisioning status (octavia-dashboard)."""
     return lb.get("provisioning_status") in TRANSITIONAL
 
 
 def can_delete(lb: dict) -> bool:
+    """ACTIVE or ERROR only (``delete.action.service.js:128-146``)."""
     return lb.get("provisioning_status") in DELETABLE
 
 
 def valid_ip(value: str | None) -> bool:
+    """Whether a VIP address parses (``workflow/model.service.js``)."""
     if not value:
         return False
     try:
@@ -95,16 +100,17 @@ def valid_ip(value: str | None) -> bool:
     return True
 
 
-def valid_cidrs(values: list[str] | None) -> str | None:
+def valid_cidrs(values: list[str] | None) -> None:
+    """Allowed CIDRs must parse (``workflow/model.service.js``)."""
     for value in values or []:
         try:
             ipaddress.ip_network(value, strict=False)
         except ValueError:
-            return f'"{value}" is not a valid CIDR.'
-    return None
+            raise RuleViolation(f'"{value}" is not a valid CIDR.') from None
 
 
 def default_port(protocol: str, used: set[int]) -> int:
+    """The next free default port (``workflow/model.service.js``)."""
     port = DEFAULT_PORTS.get(protocol, 80)
     while port in used:
         port += 1
@@ -112,6 +118,7 @@ def default_port(protocol: str, used: set[int]) -> int:
 
 
 def pool_protocol_for(listener_protocol: str | None) -> str | None:
+    """HTTP behind TERMINATED_HTTPS (``model.service.js``)."""
     if listener_protocol is None:
         return None
     return (
@@ -119,6 +126,14 @@ def pool_protocol_for(listener_protocol: str | None) -> str | None:
         if listener_protocol == "TERMINATED_HTTPS"
         else listener_protocol
     )
+
+
+TLS_FIELDS = ("default_tls_container_ref", "sni_container_refs", "tls_ciphers")
+
+
+def _given(data: dict, keys: tuple[str, ...]) -> dict:
+    """The entries of ``data`` under ``keys`` that have a value."""
+    return {key: data[key] for key in keys if data.get(key)}
 
 
 def listener_fields(data: dict, lb_id: str | None = None) -> dict:
@@ -132,9 +147,7 @@ def listener_fields(data: dict, lb_id: str | None = None) -> dict:
     }
     if lb_id:
         body["loadbalancer_id"] = lb_id
-    for key in ("name", "description"):
-        if data.get(key):
-            body[key] = data[key]
+    body.update(_given(data, ("name", "description")))
     if protocol not in UDP_LIKE:
         for key in (
             "timeout_client_data",
@@ -155,14 +168,7 @@ def listener_fields(data: dict, lb_id: str | None = None) -> dict:
         if headers:
             body["insert_headers"] = headers
     if protocol == "TERMINATED_HTTPS":
-        if data.get("default_tls_container_ref"):
-            body["default_tls_container_ref"] = data[
-                "default_tls_container_ref"
-            ]
-        if data.get("sni_container_refs"):
-            body["sni_container_refs"] = data["sni_container_refs"]
-        if data.get("tls_ciphers"):
-            body["tls_ciphers"] = data["tls_ciphers"]
+        body.update(_given(data, TLS_FIELDS))
     if data.get("default_pool_id"):
         body["default_pool_id"] = data["default_pool_id"]
     return body
@@ -175,6 +181,7 @@ def pool_fields(
     lb_id: str | None = None,
     listener_protocol: str | None = None,
 ) -> dict:
+    """The cleaned pool (``model.service.js:421-618``)."""
     body: dict = {
         "lb_algorithm": data["lb_algorithm"],
         "admin_state_up": data.get("admin_state_up", True),
@@ -206,6 +213,7 @@ def pool_fields(
 
 
 def member_fields(data: dict) -> dict:
+    """The cleaned member (``model.service.js:421-618``)."""
     body: dict = {
         "address": data["address"],
         "protocol_port": data["protocol_port"],
@@ -220,6 +228,7 @@ def member_fields(data: dict) -> dict:
 
 
 def monitor_fields(data: dict, pool_id: str | None = None) -> dict:
+    """The cleaned monitor (``model.service.js:421-618``)."""
     mtype = data["type"]
     body: dict = {
         "type": mtype,
@@ -240,18 +249,21 @@ def monitor_fields(data: dict, pool_id: str | None = None) -> dict:
     return body
 
 
-def validate_monitor(data: dict) -> str | None:
+def validate_monitor(data: dict) -> None:
+    """Monitor form checks (octavia-dashboard monitor form)."""
     if data.get("delay", 5) < data.get("timeout", 5):
-        return "The delay must be at least the timeout."
+        raise RuleViolation("The delay must be at least the timeout.")
     if data["type"] in ("HTTP", "HTTPS"):
         if not EXPECTED_CODES.match(str(data.get("expected_codes") or "200")):
-            return "Expected codes are a code, a range (200-204) or a list (200,301)."
+            raise RuleViolation(
+                "Expected codes are a code, a range (200-204) or a list (200,301)."
+            )
         if not URL_PATH.match(data.get("url_path") or "/"):
-            return "The URL path must start with a slash."
-    return None
+            raise RuleViolation("The URL path must start with a slash.")
 
 
 def l7_policy_fields(data: dict, listener_id: str | None = None) -> dict:
+    """The cleaned L7 policy (octavia-dashboard L7 forms)."""
     body: dict = {
         "action": data["action"],
         "admin_state_up": data.get("admin_state_up", True),
@@ -271,6 +283,7 @@ def l7_policy_fields(data: dict, listener_id: str | None = None) -> dict:
 
 
 def l7_rule_fields(data: dict) -> dict:
+    """The cleaned L7 rule (octavia-dashboard L7 forms)."""
     body: dict = {
         "type": data["type"],
         "compare_type": data["compare_type"],

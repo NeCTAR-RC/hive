@@ -1,0 +1,10 @@
+{
+  "id": "z-1",
+  "name": "example.com.",
+  "type": "PRIMARY",
+  "email": "admin@example.com",
+  "ttl": 3600,
+  "serial": 5,
+  "status": "ACTIVE",
+  "action": "NONE"
+}

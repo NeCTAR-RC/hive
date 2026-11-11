@@ -1,36 +1,57 @@
 @use "mixins" as *;
 
+/// The page intro under the title: Body/16 Grey-700 (typography spec, body
+/// text), no wider than span 9 of the grid (894px, the narrow single column;
+/// gap "Reading measure").
 .intro {
-  margin: 0;
-  max-width: 48rem;
-  color: var(--hive-color-text-muted);
+  max-width: var(--hive-grid-span-9);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
 }
 
+/// The page's sections 32px apart (library `content-block-stack`).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.muted {
-  color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
-}
-
-/* detail page */
-
-.grid {
+/// The two limit meters side by side from 768px, 24px apart (grids spec,
+/// 24px gap); stacked 16px apart before (DERIVED-SPACING, inter-field).
+.limits {
   display: grid;
-  gap: var(--hive-space-4);
-  align-items: start;
+  gap: var(--hive-space-4) var(--hive-grid-gap);
 
-  @include up($bp-lg) {
-    grid-template-columns: 3fr 2fr;
+  @include up($bp-md) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
+/// A flavour's size after its name in the table: Body/14 Grey-500, the
+/// library field helper style.
+.muted {
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-text-muted);
+}
+
+/// "Sidebar right" (layouts spec): the overview beside the flavour, the
+/// flavour span 4 of the grid, 24px apart; stacked until 1280px.
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
+  align-items: start;
+
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
+  }
+}
+
+/// The page actions 12px apart (content blocks "Frame 1400").
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--hive-space-2);
+  gap: var(--hive-space-3);
 }

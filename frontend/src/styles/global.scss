@@ -2,28 +2,99 @@
 @use "@ardc-ui/react/styles/typography" as ardc;
 @use "./tokens";
 @use "./mixins" as *;
-@use "./ds-overrides";
 
+/// Border-box sizing everywhere, as the library's components assume.
 *,
 *::before,
 *::after {
   box-sizing: border-box;
 }
 
+/// The page: the library body face (Figtree) in Grey-700 on the white
+/// surface the library assumes ("Grey sits on a white page"). The dashboard
+/// frame lays its own canvas over it (see AppLayout), so every page outside
+/// that frame stays white. The window never scrolls (see body).
 html {
+  overflow: hidden;
   font-family: var(--hive-font-family);
   color: var(--hive-color-text-body);
-  background: var(--hive-color-page);
+  background: var(--hive-color-surface);
   -webkit-text-size-adjust: 100%;
 }
 
+/// Body/16 (typography spec, library `text-style(body-16)`). The window is
+/// the frame and never scrolls, as in Horizon: body is a column exactly the
+/// viewport's height holding the agency mega menu over the app root, and
+/// the layouts scroll their own columns (see AppLayout and AuthLayout).
+/// Body clips what is placed against it (positioned, it is the containing
+/// block), so the page never grows past the window and nothing, not even a
+/// script's `scrollIntoView`, can scroll the window: the agency footer puts
+/// its newsletter form's verification widget on body in page coordinates
+/// and moves it as the column scrolls, below the window until the footer
+/// is in view.
 body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
   margin: 0;
-  min-height: 100dvh;
+  overflow: clip;
 
   @include ardc.text-style(body-16);
+
+  // A page that stands alone (the login page) marks the body and the footer
+  // stays out; see useHiddenFooter. The footer's own stylesheet, injected by
+  // its loader, sets display: block on `.ardc-footer.ardc-custom-component`,
+  // so this selector names the same classes to outrank that rule.
+  &[data-footer="hidden"] ardc-footer.ardc-footer.ardc-custom-component {
+    display: none;
+  }
 }
 
+/// The agency mega menu (`<ardc-megamenu>` in index.html) as its loader
+/// supplies it. Its own stylesheet positions it absolutely over the top of
+/// the page, which on ardc.edu.au sits on a page that leaves room for it;
+/// here it stays in the body column, so its 20px strip pushes the app down
+/// rather than covering the header. It is a layer above the app root, so
+/// its panels open over the header, sidebar and page. From 1200px the
+/// strip's height is reserved before it hydrates; below that the loader
+/// collapses it to nothing (the menu is desktop-only).
+ardc-megamenu {
+  position: relative;
+  z-index: var(--hive-z-above-app);
+  flex: none;
+
+  @media (width >= 1200px) {
+    min-height: var(--hive-megamenu-height);
+  }
+}
+
+/// The app root fills the column under the mega menu (`min-height: 0`, so
+/// the layouts' own columns scroll rather than the window), and is its own
+/// stacking context (`isolation`), so a positioned or z-indexed element
+/// inside it only competes inside the app. React Aria portals overlays
+/// (dialogs, popovers, menus) to the end of body, after this box, so they
+/// paint above everything in it without a z-index of their own (engineering
+/// item "Dialog overlay stacking").
+#root {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  isolation: isolate;
+}
+
+/// The overlays React Aria portals to the end of body (dialogs, popovers,
+/// menus, tooltips) take the mega menu's layer: equal, and later in the
+/// page, so a dialog's dimmed overlay covers the mega menu's strip too.
+/// `z-index` applies only to the positioned ones, and an overlay that sets
+/// its own keeps it (zero specificity; engineering item "Dialog overlay
+/// stacking").
+:where(#root ~ *) {
+  z-index: var(--hive-z-above-app);
+}
+
+/// No browser margins: spacing comes from each module's spec gaps.
 h1,
 h2,
 h3,
@@ -32,59 +103,100 @@ h5,
 p,
 ul,
 ol,
+dl,
+dd,
 figure {
   margin: 0;
 }
 
+/// A page title is Heading/H1 (typography spec, 36/44), as the hero draws it
+/// under breadcrumbs.
 h1 {
+  @include ardc.text-style(h1);
+}
+
+/// Heading/H2 (typography spec).
+h2 {
   @include ardc.text-style(h2);
 }
 
-h2 {
+/// Heading/H3 (typography spec).
+h3 {
   @include ardc.text-style(h3);
 }
 
-h3 {
+/// Heading/H4 (typography spec).
+h4 {
   @include ardc.text-style(h4);
 }
 
-h4 {
+/// Heading/H5 (typography spec).
+h5 {
   @include ardc.text-style(h5);
 }
 
+/// Below 768px the typography spec's mobile ramp (Mobile/Heading/H1 to H3)
+/// takes over for the three levels it draws.
 @include down($bp-md) {
   h1 {
-    @include ardc.text-style(mobile-h2);
+    @include ardc.text-style(mobile-h1);
   }
 
   h2 {
+    @include ardc.text-style(mobile-h2);
+  }
+
+  h3 {
     @include ardc.text-style(mobile-h3);
   }
 }
 
+/// A raw anchor in feature code takes the library link colour (Purple-500);
+/// the shell renders none.
 a {
   color: var(--hive-color-link);
 }
 
+/// The design system has no code face (gap "Code face and copyable value"),
+/// so code and preformatted text take the body face instead of the
+/// browser's monospace.
 code,
 pre {
-  font-family: var(--hive-font-mono);
+  font-family: inherit;
 }
 
+/// Pictures never overflow their column.
 img,
 svg {
   max-width: 100%;
   height: auto;
 }
 
-:focus-visible {
+/// The library focus ring (1.5px Purple-500, 4px out) for raw elements that
+/// are not React Aria. React Aria elements (marked with data-rac) draw their
+/// own ring from [data-focus-visible]; this one is for anchors, buttons, form
+/// controls, summaries and tabindex stops in feature code not yet moved to
+/// the library, and the agency footer's links. tabindex="-1" targets (main,
+/// page headings) take focus only from script after a navigation and show
+/// no ring.
+:where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible:not([data-rac]) {
   @include focus-ring;
 }
 
+/// Text for screen readers only.
 .visually-hidden {
   @include visually-hidden;
 }
 
+/// With reduced motion, animations and transitions finish at once.
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

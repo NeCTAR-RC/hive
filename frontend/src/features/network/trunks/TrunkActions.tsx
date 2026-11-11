@@ -1,82 +1,53 @@
-// Trunk row actions behind one hook, as useVolumeActions.
-import { useState, type ReactNode } from "react";
-import { ConfirmDialog } from "../../../components/ConfirmDialog/ConfirmDialog";
-import type { Trunk } from "../../../lib/api/types";
-import { notify } from "../../../lib/notify";
-import { useDeleteTrunks } from "../api";
+// Every trunk action behind one hook: `run(action, trunks)` deletes the
+// batch after asking, or opens the edit form. The hook returns the dialogs
+// to render and the props for the table that lists the trunks.
+import { useState } from "react";
+import { DELETE } from "../../../components/BulkAction/messages";
+import { useBulkAction } from "../../../components/BulkAction/useBulkAction";
+import type { Trunk } from "../../../lib/api/types/network";
+import { deleteTrunk, trunkWriteKeys } from "../api";
 import type { TrunkActionId } from "../status";
-import { EditTrunkDialog } from "./TrunkDialogs";
+import { EditTrunkDialog } from "./dialogs/EditTrunkDialog";
 
-type Dialog =
-  { kind: "delete"; trunks: Trunk[] } | { kind: "edit"; trunk: Trunk } | null;
+/**
+ * Every trunk action. `onDeleted` runs after a delete that removed at
+ * least one trunk (a detail page leaves for the list).
+ */
+export function useTrunkActions(onDeleted?: () => void) {
+  const [editing, setEditing] = useState<Trunk | null>(null);
+  const bulk = useBulkAction<Trunk, "delete">({
+    noun: { one: "trunk", many: "trunks" },
+    name: (trunk) => trunk.name || trunk.id,
+    getId: (trunk) => trunk.id,
+    invalidates: trunkWriteKeys,
+    actions: {
+      delete: {
+        verb: DELETE,
+        request: (trunk) => deleteTrunk(trunk.id),
+        body: (
+          <p>The parent and subports stay; only the trunk between them goes.</p>
+        ),
+        onSucceeded: () => onDeleted?.(),
+      },
+    },
+  });
 
-export function useTrunkActions(
-  projectId: string,
-  onDeleted?: () => void,
-): {
-  run: (trunk: Trunk, action: TrunkActionId) => void;
-  runDelete: (trunks: Trunk[]) => void;
-  dialogs: ReactNode;
-} {
-  const remove = useDeleteTrunks(projectId);
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const close = () => setDialog(null);
-  const label = (t: Trunk) => t.name || t.id;
-
-  let dialogs: ReactNode = null;
-  if (dialog?.kind === "delete") {
-    const { trunks } = dialog;
-    dialogs = (
-      <ConfirmDialog
-        isOpen
-        onOpenChange={(open) => !open && close()}
-        title={
-          trunks.length === 1
-            ? `Delete trunk ${label(trunks[0]!)}?`
-            : `Delete ${trunks.length} trunks?`
-        }
-        confirmLabel="Delete"
-        tone="danger"
-        isPending={remove.isPending}
-        error={remove.error}
-        onConfirm={() =>
-          remove.mutate(
-            trunks.map((t) => t.id),
-            {
-              onSuccess: () => {
-                notify.success(
-                  trunks.length === 1
-                    ? `Deleted trunk ${label(trunks[0]!)}.`
-                    : `Deleted ${trunks.length} trunks.`,
-                );
-                close();
-                onDeleted?.();
-              },
-            },
-          )
-        }
-      >
-        <p>The parent and subports stay; only the trunk between them goes.</p>
-      </ConfirmDialog>
-    );
-  } else if (dialog?.kind === "edit") {
-    dialogs = (
-      <EditTrunkDialog
-        projectId={projectId}
-        trunk={dialog.trunk}
-        onClose={close}
-      />
-    );
-  }
+  const run = (action: TrunkActionId, trunks: Trunk[]) => {
+    const [first] = trunks;
+    if (action === "delete") bulk.run("delete", trunks);
+    else if (first) setEditing(first);
+  };
 
   return {
-    run: (trunk, action) =>
-      setDialog(
-        action === "delete"
-          ? { kind: "delete", trunks: [trunk] }
-          : { kind: "edit", trunk },
-      ),
-    runDelete: (trunks) => setDialog({ kind: "delete", trunks }),
-    dialogs,
+    run,
+    dialogs: (
+      <>
+        {editing && (
+          <EditTrunkDialog trunk={editing} onClose={() => setEditing(null)} />
+        )}
+        {bulk.dialog}
+      </>
+    ),
+    tableProps: bulk.tableProps,
   };
 }

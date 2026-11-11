@@ -1,0 +1,20 @@
+---
+security:
+  - |
+    Database flavours, shared and external networks and Heat resource
+    types are cached per project too, and every API response is marked
+    no-store.
+fixes:
+  - |
+    Upstream timestamps are sent as UTC with a zone, so the dashboard
+    shows the right local time. Shares being resized keep refreshing.
+upgrade:
+  - |
+    A disabled service answers 501 (code service_not_enabled) instead of
+    404. An empty HIVE_WEBSSO_ALLOWED_ORIGINS rejects every login in
+    every environment, so the review sites and the beta must set it to
+    the accounts origin too. HIVE_ENV=prod refuses to start without a
+    non-empty HIVE_WEBSSO_ALLOWED_ORIGINS, an https HIVE_PUBLIC_URL and
+    an explicit HIVE_KEYSTONE_URL, or with HIVE_COOKIE_SECURE=false or
+    HIVE_DOCS_ENABLED=true. HIVE_FORWARDED_ALLOW_IPS and
+    HIVE_METRICS_ALLOWED_NETWORKS default to localhost.

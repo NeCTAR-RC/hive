@@ -1,9 +1,10 @@
 // Launch one small instance on rctest (pt-50) through the real wizard, wait
 // for it to become ACTIVE, exercise the detail tabs, then delete it.
 //   node live-launch.mjs <one-shot login URL> [base] [outDir]
-// With HIVE_LIVE_NEW_VOLUME=1 the image boots onto a new volume (deleted
-// with the instance) and the networks are reordered when two are offered,
-// so the volume and interface order can be checked on the instance.
+// HIVE_LIVE_PROJECT names the project to switch to (default pt-50). With
+// HIVE_LIVE_NEW_VOLUME=1 the image boots onto a new volume (deleted with
+// the instance) and the networks are reordered when two are offered, so
+// the volume and the interface order can be checked on the instance.
 // The delete step runs in a `finally`, so a failure after the Launch click
 // (a missing tab, a full disk for the screenshot) never leaves the instance
 // running on rctest.
@@ -55,7 +56,9 @@ try {
   if (!target) throw new Error(`project ${PROJECT} not available`);
   if (me.body.project.id !== target.id) {
     await page.goto(`${base}/auth/switch/${target.id}`);
-    await page.waitForURL(`${base}/`, { timeout: 30_000 });
+    await page.waitForURL((url) => !url.pathname.startsWith("/auth/"), {
+      timeout: 30_000,
+    });
   }
   const who = await api("/api/me");
   console.log(`logged in as ${who.body.user.name} in ${who.body.project.name}`);
@@ -69,14 +72,16 @@ try {
     .catch(() => {});
   await page.getByRole("textbox", { name: "Instance name" }).fill(NAME);
   await page.getByRole("button", { name: /Availability zone/ }).click();
-  // rctest smoke runs use the ardctest-artm zone wherever possible.
+  // rctest smoke runs use the ardctest-artm zone wherever possible; a new
+  // volume needs a named zone, so "Any availability zone" (the first
+  // option) is never the fallback.
   const preferred = page.getByRole("option", {
     name: "ardctest-artm",
     exact: true,
   });
   const zone = (await preferred.count())
     ? preferred
-    : page.getByRole("option").first();
+    : page.getByRole("option").nth(1);
   console.log("zone:", await zone.innerText());
   await zone.click();
   await page.getByRole("button", { name: "Next" }).click();
@@ -106,7 +111,8 @@ try {
     ).replace(/\s+/g, " "),
   );
   if (NEW_VOLUME) {
-    await page.getByText("Create a new volume from the image").click();
+    // RAC switches and radios are hidden inputs: click the label text.
+    await page.getByText("Create a new volume", { exact: true }).click();
     const size = page.getByRole("textbox", { name: /Volume size/ });
     await size.waitFor();
     console.log("volume size:", await size.inputValue());
@@ -120,8 +126,8 @@ try {
   }
   await page.getByRole("button", { name: "Next" }).click();
 
-  // The class tabs first, then the cheapest non-preemptible flavour.
-  // The class cards are React Aria radios whose label is the card.
+  // The class cards first (React Aria radios whose label is the card), then
+  // the cheapest non-preemptible flavour of the class opened.
   const classes = page.getByRole("radiogroup", { name: "Flavour class" });
   console.log(
     "flavour classes:",
@@ -160,10 +166,13 @@ try {
   );
   if (NEW_VOLUME) {
     // Tick a second network when one is offered and make it the first
-    // interface.
-    const unchecked = page.getByRole("checkbox", { checked: false }).first();
+    // interface. The ports group below also has checkboxes, so look only
+    // in the networks group.
+    const unchecked = page
+      .getByRole("group", { name: "Networks", exact: true })
+      .getByRole("checkbox", { checked: false })
+      .first();
     if (await unchecked.count()) {
-      // RAC checkboxes are hidden inputs: click the label around it.
       await page.locator("label").filter({ has: unchecked }).first().click();
       // Drag the new row to the top from the keyboard: the handle lifts
       // it, ArrowUp picks the drop point before the first row, Enter drops.
@@ -191,13 +200,7 @@ try {
   }
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Next" }).click();
-  // The step list also has a "Key pair" button, and the select is named by
-  // its value (a sole key pair is preselected) and its label, so look inside
-  // the step's own panel.
-  await page
-    .getByRole("group", { name: "Key pair" })
-    .getByRole("button", { name: /Key pair/ })
-    .click();
+  await page.getByRole("button", { name: /Key pair/ }).click();
   await page.getByRole("option").nth(1).click();
   await page.getByRole("button", { name: "Next" }).click();
   console.log(

@@ -3,17 +3,37 @@ with the Nectar rules applied on create and restore."""
 
 import asyncio
 
-from hive.errors import BadRequest, HiveError
+from hive.cache import policy
+from hive.errors import BadRequest, HiveError, NotFound
+from hive.nectar.images import ImageRules
+from hive.schemas.responses import Accepted, AvailabilityZone
+from hive.schemas.responses.volumes import (
+    RestoreResult,
+    RestoreResultNewVolume,
+    Volume,
+    VolumeAttached,
+    VolumeBackup,
+    VolumeExtended,
+    VolumeLimits,
+    VolumeMetadataSaved,
+    VolumeOptions,
+    VolumeSnapshot,
+    VolumeTransferAccepted,
+    VolumeTransferCreated,
+    VolumeUploadedToImage,
+)
+from hive.schemas.volumes import (
+    MetadataUpdate,
+    RetypeRequest,
+    TransferAccept,
+    TransferCreate,
+    VolumeListQuery,
+)
 from hive.services import compute
 from hive.services.context import Context
 from hive.services.names import names as names_by_id
-
-AZ_TTL = 600
-AZ_STALE = 3600
-TYPES_TTL = 600
-TYPES_STALE = 3600
-# As Horizon (API_RESULT_LIMIT 1000): one listing, paged in the browser.
-LIST_LIMIT = 1000
+from hive.services.volume_types import has_zoned_types, volume_types
+from hive.times import to_utc_iso
 
 
 def volume_summary(volume: dict, has_snapshots: bool | None = None) -> dict:
@@ -34,7 +54,7 @@ def volume_summary(volume: dict, has_snapshots: bool | None = None) -> dict:
                 "id": a.get("attachment_id") or a.get("id"),
                 "server_id": a.get("server_id"),
                 "device": a.get("device"),
-                "attached_at": a.get("attached_at"),
+                "attached_at": to_utc_iso(a.get("attached_at")),
             }
             for a in volume.get("attachments") or []
         ],
@@ -50,9 +70,10 @@ def volume_summary(volume: dict, has_snapshots: bool | None = None) -> dict:
         ),
         "group_id": volume.get("group_id"),
         "metadata": volume.get("metadata") or {},
-        "created_at": volume.get("created_at"),
-        "updated_at": volume.get("updated_at"),
+        "created_at": to_utc_iso(volume.get("created_at")),
+        "updated_at": to_utc_iso(volume.get("updated_at")),
         "has_snapshots": has_snapshots,
+        "fault": None,
     }
 
 
@@ -67,12 +88,12 @@ def snapshot_summary(
         "size_gb": snapshot.get("size"),
         "status": snapshot.get("status"),
         "volume_id": volume_id,
-        "volume_name": (volume_names or {}).get(volume_id),
+        "volume_name": (volume_names or {}).get(volume_id or ""),
         "progress": snapshot.get("os-extended-snapshot-attributes:progress"),
         "group_snapshot_id": snapshot.get("group_snapshot_id"),
         "metadata": snapshot.get("metadata") or {},
-        "created_at": snapshot.get("created_at"),
-        "updated_at": snapshot.get("updated_at"),
+        "created_at": to_utc_iso(snapshot.get("created_at")),
+        "updated_at": to_utc_iso(snapshot.get("updated_at")),
     }
 
 
@@ -91,55 +112,68 @@ def backup_summary(
         "status": backup.get("status"),
         "availability_zone": backup.get("availability_zone"),
         "volume_id": volume_id,
-        "volume_name": (volume_names or {}).get(volume_id),
+        "volume_name": (volume_names or {}).get(volume_id or ""),
         "snapshot_id": snapshot_id,
-        "snapshot_name": (snapshot_names or {}).get(snapshot_id),
+        "snapshot_name": (snapshot_names or {}).get(snapshot_id or ""),
         "container": backup.get("container"),
         "is_incremental": bool(backup.get("is_incremental")),
         "has_dependent_backups": bool(backup.get("has_dependent_backups")),
-        "data_timestamp": backup.get("data_timestamp"),
+        "data_timestamp": to_utc_iso(backup.get("data_timestamp")),
         "fail_reason": backup.get("fail_reason"),
-        "created_at": backup.get("created_at"),
-        "updated_at": backup.get("updated_at"),
+        "created_at": to_utc_iso(backup.get("created_at")),
+        "updated_at": to_utc_iso(backup.get("updated_at")),
     }
 
 
-# --- volumes -------------------------------------------------------------------
-
-
-async def list_volumes(ctx: Context, query: dict) -> dict:
-    params: dict = {"limit": LIST_LIMIT}
-    for key in ("status", "name", "bootable", "availability_zone"):
-        if query.get(key):
-            params[key] = query[key]
+async def list_volumes(ctx: Context, query: VolumeListQuery) -> list[Volume]:
     volumes, snapshots = await asyncio.gather(
-        ctx.cinder.volumes(**params),
-        ctx.cinder.snapshots(limit=LIST_LIMIT),
+        ctx.cinder.volumes(**query.cinder_params()),
+        ctx.cinder.snapshots(),
     )
     with_snapshots = {s.get("volume_id") for s in snapshots}
+    return [
+        Volume.model_validate(volume_summary(v, v.get("id") in with_snapshots))
+        for v in volumes
+    ]
+
+
+def latest_fault(messages: list[dict]) -> dict | None:
+    """The newest of a volume's user messages, as the volume's fault."""
+    dated = [m for m in messages if m.get("user_message")]
+    if not dated:
+        return None
+    newest = max(dated, key=lambda m: m.get("created_at") or "")
     return {
-        "items": [
-            volume_summary(v, v.get("id") in with_snapshots) for v in volumes
-        ]
+        "message": newest["user_message"],
+        "created": to_utc_iso(newest.get("created_at")),
     }
 
 
-async def get_volume(ctx: Context, volume_id: str) -> dict:
+async def volume_fault(ctx: Context, volume_id: str) -> dict | None:
+    """Why the volume is in error, from Cinder's user messages (Horizon
+    ``volumes/tabs.py`` VolumeMessagesTab). The messages are a hint, so
+    failing to read them leaves the fault out rather than failing the
+    page."""
+    try:
+        messages = await ctx.cinder.messages(resource_uuid=volume_id)
+    except HiveError:
+        return None
+    return latest_fault(messages)
+
+
+async def get_volume(ctx: Context, volume_id: str) -> Volume:
     volume, snapshots = await asyncio.gather(
         ctx.cinder.volume(volume_id),
-        ctx.cinder.snapshots(volume_id=volume_id, limit=LIST_LIMIT),
+        ctx.cinder.snapshots(volume_id=volume_id),
     )
-    return volume_summary(volume, bool(snapshots))
+    summary = volume_summary(volume, bool(snapshots))
+    if str(volume.get("status") or "").startswith("error"):
+        summary["fault"] = await volume_fault(ctx, volume_id)
+    return Volume.model_validate(summary)
 
 
-async def availability_zones(ctx: Context) -> list[dict]:
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.global_key("cinder-azs"),
-        ctx.cinder.availability_zones,
-        ttl=AZ_TTL,
-        stale_ttl=AZ_STALE,
-        name="volume-azs",
-    )
+async def availability_zones(ctx: Context) -> list[AvailabilityZone]:
+    result = await ctx.cached(policy.CINDER_AZS, ctx.cinder.availability_zones)
     zones = [
         {
             "name": z.get("zoneName"),
@@ -148,30 +182,10 @@ async def availability_zones(ctx: Context) -> list[dict]:
         for z in result.value
     ]
     zones.sort(key=lambda z: z["name"] or "")
-    return zones
+    return [AvailabilityZone.model_validate(z) for z in zones]
 
 
-def volume_types_key(ctx: Context) -> str:
-    """Per project: cinder lists the private volume types a project has
-    access to, so one project's list is not another's."""
-    return ctx.cache.project_key(ctx.project_id, "cinder-types")
-
-
-async def volume_types(ctx: Context) -> list[dict]:
-    result = await ctx.cache.get_or_fetch(
-        volume_types_key(ctx),
-        ctx.cinder.volume_types,
-        ttl=TYPES_TTL,
-        stale_ttl=TYPES_STALE,
-        name="volume-types",
-    )
-    rules = ctx.volume_rules
-    types = [rules.type_summary(t) for t in result.value]
-    types.sort(key=lambda t: (t["name"] or "").lower())
-    return types
-
-
-async def limits(ctx: Context) -> dict:
+async def limits(ctx: Context) -> VolumeLimits:
     """Cinder's absolute limits; -1 stays "unlimited", and the negative
     "used" figures Cinder sometimes reports become 0 (Horizon
     ``api/cinder.py`` tenant_absolute_limits)."""
@@ -186,10 +200,35 @@ async def limits(ctx: Context) -> dict:
             out[key] = 0
         else:
             out[key] = value
-    return out
+    return VolumeLimits.model_validate(out)
 
 
-async def create_options(ctx: Context) -> dict:
+def picker_images(
+    groups: dict[str, list[dict]], rules: ImageRules, project_id: str
+) -> list[dict]:
+    """Active images the volume source picker offers, by name."""
+    items = []
+    for key in ("private", "shared", "public", "community"):
+        for image in groups.get(key, []):
+            if image.get("status") != "active":
+                continue
+            if not rules.visible_in_picker(image, project_id, False):
+                continue
+            items.append(
+                {
+                    "id": image.get("id"),
+                    "name": image.get("name"),
+                    "size": image.get("size"),
+                    "min_disk": image.get("min_disk") or 0,
+                    "disk_format": image.get("disk_format"),
+                    "is_snapshot": rules.is_snapshot(image),
+                }
+            )
+    items.sort(key=lambda i: (i["name"] or "").lower())
+    return items
+
+
+async def create_options(ctx: Context) -> VolumeOptions:
     """Everything the create volume and restore forms need, gathered in
     parallel; a failed section carries ``error`` instead of failing the
     whole payload."""
@@ -201,41 +240,23 @@ async def create_options(ctx: Context) -> dict:
             return name, None, {"error": exc.code, "message": exc.message}
 
     async def images_section():
-        groups = await compute.all_images(ctx)
-        rules = ctx.image_rules
-        items = []
-        for key in ("private", "shared", "public", "community"):
-            for image in groups.get(key, []):
-                if image.get("status") != "active":
-                    continue
-                if not rules.visible_in_picker(image, ctx.project_id, False):
-                    continue
-                items.append(
-                    {
-                        "id": image.get("id"),
-                        "name": image.get("name"),
-                        "size": image.get("size"),
-                        "min_disk": image.get("min_disk") or 0,
-                        "disk_format": image.get("disk_format"),
-                        "is_snapshot": rules.is_snapshot(image),
-                    }
-                )
-        items.sort(key=lambda i: (i["name"] or "").lower())
-        return items
+        return picker_images(
+            await compute.all_images(ctx), ctx.image_rules, ctx.project_id
+        )
 
     async def snapshots_section():
         return [
             snapshot_summary(s)
-            for s in await ctx.cinder.snapshots(limit=LIST_LIMIT)
+            for s in await ctx.cinder.snapshots()
             if s.get("status") == "available"
         ]
 
     async def volumes_section():
         # Only available volumes can be cloned (Horizon
-        # ``dashboards/project/volumes/forms.py:444-446``).
+        # ``dashboards/project/volumes/forms.py:416-425``).
         return [
             volume_summary(v)
-            for v in await ctx.cinder.volumes(limit=LIST_LIMIT)
+            for v in await ctx.cinder.volumes()
             if v.get("status") == "available"
         ]
 
@@ -254,13 +275,11 @@ async def create_options(ctx: Context) -> dict:
         if value is None:
             value = {} if name == "limits" else []
         payload[name] = value
-    payload["has_zoned_types"] = any(
-        t.get("zones") for t in payload["volume_types"]
-    )
-    return payload
+    payload["has_zoned_types"] = has_zoned_types(payload["volume_types"])
+    return VolumeOptions.model_validate(payload)
 
 
-async def create_volume(ctx: Context, req) -> dict:
+async def create_volume(ctx: Context, req) -> Volume:
     source = None
     if req.source:
         if req.source.type == "snapshot":
@@ -270,10 +289,16 @@ async def create_volume(ctx: Context, req) -> dict:
         else:
             source = await ctx.glance.image(req.source.id)
     body = ctx.volume_rules.create_body(req, source)
-    return volume_summary(await ctx.cinder.create_volume(body))
+    return Volume.model_validate(
+        volume_summary(await ctx.cinder.create_volume(body))
+    )
 
 
-async def update_volume(ctx: Context, volume_id: str, req) -> dict:
+async def delete_volume(ctx: Context, volume_id: str) -> None:
+    await ctx.cinder.delete_volume(volume_id)
+
+
+async def update_volume(ctx: Context, volume_id: str, req) -> Volume:
     fields = {
         key: value
         for key, value in (
@@ -282,8 +307,6 @@ async def update_volume(ctx: Context, volume_id: str, req) -> dict:
         )
         if value is not None
     }
-    if not fields and req.bootable is None:
-        raise BadRequest("nothing to update")
     if fields:
         await ctx.cinder.update_volume(volume_id, fields)
     if req.bootable is not None:
@@ -293,7 +316,78 @@ async def update_volume(ctx: Context, volume_id: str, req) -> dict:
     return await get_volume(ctx, volume_id)
 
 
-async def extend_volume(ctx: Context, volume_id: str, new_size: int) -> dict:
+async def set_volume_metadata(
+    ctx: Context, volume_id: str, req: MetadataUpdate
+) -> VolumeMetadataSaved:
+    """Horizon's metadata modal sets the changed keys and deletes the
+    removed ones (``api/rest/cinder.py`` VolumeMetadata.patch); Cinder's
+    replace call does both in one request."""
+    saved = await ctx.cinder.set_volume_metadata(volume_id, req.metadata)
+    return VolumeMetadataSaved(metadata=saved or {})
+
+
+async def retype_volume(
+    ctx: Context, volume_id: str, req: RetypeRequest
+) -> Accepted:
+    """Horizon's RetypeForm (``volumes/forms.py``), with the Nectar rules
+    in ``VolumeRules.retype_body``."""
+    volume, types = await asyncio.gather(
+        ctx.cinder.volume(volume_id),
+        ctx.cached(policy.VOLUME_TYPES, ctx.cinder.volume_types),
+    )
+    body = ctx.volume_rules.retype_body(volume, types.value, req)
+    await ctx.cinder.volume_action(volume_id, body)
+    return Accepted(status="accepted")
+
+
+async def create_transfer(
+    ctx: Context, volume_id: str, req: TransferCreate
+) -> VolumeTransferCreated:
+    """Horizon's CreateTransferForm (``volumes/forms.py``); the reply
+    carries the authorisation key, which Cinder never shows again."""
+    transfer = await ctx.cinder.create_transfer(
+        {"volume_id": volume_id, "name": req.name}
+    )
+    return VolumeTransferCreated.model_validate(
+        {
+            "id": transfer.get("id"),
+            "name": transfer.get("name"),
+            "volume_id": transfer.get("volume_id") or volume_id,
+            "auth_key": transfer.get("auth_key"),
+            "created_at": to_utc_iso(transfer.get("created_at")),
+        }
+    )
+
+
+async def cancel_transfer(ctx: Context, volume_id: str) -> None:
+    """Horizon's DeleteTransfer (``volumes/tables.py``), found by volume
+    as Horizon's ``api/cinder.py`` volume_get does."""
+    transfers = await ctx.cinder.transfers()
+    transfer = next(
+        (t for t in transfers if t.get("volume_id") == volume_id), None
+    )
+    if transfer is None:
+        raise NotFound("No transfer is waiting for this volume")
+    await ctx.cinder.delete_transfer(transfer["id"])
+
+
+async def accept_transfer(
+    ctx: Context, req: TransferAccept
+) -> VolumeTransferAccepted:
+    """Horizon's AcceptTransferForm (``volumes/forms.py``)."""
+    transfer = await ctx.cinder.accept_transfer(req.transfer_id, req.auth_key)
+    return VolumeTransferAccepted.model_validate(
+        {
+            "id": transfer.get("id") or req.transfer_id,
+            "name": transfer.get("name"),
+            "volume_id": transfer.get("volume_id"),
+        }
+    )
+
+
+async def extend_volume(
+    ctx: Context, volume_id: str, new_size: int
+) -> VolumeExtended:
     volume = await ctx.cinder.volume(volume_id)
     current = int(volume.get("size") or 0)
     if new_size <= current:
@@ -303,27 +397,35 @@ async def extend_volume(ctx: Context, volume_id: str, new_size: int) -> dict:
     await ctx.cinder.volume_action(
         volume_id, {"os-extend": {"new_size": new_size}}
     )
-    return {"status": "accepted", "size_gb": new_size}
+    return VolumeExtended.model_validate(
+        {"status": "accepted", "size_gb": new_size}
+    )
 
 
 async def attach_volume(
     ctx: Context, volume_id: str, instance_id: str, device: str | None
-) -> dict:
+) -> VolumeAttached:
     attachment = await ctx.nova.attach_volume(instance_id, volume_id, device)
-    return {
-        "status": "accepted",
-        "device": attachment.get("device"),
-        "server_id": attachment.get("serverId") or instance_id,
-    }
+    return VolumeAttached.model_validate(
+        {
+            "status": "accepted",
+            "device": attachment.get("device"),
+            "server_id": attachment.get("serverId") or instance_id,
+        }
+    )
 
 
-async def detach_volume(ctx: Context, volume_id: str, instance_id: str):
+async def detach_volume(
+    ctx: Context, volume_id: str, instance_id: str
+) -> Accepted:
     await ctx.nova.detach_volume(instance_id, volume_id)
-    return {"status": "accepted"}
+    return Accepted(status="accepted")
 
 
-async def upload_to_image(ctx: Context, volume_id: str, req) -> dict:
-    resp = await ctx.cinder.volume_action(
+async def upload_to_image(
+    ctx: Context, volume_id: str, req
+) -> VolumeUploadedToImage:
+    reply = await ctx.cinder.volume_action(
         volume_id,
         {
             "os-volume_upload_image": {
@@ -334,28 +436,30 @@ async def upload_to_image(ctx: Context, volume_id: str, req) -> dict:
             }
         },
     )
-    data = (resp.json() or {}).get("os-volume_upload_image", {})
+    data = reply.get("os-volume_upload_image") or {}
     await compute.invalidate_project_images(ctx)
-    return {
-        "status": "accepted",
-        "image_id": data.get("image_id"),
-        "image_name": data.get("image_name"),
-    }
+    return VolumeUploadedToImage.model_validate(
+        {
+            "status": "accepted",
+            "image_id": data.get("image_id"),
+            "image_name": data.get("image_name"),
+        }
+    )
 
 
-# --- snapshots -----------------------------------------------------------------
-
-
-async def list_snapshots(ctx: Context) -> dict:
+async def list_snapshots(ctx: Context) -> list[VolumeSnapshot]:
     snapshots, volumes = await asyncio.gather(
-        ctx.cinder.snapshots(limit=LIST_LIMIT),
-        ctx.cinder.volumes(limit=LIST_LIMIT),
+        ctx.cinder.snapshots(),
+        ctx.cinder.volumes(),
     )
     names = names_by_id(volumes)
-    return {"items": [snapshot_summary(s, names) for s in snapshots]}
+    return [
+        VolumeSnapshot.model_validate(snapshot_summary(s, names))
+        for s in snapshots
+    ]
 
 
-async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
+async def get_snapshot(ctx: Context, snapshot_id: str) -> VolumeSnapshot:
     snapshot = await ctx.cinder.snapshot(snapshot_id)
     names: dict[str, str] = {}
     if snapshot.get("volume_id"):
@@ -364,10 +468,10 @@ async def get_snapshot(ctx: Context, snapshot_id: str) -> dict:
             names = names_by_id([volume])
         except HiveError:
             names = {}
-    return snapshot_summary(snapshot, names)
+    return VolumeSnapshot.model_validate(snapshot_summary(snapshot, names))
 
 
-async def create_snapshot(ctx: Context, req) -> dict:
+async def create_snapshot(ctx: Context, req) -> VolumeSnapshot:
     volume = await ctx.cinder.volume(req.volume_id)
     # Horizon's CreateSnapshotForm forces the snapshot of an attached volume.
     snapshot = await ctx.cinder.create_snapshot(
@@ -378,36 +482,48 @@ async def create_snapshot(ctx: Context, req) -> dict:
             "force": volume.get("status") == "in-use",
         }
     )
-    return snapshot_summary(snapshot, names_by_id([volume]))
+    return VolumeSnapshot.model_validate(
+        snapshot_summary(snapshot, names_by_id([volume]))
+    )
 
 
-async def update_snapshot(ctx: Context, snapshot_id: str, req) -> dict:
-    fields = req.model_dump(exclude_none=True)
-    if not fields:
-        raise BadRequest("nothing to update")
-    await ctx.cinder.update_snapshot(snapshot_id, fields)
+async def delete_snapshot(ctx: Context, snapshot_id: str) -> None:
+    await ctx.cinder.delete_snapshot(snapshot_id)
+
+
+async def update_snapshot(
+    ctx: Context, snapshot_id: str, req
+) -> VolumeSnapshot:
+    await ctx.cinder.update_snapshot(snapshot_id, req.changes())
     return await get_snapshot(ctx, snapshot_id)
 
 
-# --- backups -------------------------------------------------------------------
+async def set_snapshot_metadata(
+    ctx: Context, snapshot_id: str, req: MetadataUpdate
+) -> VolumeMetadataSaved:
+    """As ``set_volume_metadata``, for a snapshot (Horizon
+    ``api/rest/cinder.py`` VolumeSnapshotMetadata.patch)."""
+    saved = await ctx.cinder.set_snapshot_metadata(snapshot_id, req.metadata)
+    return VolumeMetadataSaved(metadata=saved or {})
 
 
-async def list_backups(ctx: Context) -> dict:
+async def list_backups(ctx: Context) -> list[VolumeBackup]:
     backups, volumes, snapshots = await asyncio.gather(
-        ctx.cinder.backups(limit=LIST_LIMIT),
-        ctx.cinder.volumes(limit=LIST_LIMIT),
-        ctx.cinder.snapshots(limit=LIST_LIMIT),
+        ctx.cinder.backups(),
+        ctx.cinder.volumes(),
+        ctx.cinder.snapshots(),
     )
     volume_names = names_by_id(volumes)
     snapshot_names = names_by_id(snapshots)
-    return {
-        "items": [
-            backup_summary(b, volume_names, snapshot_names) for b in backups
-        ]
-    }
+    return [
+        VolumeBackup.model_validate(
+            backup_summary(b, volume_names, snapshot_names)
+        )
+        for b in backups
+    ]
 
 
-async def get_backup(ctx: Context, backup_id: str) -> dict:
+async def get_backup(ctx: Context, backup_id: str) -> VolumeBackup:
     backup = await ctx.cinder.backup(backup_id)
     volume_names: dict[str, str] = {}
     snapshot_names: dict[str, str] = {}
@@ -425,10 +541,12 @@ async def get_backup(ctx: Context, backup_id: str) -> dict:
             )
         except HiveError:
             snapshot_names = {}
-    return backup_summary(backup, volume_names, snapshot_names)
+    return VolumeBackup.model_validate(
+        backup_summary(backup, volume_names, snapshot_names)
+    )
 
 
-async def create_backup(ctx: Context, req) -> dict:
+async def create_backup(ctx: Context, req) -> VolumeBackup:
     volume = await ctx.cinder.volume(req.volume_id)
     # Horizon's CreateBackupForm forces the backup of an attached volume.
     backup = await ctx.cinder.create_backup(
@@ -442,27 +560,41 @@ async def create_backup(ctx: Context, req) -> dict:
             "snapshot_id": req.snapshot_id or None,
         }
     )
-    return backup_summary(backup, names_by_id([volume]))
+    return VolumeBackup.model_validate(
+        backup_summary(backup, names_by_id([volume]))
+    )
 
 
-async def restore_backup(ctx: Context, backup_id: str, req) -> dict:
+async def restore_backup(
+    ctx: Context, backup_id: str, req
+) -> RestoreResult | RestoreResultNewVolume:
     if req.volume_id:
         restore = await ctx.cinder.restore_backup(
             backup_id, {"volume_id": req.volume_id}
         )
-        return {
-            "status": "accepted",
-            "backup_id": backup_id,
-            "volume_id": restore.get("volume_id") or req.volume_id,
-            "new_volume": False,
-        }
+        return RestoreResult.model_validate(
+            {
+                "status": "accepted",
+                "backup_id": backup_id,
+                "volume_id": restore.get("volume_id") or req.volume_id,
+                "new_volume": False,
+            }
+        )
     backup = await ctx.cinder.backup(backup_id)
     body = ctx.volume_rules.restore_body(backup, req)
     volume = await ctx.cinder.create_volume(body)
-    return {
-        "status": "accepted",
-        "backup_id": backup_id,
-        "volume_id": volume.get("id"),
-        "new_volume": True,
-        "volume": volume_summary(volume),
-    }
+    return RestoreResultNewVolume.model_validate(
+        {
+            "status": "accepted",
+            "backup_id": backup_id,
+            "volume_id": volume.get("id"),
+            "new_volume": True,
+            "volume": volume_summary(volume),
+        }
+    )
+
+
+async def delete_backup(ctx: Context, backup_id: str, force: bool) -> None:
+    """``force`` is Cinder's force-delete action, for a backup stuck in a
+    transitional state."""
+    await ctx.cinder.delete_backup(backup_id, force=force)

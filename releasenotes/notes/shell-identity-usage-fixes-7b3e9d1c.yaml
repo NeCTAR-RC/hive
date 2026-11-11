@@ -1,0 +1,43 @@
+---
+features:
+  - |
+    The Usage trend page downloads its per-instance table for the chosen
+    range as CSV ("Download CSV").
+  - |
+    An application credential's page has an Actions menu with Delete.
+  - |
+    Old Horizon addresses of Angular detail pages (``/ngdetails/...``)
+    open the matching Hive page, and ``/allocation/...`` addresses go to
+    the allocation pages on Horizon. The "Page not found" page keeps the
+    sidebar for a signed-in user.
+  - |
+    When the session ends while a dialog is saving, the dialog opens
+    again after the login with what was typed (passwords and secrets
+    excepted).
+upgrade:
+  - |
+    The Credentials page lists the EC2 keys of the user's other projects
+    by access key. The generic credential creator (TOTP, EC2 and
+    certificate types with free-form data) is removed, together with
+    ``POST /api/identity/credentials``: users sign in through AAF and
+    EC2 keys are made per project.
+fixes:
+  - |
+    The allocation burn-down chart uses a time axis with one label per
+    month; months no longer repeat and the guide's end is spaced by
+    date.
+  - |
+    Reservations show the UTC days reserved ("16 to 20 Oct 2026 (UTC
+    days)") with local times second.
+  - |
+    Adding a user who already holds the chosen role is caught in the
+    dialog. A user without the user lookup role who opens its address is
+    told they have no access.
+  - |
+    Security risks name the instance ("Instance db-1") and link a port
+    exposed to the Internet to the instance's security groups.
+  - |
+    Breadcrumbs that lead nowhere are no longer tab stops; switching
+    project confirms the switch and leaves a record page for its list; a
+    record page's tab title names the record and its kind ("web", "Load
+    balancer").

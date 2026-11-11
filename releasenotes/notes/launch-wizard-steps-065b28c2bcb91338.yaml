@@ -1,0 +1,6 @@
+---
+fixes:
+  - |
+    A reservation flavour cannot boot from a new volume, because the
+    reservation sets the zone and a new volume needs one. The launch
+    wizard now says so instead of turning the new volume off.

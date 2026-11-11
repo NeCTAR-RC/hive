@@ -1,0 +1,28 @@
+@use "mixins" as *;
+
+/// Repeated sub-records 12px apart, the gap the content blocks keep between
+/// cards in a column (library `content-block-card-column`).
+.rows {
+  @include content-block-card-column;
+}
+
+/// Key, value and "Remove" on one row, 12px apart (DERIVED-SPACING: two
+/// fields side by side on a row), the button level with the fields' inputs.
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--hive-space-3);
+}
+
+/// Centres the extra small link button (24px) on the 40px text input
+/// beside it: 8px under it.
+.remove {
+  margin-bottom: var(--hive-space-2);
+}
+
+/// The add button keeps its own width under the rows.
+.add {
+  display: flex;
+  align-items: flex-start;
+}

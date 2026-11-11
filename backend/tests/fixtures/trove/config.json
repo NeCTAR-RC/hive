@@ -1,0 +1,10 @@
+{
+  "id": "cfg-1",
+  "name": "tuned",
+  "datastore_name": "mysql",
+  "datastore_version_name": "8.0",
+  "datastore_version_id": "v-80",
+  "values": {
+    "max_connections": 200
+  }
+}

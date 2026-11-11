@@ -5,6 +5,7 @@
   "venvPath": ".tox",
   "venv": "py314",
   "pythonVersion": "3.14",
+  "typeCheckingMode": "basic",
   "reportMissingImports": "warning",
   "reportMissingModuleSource": "none"
 }

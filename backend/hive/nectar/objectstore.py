@@ -33,7 +33,9 @@ Swift mechanics Hive uses for direct browser uploads.
   middleware (``swift/common/middleware/tempurl.py``) rebuilds
   ``/v1/<account>/<container>/<object>`` from the unquoted ``PATH_INFO``
   before computing the HMAC, as swiftclient's ``generate_temp_url`` does.
-  Only the URL the browser follows is percent-encoded.
+  Only the URL the browser follows is percent-encoded. Swift accepts a
+  signature made with either account key (``Temp-URL-Key`` or
+  ``Temp-URL-Key-2``).
 - Uploads record the browser's file name in ``X-Object-Meta-Orig-Filename``
   (``openstack_dashboard/api/swift.py`` ``swift_upload_object``) and a
   download whose object name has no extension takes the original one back
@@ -48,9 +50,11 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import posixpath
-import re
 import time
 from urllib.parse import quote, unquote, urlsplit
+
+from hive.nectar.violation import RuleViolation
+from hive.times import to_utc_iso
 
 PUBLIC_ACL = ".r:*,.rlistings"
 FOLDER_CONTENT_TYPE = "application/directory"
@@ -61,9 +65,6 @@ MAX_OBJECT_NAME = 1024
 TEMP_URL_KEY_HEADER = "x-account-meta-temp-url-key"
 TEMP_URL_KEY_2_HEADER = "x-account-meta-temp-url-key-2"
 ORIG_FILENAME_HEADER = "X-Object-Meta-Orig-Filename"
-# Characters dropped from the plain ``filename=`` fallback of a
-# Content-Disposition header (quoting, parameter separators, line breaks).
-UNSAFE_FILENAME = re.compile(r'["\\;,\r\n]|[^\x20-\x7e]')
 DIGESTS = {
     "sha1": hashlib.sha1,
     "sha256": hashlib.sha256,
@@ -71,43 +72,33 @@ DIGESTS = {
 }
 
 
-def validate_container_name(name: str) -> str | None:
+def is_slo_entry(entry: dict) -> bool:
+    """Whether a container listing entry is a static large object
+    manifest: Swift adds ``slo_etag`` to exactly those entries (checked
+    against Swift 2.37, which Nectar runs in Melbourne)."""
+    return "slo_etag" in entry
+
+
+def validate_container_name(name: str) -> None:
+    """No slash, at most 256 bytes (Swift ``/info``)."""
     if not name:
-        return "Enter a container name."
+        raise RuleViolation("Enter a container name.")
     if "/" in name:
-        return "Container names cannot contain a slash."
+        raise RuleViolation("Container names cannot contain a slash.")
     if len(name.encode()) > MAX_CONTAINER_NAME:
-        return "Container names are at most 256 characters."
-    return None
+        raise RuleViolation("Container names are at most 256 characters.")
 
 
-def _dot_segment(name: str) -> bool:
-    """``.`` or ``..`` as a path segment: httpx (like any URL client)
-    collapses them, so ``../other/x`` would address another container."""
-    return any(part in (".", "..") for part in name.split("/"))
-
-
-def validate_object_name(name: str) -> str | None:
+def validate_object_name(name: str) -> None:
+    """At most 1024 bytes, no empty folder (Swift)."""
     if not name or name == "/":
-        return "Enter a name."
+        raise RuleViolation("Enter a name.")
     if name.startswith("/"):
-        return "Names cannot start with a slash."
+        raise RuleViolation("Names cannot start with a slash.")
     if "//" in name:
-        return "Names cannot contain an empty folder."
-    if _dot_segment(name):
-        return 'Names cannot contain "." or ".." folders.'
+        raise RuleViolation("Names cannot contain an empty folder.")
     if len(name.encode()) > MAX_OBJECT_NAME:
-        return "Names are at most 1024 characters."
-    return None
-
-
-def validate_prefix(path: str | None) -> str | None:
-    """A folder path used as a listing prefix; empty is the container
-    root."""
-    clean = (path or "").strip("/")
-    if not clean:
-        return None
-    return validate_object_name(clean)
+        raise RuleViolation("Names are at most 1024 characters.")
 
 
 def folder_name(prefix: str, name: str) -> str:
@@ -126,10 +117,12 @@ def is_folder(entry: dict) -> bool:
 
 
 def is_public(read_acl: str | None) -> bool:
+    """The ``.r:*`` read ACL (``api/swift.py``)."""
     return bool(read_acl) and ".r:*" in read_acl
 
 
 def container_summary(container: dict, account_url: str) -> dict:
+    """A container row (``project/containers``)."""
     name = container.get("name") or ""
     return {
         "name": name,
@@ -160,6 +153,7 @@ def container_metadata(headers: dict[str, str]) -> dict:
 
 
 def object_summary(entry: dict, prefix: str) -> dict:
+    """An object or folder row (``swift_get_objects``)."""
     if "subdir" in entry:
         name = entry["subdir"]
         return {
@@ -182,11 +176,12 @@ def object_summary(entry: dict, prefix: str) -> dict:
         "bytes": entry.get("bytes") or 0,
         "content_type": entry.get("content_type"),
         "hash": entry.get("hash"),
-        "last_modified": entry.get("last_modified"),
+        "last_modified": to_utc_iso(entry.get("last_modified")),
     }
 
 
 def object_metadata(headers: dict[str, str]) -> dict:
+    """An object's details from its headers (``api/swift.py``)."""
     meta = {
         k[len("x-object-meta-") :]: v
         for k, v in headers.items()
@@ -196,15 +191,12 @@ def object_metadata(headers: dict[str, str]) -> dict:
         "bytes": int(headers.get("content-length") or 0),
         "content_type": headers.get("content-type"),
         "hash": headers.get("etag"),
-        "last_modified": headers.get("last-modified"),
+        "last_modified": to_utc_iso(headers.get("last-modified")),
         "timestamp": headers.get("x-timestamp"),
         "is_slo": headers.get("x-static-large-object", "").lower() == "true",
         "manifest": headers.get("x-object-manifest"),
         "metadata": meta,
     }
-
-
-# --- TempURL --------------------------------------------------------------
 
 
 def temp_url_signature(
@@ -254,14 +246,11 @@ def temp_url(
 
 
 def temp_url_key(account: dict[str, str]) -> str | None:
-    """The account's TempURL key: ``Temp-URL-Key``, else ``Temp-URL-Key-2``
-    (Swift accepts a signature made with either)."""
+    """The account's TempURL key from its HEAD: ``Temp-URL-Key``, else
+    ``Temp-URL-Key-2``."""
     return account.get(TEMP_URL_KEY_HEADER) or account.get(
         TEMP_URL_KEY_2_HEADER
     )
-
-
-# --- file names --------------------------------------------------------------
 
 
 def encode_orig_filename(filename: str) -> str:
@@ -271,10 +260,14 @@ def encode_orig_filename(filename: str) -> str:
 
 
 def decode_orig_filename(value: str | None) -> str | None:
+    """The original file name from its header (see the module
+    docstring)."""
     return unquote(value) if value else None
 
 
 def has_extension(filename: str) -> bool:
+    """Whether ``filename`` ends in an extension, as ``os.path.splitext``
+    reads it in ``Object.get``."""
     return bool(posixpath.splitext(filename)[1])
 
 
@@ -286,16 +279,6 @@ def download_filename(name: str, orig_filename: str | None) -> str:
     if orig_filename and not has_extension(filename):
         filename += posixpath.splitext(orig_filename)[1]
     return filename
-
-
-def content_disposition(filename: str) -> str:
-    """``attachment`` with an ASCII ``filename=`` fallback and the exact
-    name as RFC 6266 ``filename*=UTF-8''...``."""
-    fallback = UNSAFE_FILENAME.sub("_", filename).strip() or "download"
-    return (
-        f'attachment; filename="{fallback}";'
-        f" filename*=UTF-8''{quote(filename, safe='')}"
-    )
 
 
 @dataclass
@@ -326,12 +309,14 @@ def segment_plan(
 
 
 def segment_names(name: str, stamp: str, count: int) -> list[str]:
+    """SLO segment names under ``<container>_segments`` (Hive uploads)."""
     return [f"{name}/{stamp}/{index:08d}" for index in range(count)]
 
 
 def manifest_entries(
     segment_container: str, names: list[str], lengths: list[int]
 ) -> list[dict]:
+    """The SLO manifest for ``multipart-manifest=put`` (Hive uploads)."""
     return [
         {"path": f"/{segment_container}/{seg}", "size_bytes": length}
         for seg, length in zip(names, lengths, strict=True)

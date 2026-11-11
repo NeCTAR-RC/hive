@@ -1,14 +1,6 @@
-import { useState, type ReactNode } from "react";
-import {
-  Button,
-  Dialog,
-  FieldError,
-  Label,
-  Modal,
-  TextField,
-} from "@ardc-ui/react";
-import { ErrorState } from "../ErrorState/ErrorState";
-import { loadingProps } from "../buttonState";
+import type { ReactNode } from "react";
+import { DialogActions } from "../Dialog/DialogActions";
+import { DialogFrame } from "../Dialog/DialogFrame";
 import styles from "./ConfirmDialog.module.scss";
 
 export interface ConfirmDialogProps {
@@ -20,17 +12,23 @@ export interface ConfirmDialogProps {
   tone?: "danger" | "primary";
   onConfirm: () => void;
   isPending?: boolean;
-  error?: unknown;
-  /** Destructive actions can require the user to type this text first. */
-  confirmText?: string;
 }
 
 /**
- * A yes-or-no question above the page. Destructive actions use the danger
- * tone and, for the irreversible ones, a typed confirmation.
+ * A yes-or-no question above the page; destructive actions use the danger
+ * tone. The question names what the action touches, as Horizon's does, and
+ * never asks the user to type a name. A confirmed request reports its
+ * outcome in a toast (see `useBulkAction`), so the dialog shows no error.
+ *
+ * Like every dialog, its content exists only while it is open, so it starts
+ * fresh on every open.
  */
-export function ConfirmDialog({
-  isOpen,
+export function ConfirmDialog({ isOpen, ...props }: ConfirmDialogProps) {
+  return isOpen ? <OpenConfirmDialog {...props} /> : null;
+}
+
+/** The open dialog; mounted on every open, so its state starts fresh. */
+function OpenConfirmDialog({
   onOpenChange,
   title,
   children,
@@ -38,68 +36,23 @@ export function ConfirmDialog({
   tone = "danger",
   onConfirm,
   isPending = false,
-  error,
-  confirmText,
-}: ConfirmDialogProps) {
-  const [typed, setTyped] = useState("");
-  // Clear the typed text whenever the dialog closes, including when the
-  // parent closes it after a successful confirm (derived state, set during
-  // render), so the next dialog never opens pre-filled.
-  const [wasOpen, setWasOpen] = useState(isOpen);
-  if (isOpen !== wasOpen) {
-    setWasOpen(isOpen);
-    if (!isOpen) setTyped("");
-  }
-  const typedOk = !confirmText || typed.trim() === confirmText;
-  const close = (open: boolean) => {
-    if (isPending) return;
-    onOpenChange(open);
-  };
+}: Omit<ConfirmDialogProps, "isOpen">) {
   return (
-    <Modal isOpen={isOpen} onOpenChange={close} size="md" isDismissable>
-      <Dialog
-        title={title}
-        closeLabel="Close"
-        actions={
-          <>
-            <Button variant="secondary" slot="close" isDisabled={isPending}>
-              Cancel
-            </Button>
-            {/* One element throughout, so focus stays on it while pending. */}
-            <Button
-              {...(tone === "danger" ? { tone: "danger" as const } : {})}
-              {...loadingProps(isPending, "Working...")}
-              isPending={isPending}
-              isDisabled={!isPending && !typedOk}
-              onPress={onConfirm}
-            >
-              {confirmLabel}
-            </Button>
-          </>
-        }
-      >
-        <div className={styles.body}>
-          {error ? (
-            <ErrorState error={error} title="That did not work" />
-          ) : null}
-          {children}
-          {confirmText && (
-            <TextField
-              value={typed}
-              onChange={setTyped}
-              isRequired
-              validationBehavior="aria"
-              autoComplete="off"
-              isInvalid={typed.length > 0 && !typedOk}
-            >
-              <Label>
-                Type <strong>{confirmText}</strong> to confirm
-              </Label>
-              <FieldError>The text does not match</FieldError>
-            </TextField>
-          )}
-        </div>
-      </Dialog>
-    </Modal>
+    <DialogFrame
+      onClose={() => onOpenChange(false)}
+      isPending={isPending}
+      title={title}
+      actions={
+        <DialogActions
+          label={confirmLabel}
+          pendingLabel="Working..."
+          tone={tone === "danger" ? "danger" : undefined}
+          isPending={isPending}
+          onPress={onConfirm}
+        />
+      }
+    >
+      <div className={styles.body}>{children}</div>
+    </DialogFrame>
   );
 }

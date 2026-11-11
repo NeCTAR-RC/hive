@@ -1,18 +1,20 @@
 // The day grid behind the availability chart on the create page: the same
 // three-month window, bars and hover selection as warre-dashboard's
 // easy-gantt adaptation (nectar_reservations.js:142-220, 350-441 and
-// easy-gantt.js:8-62). Every date is a UTC calendar day as "YYYY-MM-DD".
+// easy-gantt.js:8-62), and the grid placements and labels the chart draws
+// from it. Every date is a UTC calendar day as "YYYY-MM-DD".
 import type {
   FreeSlot,
   MaintenanceWindow,
   ReservationFlavor,
-} from "../../lib/api/types";
+} from "../../lib/api/types/reservations";
 import { slotLastDay } from "./status";
+import { formatCalendarDate, LOCALE } from "../../lib/format";
 
 const DAY_MS = 86_400_000;
 const MONTHS_AHEAD = 3;
 
-const monthLabel = new Intl.DateTimeFormat("en-AU", {
+const monthLabel = new Intl.DateTimeFormat(LOCALE, {
   month: "long",
   year: "numeric",
   timeZone: "UTC",
@@ -47,6 +49,20 @@ export interface GanttRange {
   days: string[];
   today: string;
   todayIndex: number;
+}
+
+/**
+ * The last day the slot search covered and whether it stopped short of the
+ * chart's last day. `end` is the slots response's end, a date or a time;
+ * the backend clamps the search to its horizon, so the chart can reach
+ * further than the search did.
+ */
+export function searchCoverage(
+  range: Pick<GanttRange, "last">,
+  end: string,
+): { searchedTo: string; clamped: boolean } {
+  const searchedTo = end.slice(0, 10);
+  return { searchedTo, clamped: searchedTo < range.last };
 }
 
 /** Horizon draws from the 1st of the current month to the end of the month
@@ -217,24 +233,43 @@ export function selectionFor(
   return { start, end: addDays(start, days - 1), days };
 }
 
-/** Gap between the pointer and the hover tip, in pixels. */
-const TIP_GAP = 16;
+/** A free slot the user pressed, with the dates it proposes. */
+export interface PickedSlot {
+  flavor: ReservationFlavor;
+  bar: GanttBar;
+  selection: Selection;
+}
 
-/** Where a tip of `size` goes for a pointer at `pointer`: below and right
- * of it, flipped above or left where it would leave the viewport, and
- * never past the top or left edge. */
-export function tipPosition(
-  pointer: { x: number; y: number },
-  size: { width: number; height: number },
-  viewport: { width: number; height: number },
-): { left: number; top: number } {
-  let left = pointer.x + TIP_GAP;
-  if (left + size.width > viewport.width) {
-    left = pointer.x - TIP_GAP - size.width;
-  }
-  let top = pointer.y + TIP_GAP;
-  if (top + size.height > viewport.height) {
-    top = pointer.y - TIP_GAP - size.height;
-  }
-  return { left: Math.max(left, 0), top: Math.max(top, 0) };
+/** A day header's label: the day of the month, "01" to "31". */
+export function dayLabel(iso: string): string {
+  return iso.slice(8, 10);
+}
+
+/** "1 day" or "3 days": the count with the noun that agrees with it. */
+export function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** "12 Oct 2026 to 31 Oct 2026", or just the day for a one-day span. */
+export function dateSpan(first: string, last: string): string {
+  return first === last
+    ? formatCalendarDate(first)
+    : `${formatCalendarDate(first)} to ${formatCalendarDate(last)}`;
+}
+
+/** Month header cells with their first grid column (the label column is 1). */
+export function monthColumns(
+  days: string[],
+): (MonthSpan & { column: number })[] {
+  let start = 2;
+  return monthSpans(days).map((month) => {
+    const column = start;
+    start += month.count;
+    return { ...month, column };
+  });
+}
+
+/** A grid column for a bar: its first day (the track has no label column). */
+export function barColumn(bar: GanttBar): string {
+  return `${bar.from + 1} / span ${bar.to - bar.from + 1}`;
 }

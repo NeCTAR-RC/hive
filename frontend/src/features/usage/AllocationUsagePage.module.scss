@@ -1,19 +1,25 @@
 @use "mixins" as *;
 
+/// The page's sections 32px apart (library `content-block-stack`).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
+
+  // One track that may narrow below its widest child (a table, a code
+  // block), which would otherwise widen the page on a phone.
+  grid-template-columns: minmax(0, 1fr);
 }
 
+/// The budget line: Body/16 Grey-700 (typography spec, body text).
 .lead {
-  margin: 0;
-  font-size: var(--hive-font-size-lg);
+  font: var(--hive-text-body-16);
+  color: var(--hive-color-gray-700);
 }
 
+/// The four figures on the grid, 24px apart (grids spec, 24px gap): two to
+/// a row on a phone, four (span 3 each at 1200px) from 768px.
 .tiles {
   display: grid;
-  gap: var(--hive-space-3);
+  gap: var(--hive-grid-gap);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 
   @include up($bp-md) {
@@ -21,22 +27,24 @@
   }
 }
 
+/// Inside a figure's card: its label 4px over the figure (sidebar-blocks
+/// spec, Info - Sidebar "Frame 246", line 141).
 .tile {
-  padding: var(--hive-space-3) var(--hive-space-4);
-  background: var(--hive-color-surface);
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
 }
 
-.tileValue {
-  margin: 0;
-  font-size: var(--hive-font-size-xl);
-  font-weight: var(--hive-font-weight-bold);
-  color: var(--hive-color-text-heading);
-}
-
+/// The figure's label: Body/16/Bold Grey-900 (Info - Sidebar "Title", line
+/// 154).
 .tileLabel {
-  margin: 0;
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-muted);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-900);
+}
+
+/// The figure in Heading/H3 Grey-900, as the home page's usage figure (gap
+/// "Stat figure").
+.tileValue {
+  font: var(--hive-text-h3);
+  color: var(--hive-color-gray-900);
 }

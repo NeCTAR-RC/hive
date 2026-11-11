@@ -5,23 +5,28 @@ Vault-rendered env file before exec, and ``make env`` writes a local ``.env``
 for development.
 """
 
+import ipaddress
 from pathlib import Path
-from typing import Annotated, Literal
-from urllib.parse import quote
+from typing import Annotated, Literal, Self
+from urllib.parse import quote, urlsplit
 
-from pydantic import field_validator, SecretStr
+from pydantic import (
+    BeforeValidator,
+    field_validator,
+    model_validator,
+    SecretStr,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_PREFIX = "HIVE_"
 
-# Comma-separated lists in the environment, e.g. HIVE_USER_LOOKUP_ROLES=a,b.
-CommaList = Annotated[list[str], NoDecode]
-
 # Reported, not enforced, until the third-party embeds are verified.
-# The ARDC footer web component (as langstroth embeds it) loads from
-# ardc.edu.au, fetches its manifest, injects <style> elements and loads its
-# Figtree fonts; its sign-up form embeds a Cloudflare
-# Turnstile challenge (script, iframe and verification requests).
+# The SPA loads every third-party script from code, never inline: Google
+# Analytics, the Freshworks widget, and the ARDC mega menu and footer web
+# components. Those load from ardc.edu.au, fetch its manifest, inject
+# <style> elements and load its Figtree fonts; the footer's sign-up form
+# embeds a Cloudflare Turnstile challenge (script, iframe and verification
+# requests).
 DEFAULT_CSP = (
     "default-src 'self'; "
     "script-src 'self' https://www.googletagmanager.com "
@@ -51,7 +56,14 @@ def _split_commas(value):
     return list(value)
 
 
+# Comma-separated lists in the environment, e.g. HIVE_USER_LOOKUP_ROLES=a,b.
+CommaList = Annotated[list[str], NoDecode, BeforeValidator(_split_commas)]
+
+
 class Settings(BaseSettings):
+    """Every ``HIVE_*`` setting. Defaults suit development against rctest;
+    ``env=prod`` turns on the checks in ``_production_ready``."""
+
     model_config = SettingsConfigDict(
         env_prefix=ENV_PREFIX,
         env_file=".env",
@@ -79,6 +91,8 @@ class Settings(BaseSettings):
 
     # manuka (accounts) and the token receiver
     login_url: str = "https://accounts.test.rc.nectar.org.au/login"
+    # Origins manuka posts the login form from. Empty rejects every login:
+    # the receiver is CSRF-exempt, so the Origin check is its only guard.
     websso_allowed_origins: CommaList = []
     receiver_path: str = "/auth/websso/"
 
@@ -154,13 +168,20 @@ class Settings(BaseSettings):
     ]
     image_default_visibility: str = "private"
     volume_type_az_extra_spec: str = "RESKEY:availability_zones"
-    # OPENSTACK_NEUTRON_NETWORK in the deployed Horizon: new subnets get
-    # these name servers unless the user changes them, IPv6, HA and DVR
-    # routers are not offered, and floating IP targets are checked for a
-    # route to the external network.
-    subnet_default_dns_nameservers: CommaList = ["1.1.1.1", "1.0.0.1"]
-    network_enable_ipv6: bool = False
+    # OPENSTACK_NEUTRON_NETWORK as the Nectar Horizon fork ships it
+    # (openstack_dashboard/defaults.py on nectar/2025.1; neither the fork
+    # nor nectar-dashboard overrides it): new subnets get no name servers
+    # unless the user adds some, so the cloud's resolvers apply; IPv6
+    # subnets are offered; floating IP targets are checked for a route to
+    # the external network.
+    subnet_default_dns_nameservers: CommaList = []
+    network_enable_ipv6: bool = True
     network_fip_topology_check: bool = True
+    # Whether the allocate form offers a chosen floating IP address.
+    # Neutron's default policy keeps create_floatingip:floating_ip_address
+    # for admins, so Horizon hides the field from ordinary users; set it
+    # where the cloud's policy lets members choose.
+    floating_ip_address_allowed: bool = False
     # Image files stream through the backend to glance; cap the size and
     # allow a slow link the time it needs.
     image_upload_max_bytes: int = 20 * 1024**3
@@ -184,28 +205,36 @@ class Settings(BaseSettings):
     cinder_microversion: str = "3.60"
     magnum_microversion: str = "1.14"
     manila_microversion: str = "2.65"
-    # Protocols offered on the share create form (OPENSTACK_MANILA_FEATURES
-    # enabled_share_protocols in the Horizon helm _local_settings.tpl:758-760).
-    manila_share_protocols: CommaList = ["NFS", "CIFS", "CephFS"]
+    # Protocols offered on the share create form. Nectar's Horizon lists
+    # NFS, CIFS and CephFS (OPENSTACK_MANILA_FEATURES enabled_share_protocols,
+    # helm _local_settings.tpl:758-760), but Nectar's Manila is believed to
+    # serve CephFS only (its share types are CephFS), so a share of another
+    # protocol could not be mounted; Hive offers what the cloud serves.
+    manila_share_protocols: CommaList = ["CephFS"]
+    # Whether project members may make a share visible to every project.
+    # Manila's default policy keeps create_public_share and
+    # set_public_share for admins (manila/policies/shares.py), so the
+    # switch would only lead to a refusal; turn on for a cloud that grants
+    # them.
+    manila_public_shares_allowed: bool = False
     upstream_connect_timeout: float = 3.0
     upstream_read_timeout: float = 15.0
+    # JSON request bodies above this are refused (Heat's max_json_body_size).
+    api_max_json_bytes: int = 1024 * 1024
+    # Parallel calls one request may make to one upstream (per-item lookups).
+    upstream_fan_out: int = 8
+    # Pages one list may follow before it stops with a warning (a page is
+    # up to 1000 items on most services).
+    upstream_max_pages: int = 50
 
     # Operations
     readyz_fail_on_keystone: bool = False
+    # Peers whose X-Forwarded-For/-Proto headers are trusted (the ingress).
+    forwarded_allow_ips: CommaList = ["127.0.0.1"]
+    # Networks that may read /metrics; everyone else gets a 404.
+    metrics_allowed_networks: CommaList = ["127.0.0.1/32", "::1/128"]
     sentry_dsn: SecretStr | None = None
     sentry_environment: str | None = None
-
-    @field_validator(
-        "websso_allowed_origins",
-        "user_lookup_roles",
-        "resize_hidden_flavor_prefixes",
-        "resize_hidden_flavor_classes",
-        "image_reserved_properties",
-        mode="before",
-    )
-    @classmethod
-    def _comma_lists(cls, value):
-        return _split_commas(value)
 
     @field_validator("secret_key")
     @classmethod
@@ -213,6 +242,35 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < 16:
             raise ValueError("HIVE_SECRET_KEY must be at least 16 characters")
         return value
+
+    @field_validator("metrics_allowed_networks")
+    @classmethod
+    def _networks_parse(cls, value: list[str]) -> list[str]:
+        for network in value:
+            ipaddress.ip_network(network, strict=False)
+        return value
+
+    @model_validator(mode="after")
+    def _production_ready(self) -> Self:
+        """Refuse to start in production with a development default that
+        weakens security; every problem is reported at once."""
+        if self.env != "prod":
+            return self
+        problems = []
+        if not self.websso_allowed_origins:
+            problems.append("HIVE_WEBSSO_ALLOWED_ORIGINS must list manuka")
+        if not self.cookie_secure:
+            problems.append("HIVE_COOKIE_SECURE must be true")
+        if urlsplit(self.public_url).scheme != "https":
+            problems.append("HIVE_PUBLIC_URL must be an https URL")
+        if self.docs_enabled:
+            problems.append("HIVE_DOCS_ENABLED must be false")
+        if "keystone_url" not in self.model_fields_set:
+            # The default points at rctest.
+            problems.append("HIVE_KEYSTONE_URL must be set explicitly")
+        if problems:
+            raise ValueError("production settings: " + "; ".join(problems))
+        return self
 
     @property
     def receiver_url(self) -> str:
@@ -235,4 +293,5 @@ class Settings(BaseSettings):
         if next_path:
             receiver += "?next=" + quote(next_path, safe="")
         separator = "&" if "?" in self.login_url else "?"
-        return f"{self.login_url}{separator}return-path={quote(receiver, safe='')}"
+        return_path = quote(receiver, safe="")
+        return f"{self.login_url}{separator}return-path={return_path}"

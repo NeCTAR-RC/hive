@@ -1,0 +1,37 @@
+---
+upgrade:
+  - |
+    The launch wizard's step list no longer jumps between steps in both
+    directions. It opens a step before the current one and never a later
+    one, so a step cannot be skipped, and it no longer marks a step
+    "incomplete" or "has errors".
+  - |
+    The Temporary Header, with its own "Explore ARDC" tab linking to
+    ardc.edu.au, is replaced by the service header under the ARDC mega
+    menu, and the "Explore ARDC" tab is the mega menu's. The login page
+    shows the mega menu only, with no header and no footer. The signed-out
+    and terms pages keep the header.
+  - |
+    The sidebar's collapsible icon rail and its toggle icons are gone.
+  - |
+    The launch wizard no longer greys out a flavour that does not fit the
+    project's remaining quota. It marks the flavour "Does not fit your
+    quota", and choosing it stops Next with the reason.
+  - |
+    Long share, snapshot and share group snapshot descriptions wrap in
+    full in their tables. They are no longer cut with an ellipsis and
+    shown in full in a tooltip.
+  - |
+    The share detail reply no longer carries ``newest_snapshot_id``, and
+    the share options no longer carry ``newest_snapshot_ids``. The Revert
+    dialog picks the share's newest snapshot by creation time itself.
+  - |
+    Hive no longer logs a warning at startup when it runs outside
+    development with no ``HIVE_WEBSSO_ALLOWED_ORIGINS``: an empty value
+    rejects every login in every environment, and ``HIVE_ENV=prod``
+    refuses to start without it.
+  - |
+    New subnets no longer get the default name servers 1.1.1.1 and
+    1.0.0.1: ``HIVE_SUBNET_DEFAULT_DNS_NAMESERVERS`` now defaults to no
+    servers. ``HIVE_NETWORK_ENABLE_IPV6`` now defaults to true, so Create
+    network offers IPv6 subnets.

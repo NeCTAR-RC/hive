@@ -1,8 +1,11 @@
 """Request bodies for the Load Balancers panel (Octavia)."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import Field, field_validator, model_validator
+
+from hive.nectar import loadbalancer as rules
+from hive.schemas import StrictModel
 
 ListenerProtocol = Literal[
     "HTTP", "TCP", "TERMINATED_HTTPS", "HTTPS", "UDP", "SCTP"
@@ -35,12 +38,12 @@ L7Compare = Literal[
 ]
 
 
-class SessionPersistence(BaseModel):
+class SessionPersistence(StrictModel):
     type: Persistence | None = None
     cookie_name: str | None = None
 
 
-class ListenerSpec(BaseModel):
+class ListenerSpec(StrictModel):
     name: str | None = None
     description: str | None = None
     protocol: ListenerProtocol
@@ -66,8 +69,14 @@ class ListenerSpec(BaseModel):
     default_pool_id: str | None = None
     admin_state_up: bool = True
 
+    @field_validator("allowed_cidrs")
+    @classmethod
+    def _allowed_cidrs(cls, value: list[str] | None) -> list[str] | None:
+        rules.valid_cidrs(value)
+        return value
 
-class ListenerUpdate(BaseModel):
+
+class ListenerUpdate(StrictModel):
     name: str | None = None
     description: str | None = None
     connection_limit: int | None = Field(default=None, ge=-1)
@@ -83,8 +92,14 @@ class ListenerUpdate(BaseModel):
     default_pool_id: str | None = None
     admin_state_up: bool | None = None
 
+    @field_validator("allowed_cidrs")
+    @classmethod
+    def _allowed_cidrs(cls, value: list[str] | None) -> list[str] | None:
+        rules.valid_cidrs(value)
+        return value
 
-class PoolSpec(BaseModel):
+
+class PoolSpec(StrictModel):
     name: str | None = None
     description: str | None = None
     protocol: PoolProtocol | None = None
@@ -95,7 +110,7 @@ class PoolSpec(BaseModel):
     admin_state_up: bool = True
 
 
-class PoolUpdate(BaseModel):
+class PoolUpdate(StrictModel):
     name: str | None = None
     description: str | None = None
     lb_algorithm: Algorithm | None = None
@@ -105,7 +120,7 @@ class PoolUpdate(BaseModel):
     admin_state_up: bool | None = None
 
 
-class MemberSpec(BaseModel):
+class MemberSpec(StrictModel):
     name: str | None = None
     address: str = Field(min_length=1)
     subnet_id: str | None = None
@@ -116,8 +131,22 @@ class MemberSpec(BaseModel):
     backup: bool = False
     admin_state_up: bool = True
 
+    @field_validator("address")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        if not rules.valid_ip(value):
+            raise ValueError("The IP address is not valid.")
+        return value
 
-class MemberUpdate(BaseModel):
+    @field_validator("monitor_address")
+    @classmethod
+    def _monitor_address(cls, value: str | None) -> str | None:
+        if value and not rules.valid_ip(value):
+            raise ValueError("The monitor address is not a valid IP address.")
+        return value
+
+
+class MemberUpdate(StrictModel):
     name: str | None = None
     weight: int | None = Field(default=None, ge=0, le=256)
     monitor_address: str | None = None
@@ -125,8 +154,15 @@ class MemberUpdate(BaseModel):
     backup: bool | None = None
     admin_state_up: bool | None = None
 
+    @field_validator("monitor_address")
+    @classmethod
+    def _monitor_address(cls, value: str | None) -> str | None:
+        if value and not rules.valid_ip(value):
+            raise ValueError("The monitor address is not a valid IP address.")
+        return value
 
-class MonitorSpec(BaseModel):
+
+class MonitorSpec(StrictModel):
     name: str | None = None
     type: MonitorType
     delay: int = Field(default=5, ge=0)
@@ -138,8 +174,13 @@ class MonitorSpec(BaseModel):
     expected_codes: str | None = None
     admin_state_up: bool = True
 
+    @model_validator(mode="after")
+    def _monitor(self) -> Self:
+        rules.validate_monitor(self.model_dump())
+        return self
 
-class MonitorUpdate(BaseModel):
+
+class MonitorUpdate(StrictModel):
     name: str | None = None
     delay: int | None = Field(default=None, ge=0)
     timeout: int | None = Field(default=None, ge=0)
@@ -151,7 +192,7 @@ class MonitorUpdate(BaseModel):
     admin_state_up: bool | None = None
 
 
-class LoadBalancerCreate(BaseModel):
+class LoadBalancerCreate(StrictModel):
     name: str | None = None
     description: str | None = None
     vip_subnet_id: str = Field(min_length=1)
@@ -164,8 +205,15 @@ class LoadBalancerCreate(BaseModel):
     members: list[MemberSpec] = Field(default_factory=list)
     monitor: MonitorSpec | None = None
 
+    @field_validator("vip_address")
+    @classmethod
+    def _vip_address(cls, value: str | None) -> str | None:
+        if value and not rules.valid_ip(value):
+            raise ValueError("The IP address is not valid.")
+        return value
 
-class LoadBalancerUpdate(BaseModel):
+
+class LoadBalancerUpdate(StrictModel):
     name: str | None = None
     description: str | None = None
     admin_state_up: bool | None = None
@@ -185,7 +233,7 @@ class PoolCreate(PoolSpec):
     monitor: MonitorSpec | None = None
 
 
-class MembersReplace(BaseModel):
+class MembersReplace(StrictModel):
     members: list[MemberSpec]
 
 
@@ -193,7 +241,7 @@ class MonitorCreate(MonitorSpec):
     pool_id: str = Field(min_length=1)
 
 
-class L7PolicySpec(BaseModel):
+class L7PolicySpec(StrictModel):
     name: str | None = None
     description: str | None = None
     action: L7Action
@@ -208,7 +256,7 @@ class L7PolicyCreate(L7PolicySpec):
     listener_id: str = Field(min_length=1)
 
 
-class L7PolicyUpdate(BaseModel):
+class L7PolicyUpdate(StrictModel):
     name: str | None = None
     description: str | None = None
     action: L7Action | None = None
@@ -219,7 +267,7 @@ class L7PolicyUpdate(BaseModel):
     admin_state_up: bool | None = None
 
 
-class L7RuleSpec(BaseModel):
+class L7RuleSpec(StrictModel):
     type: L7RuleType
     compare_type: L7Compare
     key: str | None = None
@@ -228,7 +276,7 @@ class L7RuleSpec(BaseModel):
     admin_state_up: bool = True
 
 
-class L7RuleUpdate(BaseModel):
+class L7RuleUpdate(StrictModel):
     type: L7RuleType | None = None
     compare_type: L7Compare | None = None
     key: str | None = None
@@ -237,7 +285,7 @@ class L7RuleUpdate(BaseModel):
     admin_state_up: bool | None = None
 
 
-class FloatingIpAssociate(BaseModel):
+class LoadBalancerFloatingIpAssociate(StrictModel):
     """An existing floating IP id, or a pool (network) id to allocate from."""
 
     floating_ip_id: str | None = None

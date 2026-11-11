@@ -1,34 +1,25 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Button, Label, Select, SelectItem } from "@ardc-ui/react";
 import type { Key } from "@ardc-ui/react";
-import {
-  DataTable,
-  type ColumnDef,
-} from "../../../components/DataTable/DataTable";
-import { filterRows } from "../../../components/DataTable/filter";
-import { StatusPill } from "../../../components/StatusPill/StatusPill";
-import type { Volume, VolumeSourceType } from "../../../lib/api/types";
-import { formatGb, formatRelative } from "../../../lib/format";
-import { useProjectId } from "../../../lib/useProject";
+import { DataTable } from "../../../components/DataTable/DataTable";
+import { useQueryTable } from "../../../components/DataTable/useQueryTable";
+import { allows, toRowActions } from "../../../lib/actions";
+import type { VolumeSourceType } from "../../../lib/api/types/volumes";
+import { useListSearch } from "../../../lib/hooks/useListSearch";
+import { useProjectId } from "../../../lib/hooks/useProjectId";
 import { PageHeader } from "../../../shell/PageHeader/PageHeader";
-import { volumesRoute } from "../../../app/router";
-import {
-  attachableInstancesQuery,
-  volumeLimitsQuery,
-  volumesQuery,
-} from "../api";
-import {
-  attachmentLabel,
-  availableVolumeActions,
-  statusLabel,
-  statusTone,
-} from "../status";
+import { volumeLimitsQuery, volumesQuery } from "../api";
+import { instancesQuery } from "../../compute/api";
+import { availableVolumeActions } from "../status";
+import { AcceptTransferDialog } from "./dialogs/AcceptTransferDialog";
+import { CreateVolumeDialog } from "./dialogs/CreateVolumeDialog";
+import { createQuotaReason } from "./rules";
 import { useVolumeActions } from "./VolumeActions";
-import { CreateVolumeDialog } from "./VolumeDialogs";
-import styles from "./VolumesPage.module.scss";
-import { RouteLink } from "../../../components/RouteLink/RouteLink";
+import { useVolumeColumns } from "./useVolumeColumns";
+
+const volumesRoute = getRouteApi("/app/storage/volumes");
 
 const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All statuses" },
@@ -36,52 +27,55 @@ const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "in-use", label: "In use" },
   { id: "error", label: "Error" },
   { id: "creating", label: "Creating" },
+  { id: "awaiting-transfer", label: "Awaiting transfer" },
 ];
 
 const CRUMBS = [{ label: "Project" }, { label: "Volumes" }];
 
+/**
+ * The project's volumes, filterable by status, with every volume action in
+ * the row menu and delete for a selection. The create dialog opens from the
+ * URL (`?create=true`, plus `image`, `snapshot` or `volume` with an id to
+ * start from that source), so a link from another page names its source.
+ * Accept transfer takes a volume another project offers; like Create
+ * volume, it needs room in the volume quota.
+ */
 export function VolumesPage() {
   const projectId = useProjectId();
-  const search = volumesRoute.useSearch();
-  const navigate = useNavigate({ from: volumesRoute.fullPath });
+  const search = useListSearch(volumesRoute);
+  const status = search.params.status ?? "";
   const volumes = useQuery(volumesQuery(projectId));
-  const instances = useQuery(attachableInstancesQuery(projectId));
+  const table = useQueryTable(volumes, {
+    noun: "volumes",
+    search,
+    placeholder: "Search by name, description or instance",
+    filter: status ? (row) => row.status === status : undefined,
+    resetKey: status,
+  });
+  const instances = useQuery(instancesQuery(projectId));
   const limits = useQuery(volumeLimitsQuery(projectId));
-  const { run, runDelete, dialogs } = useVolumeActions(projectId);
+  const { run, dialogs, tableProps } = useVolumeActions();
+  const [accepting, setAccepting] = useState(false);
 
-  const q = search.q ?? "";
-  const status = search.status ?? "";
-  const setSearch = (patch: { q?: string; status?: string }) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous, ...patch };
-        if (!next.q) delete next.q;
-        if (!next.status) delete next.status;
-        return next;
-      },
-      replace: true,
-    });
-  const setCreating = (open: boolean) =>
-    void navigate({
-      search: (previous) => {
-        const next = { ...previous };
-        delete next.create;
-        delete next.snapshot;
-        delete next.image;
-        delete next.volume;
-        return open ? { ...next, create: true } : next;
-      },
-      replace: true,
+  // The dialog opened here starts blank: only a link names a source.
+  const setCreating = (create: boolean) =>
+    search.patch({
+      create,
+      snapshot: undefined,
+      image: undefined,
+      volume: undefined,
     });
 
   const initialSource = useMemo<
     { type: VolumeSourceType; id: string } | undefined
   >(() => {
-    if (search.snapshot) return { type: "snapshot", id: search.snapshot };
-    if (search.image) return { type: "image", id: search.image };
-    if (search.volume) return { type: "volume", id: search.volume };
+    if (search.params.snapshot)
+      return { type: "snapshot", id: search.params.snapshot };
+    if (search.params.image) return { type: "image", id: search.params.image };
+    if (search.params.volume)
+      return { type: "volume", id: search.params.volume };
     return undefined;
-  }, [search.snapshot, search.image, search.volume]);
+  }, [search.params.snapshot, search.params.image, search.params.volume]);
 
   const instanceNames = useMemo(
     () =>
@@ -91,147 +85,8 @@ export function VolumesPage() {
     [instances.data],
   );
 
-  const columns = useMemo<ColumnDef<Volume>[]>(
-    () => [
-      {
-        id: "name",
-        label: "Name",
-        isRowHeader: true,
-        cell: (row) => (
-          <RouteLink
-            to="/storage/volumes/$volumeId"
-            params={{ volumeId: row.id }}
-          >
-            {row.name || row.id}
-          </RouteLink>
-        ),
-        sortValue: (row) => row.name || row.id,
-        textValue: (row) => `${row.name} ${row.id}`,
-      },
-      {
-        id: "description",
-        label: "Description",
-        cell: (row) => row.description ?? "",
-        textValue: (row) => row.description ?? "",
-        hideBelow: "lg",
-      },
-      {
-        id: "size",
-        label: "Size",
-        cell: (row) => formatGb(row.size_gb),
-        sortValue: (row) => row.size_gb ?? 0,
-      },
-      {
-        id: "status",
-        label: "Status",
-        cell: (row) => (
-          <StatusPill tone={statusTone(row.status)}>
-            {statusLabel(row.status)}
-          </StatusPill>
-        ),
-        sortValue: (row) => row.status,
-      },
-      {
-        id: "type",
-        label: "Type",
-        cell: (row) => row.volume_type ?? "",
-        sortValue: (row) => row.volume_type ?? "",
-        hideBelow: "md",
-      },
-      {
-        id: "attachments",
-        label: "Attached to",
-        cell: (row) =>
-          row.attachments.length === 0 ? (
-            ""
-          ) : (
-            <ul className={styles.attachments}>
-              {row.attachments.map((attachment) => (
-                <li key={attachment.id ?? attachment.server_id ?? ""}>
-                  {attachment.server_id ? (
-                    <RouteLink
-                      to="/compute/instances/$instanceId"
-                      params={{ instanceId: attachment.server_id }}
-                    >
-                      {attachmentLabel(
-                        attachment,
-                        instanceNames.get(attachment.server_id),
-                      )}
-                    </RouteLink>
-                  ) : (
-                    attachmentLabel(attachment, undefined)
-                  )}
-                </li>
-              ))}
-            </ul>
-          ),
-        textValue: (row) =>
-          row.attachments
-            .map((a) =>
-              attachmentLabel(
-                a,
-                a.server_id ? instanceNames.get(a.server_id) : undefined,
-              ),
-            )
-            .join(" "),
-        hideBelow: "md",
-      },
-      {
-        id: "availability_zone",
-        label: "Availability zone",
-        cell: (row) => row.availability_zone ?? "",
-        sortValue: (row) => row.availability_zone ?? "",
-        hideBelow: "lg",
-      },
-      {
-        id: "bootable",
-        label: "Bootable",
-        cell: (row) => (row.bootable ? "Yes" : "No"),
-        sortValue: (row) => (row.bootable ? 1 : 0),
-        hideBelow: "lg",
-      },
-      {
-        id: "encrypted",
-        label: "Encrypted",
-        cell: (row) => (row.encrypted ? "Yes" : "No"),
-        hideBelow: "lg",
-        defaultHidden: true,
-      },
-      {
-        id: "created",
-        label: "Age",
-        cell: (row) =>
-          row.created_at ? (
-            <time dateTime={row.created_at} title={row.created_at}>
-              {formatRelative(row.created_at)}
-            </time>
-          ) : (
-            ""
-          ),
-        sortValue: (row) => row.created_at ?? "",
-        hideBelow: "md",
-      },
-    ],
-    [instanceNames],
-  );
-
-  const rows = useMemo(() => {
-    let list = volumes.data?.items ?? [];
-    if (status) list = list.filter((row) => row.status === status);
-    return filterRows(list, q, columns);
-  }, [volumes.data, status, q, columns]);
-
-  const quotaReason = (() => {
-    const data = limits.data;
-    if (!data) return null;
-    const maxVolumes = data.maxTotalVolumes ?? -1;
-    if (maxVolumes >= 0 && (data.totalVolumesUsed ?? 0) >= maxVolumes)
-      return "You are using all of your available volumes";
-    const maxGb = data.maxTotalVolumeGigabytes ?? -1;
-    if (maxGb >= 0 && (data.totalGigabytesUsed ?? 0) >= maxGb)
-      return "You are using all of your volume storage quota";
-    return null;
-  })();
+  const columns = useVolumeColumns(instanceNames);
+  const quotaReason = createQuotaReason(limits.data);
 
   return (
     <>
@@ -239,41 +94,42 @@ export function VolumesPage() {
         title="Volumes"
         crumbs={CRUMBS}
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onPress={() => setCreating(true)}
-            isDisabled={quotaReason !== null}
-          >
-            {quotaReason ? "Create volume (quota exceeded)" : "Create volume"}
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => setAccepting(true)}
+              isDisabled={quotaReason !== null}
+            >
+              {quotaReason
+                ? "Accept transfer (quota exceeded)"
+                : "Accept transfer"}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onPress={() => setCreating(true)}
+              isDisabled={quotaReason !== null}
+            >
+              {quotaReason ? "Create volume (quota exceeded)" : "Create volume"}
+            </Button>
+          </>
         }
       />
       <DataTable
         id="volumes"
         label="Volumes"
         columns={columns}
-        rows={rows}
         getRowId={(row) => row.id}
-        isLoading={volumes.isPending}
-        isFetching={volumes.isFetching}
-        error={volumes.error}
-        onRetry={() => void volumes.refetch()}
-        onRefresh={() => void volumes.refetch()}
-        search={{
-          value: q,
-          onChange: (value) => setSearch({ q: value }),
-          placeholder: "Search by name, description or instance",
-        }}
-        resetKey={`${q}|${status}`}
+        {...table}
+        {...tableProps}
         filters={
           <Select
             aria-label="Status"
             labelPosition="side"
-            className={styles.statusFilter}
             selectedKey={status}
             onSelectionChange={(key: Key | null) =>
-              setSearch({ status: key === null ? "" : String(key) })
+              search.patch({ status: key === null ? "" : String(key) })
             }
           >
             <Label>Status</Label>
@@ -288,55 +144,40 @@ export function VolumesPage() {
             ))}
           </Select>
         }
-        emptyTitle={
-          volumes.data && volumes.data.items.length > 0
-            ? "No volumes match"
-            : "No volumes yet"
-        }
         emptyBody={
-          volumes.data && volumes.data.items.length === 0 ? (
-            <p>
-              Volumes are persistent block storage you can attach to an
-              instance.
-            </p>
-          ) : null
+          <p>
+            Volumes are persistent block storage you can attach to an instance.
+          </p>
         }
         defaultSort={{ column: "created", direction: "descending" }}
         rowActions={(row) =>
-          availableVolumeActions(row, limits.data).map((action) => ({
-            id: action.id,
-            label: action.label,
-            onAction: () => run(row, action.id),
-            isDisabled: action.isDisabled,
-            ...(action.disabledReason
-              ? { disabledReason: action.disabledReason }
-              : {}),
-            ...(action.tone ? { tone: action.tone } : {}),
-          }))
+          toRowActions(availableVolumeActions(row, limits.data), (id) =>
+            run(id, [row]),
+          )
         }
         batchActions={[
           {
             id: "delete",
             label: "Delete",
             tone: "danger",
-            onAction: (selected) => runDelete(selected),
-            isDisabled: (selected) =>
-              selected.some(
-                (row) =>
-                  availableVolumeActions(row).find((a) => a.id === "delete")
-                    ?.isDisabled,
+            onAction: (rows) => run("delete", rows),
+            isDisabled: (rows) =>
+              !rows.some((row) =>
+                allows(availableVolumeActions(row), "delete"),
               ),
           },
         ]}
       />
       {dialogs}
-      <CreateVolumeDialog
-        key={`${search.create ? "open" : "closed"}:${initialSource?.id ?? ""}`}
-        projectId={projectId}
-        isOpen={Boolean(search.create)}
-        onOpenChange={setCreating}
-        initialSource={initialSource}
-      />
+      {accepting && (
+        <AcceptTransferDialog onClose={() => setAccepting(false)} />
+      )}
+      {search.params.create && (
+        <CreateVolumeDialog
+          onClose={() => setCreating(false)}
+          initialSource={initialSource}
+        />
+      )}
     </>
   );
 }

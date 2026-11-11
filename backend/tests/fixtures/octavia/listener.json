@@ -1,0 +1,20 @@
+{
+  "id": "l-1",
+  "name": "http",
+  "protocol": "HTTP",
+  "protocol_port": 80,
+  "provisioning_status": "ACTIVE",
+  "operating_status": "ONLINE",
+  "admin_state_up": true,
+  "default_pool_id": "p-1",
+  "loadbalancers": [
+    {
+      "id": "lb-1"
+    }
+  ],
+  "l7policies": [
+    {
+      "id": "pol-1"
+    }
+  ]
+}

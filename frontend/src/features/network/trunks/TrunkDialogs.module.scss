@@ -1,28 +1,26 @@
-.subports {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-3);
-  padding-top: var(--hive-space-3);
-  border-top: var(--hive-border-width) solid var(--hive-color-rule);
-}
+@use "mixins" as *;
 
-.subheading {
+/// The subport rows: library `Card`s (grey tone, 16px padding) 12px apart,
+/// the gap the content blocks keep between cards in a column
+/// (`content-block-card-column`).
+.subportList {
+  @include content-block-card-column;
+
   margin: 0;
-  font-size: var(--hive-font-size-base);
-  font-weight: var(--hive-font-weight-semibold);
+  padding: 0;
+  list-style: none;
 }
 
+/// One subport's fields inside its card, 16px apart (DERIVED-SPACING, the
+/// inter-field row gap).
 .subport {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-  padding: var(--hive-space-3);
-  border: var(--hive-border-width) solid var(--hive-color-rule);
-  border-radius: var(--hive-radius);
+  gap: var(--hive-space-4);
 }
 
-.muted {
-  margin: 0;
+/// Helper text: Body/14 in Grey-500 (library `body-14-muted`).
+.note {
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }

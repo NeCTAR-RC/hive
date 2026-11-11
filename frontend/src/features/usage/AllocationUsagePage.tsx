@@ -1,7 +1,8 @@
 // Allocation Usage (nectar_dashboard/usage/allocation_usage): the SU
 // budget burn-down for the current allocation.
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Link } from "@ardc-ui/react";
+import { Alert, Card, Link } from "@ardc-ui/react";
+import { AppLink } from "../../components/AppLink/AppLink";
 import { ChartFigure } from "../../components/Charts/ChartFigure";
 import { LazyBurnDownChart } from "../../components/Charts/LazyBurnDownChart";
 import { EmptyState } from "../../components/EmptyState/EmptyState";
@@ -9,12 +10,12 @@ import { ErrorState } from "../../components/ErrorState/ErrorState";
 import { Panel } from "../../components/Panel/Panel";
 import { SkeletonLines } from "../../components/Skeleton/Skeleton";
 import { formatCalendarDate, formatNumber, formatSu } from "../../lib/format";
+import { useProjectId } from "../../lib/hooks/useProjectId";
 import { configQuery, meQuery } from "../../lib/queries";
-import { useProjectId } from "../../lib/useProject";
 import { PageHeader } from "../../shell/PageHeader/PageHeader";
 import { allocationUsageQuery } from "./api";
 import styles from "./AllocationUsagePage.module.scss";
-import { ExternalLink } from "../../components/ExternalLink/ExternalLink";
+import { guideAt } from "./transform";
 
 const COLUMNS = [
   { id: "date", label: "Date" },
@@ -22,6 +23,12 @@ const COLUMNS = [
   { id: "guide", label: "Usage guide", numeric: true },
 ];
 
+/**
+ * The current allocation's service unit budget: the headline figures, a
+ * warning when usage runs above the on-track figure, and the cumulative
+ * use against the budget guide. Tenant managers get the way to request
+ * more budget.
+ */
 export function AllocationUsagePage() {
   const projectId = useProjectId();
   const { data: me } = useQuery(meQuery);
@@ -33,7 +40,7 @@ export function AllocationUsagePage() {
   return (
     <>
       <PageHeader
-        title="Allocation Usage"
+        title="Allocation usage"
         crumbs={[{ label: "Project" }, { label: "Usage" }]}
         actions={
           me?.capabilities.tenantmanager ? (
@@ -67,9 +74,9 @@ export function AllocationUsagePage() {
               {me?.capabilities.tenantmanager && (
                 <>
                   {" "}
-                  <ExternalLink href={requestUrl}>
+                  <AppLink href={requestUrl} size="xs">
                     Request more budget
-                  </ExternalLink>
+                  </AppLink>
                   .
                 </>
               )}
@@ -125,21 +132,17 @@ export function AllocationUsagePage() {
   );
 }
 
+/**
+ * One headline figure on the library `Card` in its grey tone as shipped:
+ * its label over the figure, as the home page's usage figure reads.
+ */
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className={styles.tile}>
-      <p className={styles.tileValue}>{value}</p>
-      <p className={styles.tileLabel}>{label}</p>
-    </div>
+    <Card tone="grey">
+      <div className={styles.tile}>
+        <p className={styles.tileLabel}>{label}</p>
+        <p className={styles.tileValue}>{value}</p>
+      </div>
+    </Card>
   );
-}
-
-/** The guide's value on a date, interpolated between its two end points. */
-function guideAt(date: string, guide: { date: string; value: number }[]) {
-  const [start, end] = guide;
-  if (!start || !end) return 0;
-  const span = Date.parse(end.date) - Date.parse(start.date);
-  if (span <= 0) return end.value;
-  const ratio = (Date.parse(date) - Date.parse(start.date)) / span;
-  return Math.round(Math.min(Math.max(ratio, 0), 1) * end.value * 100) / 100;
 }

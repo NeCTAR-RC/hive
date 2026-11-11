@@ -1,8 +1,12 @@
-import { useState } from "react";
 import { Button } from "@ardc-ui/react";
-import { notify } from "../../lib/notify";
+import { useCopy } from "./useCopy";
 
-/** Copies text to the clipboard and says so, in the button and aloud. */
+/**
+ * Copies text to the clipboard and says so: the button's label turns to
+ * "Copied", and a polite live region beside it (never inside it, so the
+ * button's name stays just "Copied") announces "Copied to clipboard". A
+ * second copy restarts the timer; unmounting cancels it.
+ */
 export function CopyButton({
   text,
   label = "Copy",
@@ -12,27 +16,21 @@ export function CopyButton({
   label?: string;
   size?: "xs" | "sm";
 }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      notify.warning("Copying is not available in this browser.");
-    }
-  };
+  const { copied, copy } = useCopy(text);
+
   return (
-    <Button
-      variant="secondary"
-      size={size}
-      iconBefore={copied ? "copy-check" : "copy"}
-      onPress={() => void copy()}
-    >
-      {copied ? "Copied" : label}
+    <>
+      <Button
+        variant="secondary"
+        size={size}
+        iconBefore={copied ? "copy-check" : "copy"}
+        onPress={() => void copy()}
+      >
+        {copied ? "Copied" : label}
+      </Button>
       <span role="status" className="visually-hidden">
         {copied ? "Copied to clipboard" : ""}
       </span>
-    </Button>
+    </>
   );
 }

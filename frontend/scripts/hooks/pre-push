@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# hive managed hook: pre-push
+# Installed by frontend/scripts/install-git-hooks.mjs from `pnpm install`;
+# edit it there, not in .git/hooks.
+#
+# Runs the frontend gates CI runs (tox -e frontend, which lints, tests and
+# builds, and tox -e e2e), so a push fails here exactly when CI would fail
+# it. Heavy by design: the end-to-end suite builds the app and drives two
+# browsers. Skip it with ARDC_HOOKS=0 or `git push --no-verify`.
+set -e
+if [ "${ARDC_HOOKS:-1}" = "0" ]; then
+  echo "pre-push: ARDC_HOOKS=0, skipping the frontend gates."
+  exit 0
+fi
+cd "$(git rev-parse --show-toplevel)/frontend"
+pnpm lint
+pnpm test
+pnpm build
+pnpm test:e2e:install
+pnpm test:e2e

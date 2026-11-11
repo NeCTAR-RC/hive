@@ -1,43 +1,32 @@
-// Placeholders shaped like the content they stand in for. Use them where
-// the layout is known before the data: table rows (DataTable), page shells
-// and detail panels, so the page does not jump when the data lands.
-//
-// For a dialog body or another small content area whose shape is not worth
-// drawing, use the design system's Loading instead: a role="status" spinner
-// with a message, e.g. <Loading>Loading flavours...</Loading> from
-// @ardc-ui/react. Skeletons are aria-hidden; pair them with a live region
-// (DataTable has one) or a Loading so assistive tech hears the wait.
-import styles from "./Skeleton.module.scss";
+import type { ReactElement } from "react";
+import { Loading } from "@ardc-ui/react";
 
-export function Skeleton({
-  width = "100%",
-  height,
-  variant = "text",
-  className,
-}: {
+export interface SkeletonProps {
+  /** Ignored: it sized the grey placeholder bar this used to draw. */
   width?: string | number;
+  /** Ignored: it sized the grey placeholder bar this used to draw. */
   height?: string | number;
-  variant?: "text" | "block" | "circle";
+  /** Ignored: the library `Loading` takes no class name from a consumer. */
   className?: string;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className={[styles.skeleton, styles[variant], className]
-        .filter(Boolean)
-        .join(" ")}
-      style={{ width, height }}
-    />
-  );
 }
 
-/** Several text lines, for paragraphs and list placeholders. */
-export function SkeletonLines({ lines = 3 }: { lines?: number }) {
-  return (
-    <span className={styles.lines} aria-hidden="true">
-      {Array.from({ length: lines }, (_, index) => (
-        <Skeleton key={index} width={index === lines - 1 ? "60%" : "100%"} />
-      ))}
-    </span>
-  );
-}
+/**
+ * Holds the place of content that is still loading: the library `Loading`,
+ * as shipped (its 84px loader, without a message). The design system draws
+ * no skeleton (the gap "Inline loading placeholder" in DESIGN-NOTES.md). It
+ * is hidden from assistive technology; the surrounding region announces the
+ * loading state.
+ *
+ * The props are accepted and ignored until the callers stop passing them.
+ */
+export const Skeleton: (props: SkeletonProps) => ReactElement = () => (
+  <Loading aria-hidden="true" />
+);
+
+/**
+ * Placeholder for several lines of text: the same library `Loading`. `lines`
+ * is accepted and ignored until the callers stop passing it.
+ */
+export const SkeletonLines: (props: {
+  lines?: number;
+}) => ReactElement = () => <Loading aria-hidden="true" />;

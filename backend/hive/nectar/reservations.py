@@ -34,6 +34,8 @@ from datetime import date, datetime, time, timedelta, UTC
 import math
 from urllib.parse import urlencode
 
+from hive.times import to_utc_iso
+
 UNLIMITED = -1
 CALENDAR_STATUSES = ("ACTIVE", "ALLOCATED")
 START_LEAD_MINUTES = 3
@@ -53,6 +55,7 @@ def _unlimited(value) -> bool:
 
 
 def limits_summary(absolute: dict) -> dict:
+    """Hours as days (``api/reservation.py:83-97``)."""
     max_hours = absolute.get("maxHours", 0) or 0
     hours_used = absolute.get("totalHoursUsed", 0) or 0
     max_reservations = absolute.get("maxReservations", 0) or 0
@@ -86,6 +89,7 @@ def limits_summary(absolute: dict) -> dict:
 
 
 def flavor_rate(flavor: dict) -> float | None:
+    """A flavour's SU rate per hour (warre-dashboard)."""
     specs = flavor.get("extra_specs") or {}
     value = specs.get("nectar:rate")
     if value in (None, ""):
@@ -97,11 +101,13 @@ def flavor_rate(flavor: dict) -> float | None:
 
 
 def flavor_max_days(flavor: dict) -> int:
+    """A flavour's longest booking (warre-dashboard)."""
     hours = flavor.get("max_length_hours") or 0
     return math.floor(hours / 24)
 
 
 def flavor_summary(flavor: dict) -> dict:
+    """A reservable flavour row (warre-dashboard)."""
     return {
         "id": flavor.get("id"),
         "name": flavor.get("name"),
@@ -118,12 +124,13 @@ def flavor_summary(flavor: dict) -> dict:
         "is_public": flavor.get("is_public"),
         "active": flavor.get("active"),
         "slots": flavor.get("slots"),
-        "start": flavor.get("start"),
-        "end": flavor.get("end"),
+        "start": to_utc_iso(flavor.get("start")),
+        "end": to_utc_iso(flavor.get("end")),
     }
 
 
 def parse_when(value) -> datetime | None:
+    """A warre timestamp, in UTC (warre-dashboard)."""
     if not value:
         return None
     if isinstance(value, datetime):
@@ -139,6 +146,7 @@ def parse_when(value) -> datetime | None:
 
 
 def can_extend(reservation: dict, limits: dict, now: datetime) -> bool:
+    """Extend rules (``tables.py:99-121``)."""
     if reservation.get("status") != "ACTIVE":
         return False
     if limits.get("hours_left") is not None and limits["hours_left"] <= 0:
@@ -154,6 +162,7 @@ def can_extend(reservation: dict, limits: dict, now: datetime) -> bool:
 def reservation_actions(
     reservation: dict, limits: dict, now: datetime
 ) -> list[str]:
+    """Row actions (``tables.py:37-133``)."""
     status = reservation.get("status")
     actions = []
     if status == "ACTIVE":
@@ -168,12 +177,14 @@ def reservation_actions(
 
 
 def selected_days(start: date, end: date) -> int:
+    """Whole days booked (``nectar_reservations.js``)."""
     return (end - start).days + 1
 
 
 def reservation_times(
     start: date, end: date, now: datetime
 ) -> tuple[datetime, datetime]:
+    """Start and end (``nectar_reservations.js:454-482``)."""
     now = now.astimezone(UTC)
     if start == now.date():
         begin = now + timedelta(minutes=START_LEAD_MINUTES)
@@ -184,6 +195,7 @@ def reservation_times(
 
 
 def extend_end(end: date) -> datetime:
+    """The end of an extension (``nectar_reservations.js``)."""
     return datetime(end.year, end.month, end.day, *LAST_MINUTE, tzinfo=UTC)
 
 
@@ -229,6 +241,7 @@ def eligibility(
     su_used: float | None,
     su_budget: float | None,
 ) -> dict:
+    """Days and SU checks (``nectar_reservations.js:581-620``)."""
     reasons = []
     max_days = (
         flavor_days if days_left is None else min(days_left, flavor_days)
@@ -317,8 +330,6 @@ def extend_window(
     }
 
 
-# --- calendar export (calendar_export.py) --------------------------------
-
 PRODID = "-//Australian Research Data Commons//Nectar Reservation Service//EN"
 
 
@@ -366,6 +377,7 @@ def _stamp(when: datetime) -> str:
 def ics_text(
     reservation: dict, detail_url: str, host: str, now: datetime
 ) -> str:
+    """The iCalendar entry (``calendar_export.py``)."""
     start = parse_when(reservation.get("start")) or now
     end = parse_when(reservation.get("end")) or start
     lines = [
@@ -393,6 +405,7 @@ def ics_text(
 
 
 def google_calendar_url(reservation: dict, detail_url: str) -> str:
+    """The Google Calendar link (``calendar_export.py``)."""
     start = parse_when(reservation.get("start"))
     end = parse_when(reservation.get("end"))
     params = {
@@ -407,6 +420,7 @@ def google_calendar_url(reservation: dict, detail_url: str) -> str:
 def outlook_calendar_url(
     reservation: dict, detail_url: str, personal: bool = False
 ) -> str:
+    """The Outlook link (``calendar_export.py``)."""
     start = parse_when(reservation.get("start"))
     end = parse_when(reservation.get("end"))
     fmt = "%Y-%m-%dT%H:%M:%SZ"

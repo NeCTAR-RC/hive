@@ -11,11 +11,10 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 import httpx
 from redis import asyncio as aioredis
 from starlette.concurrency import run_in_threadpool
-import structlog
 
 from hive import __version__
 from hive.api.health import router as health_router
@@ -25,28 +24,22 @@ from hive.auth.login import AuthService
 from hive.auth.router import router as auth_router
 from hive.cache.redis import Cache
 from hive.config import ENV_PREFIX, Settings
-from hive.errors import install_error_handlers, NotFound
+from hive.errors import Gone, install_error_handlers, NotFound
 from hive.logs import configure_logging
 from hive.observability.sentry import init_sentry
 from hive.redirects import RedirectMap
-from hive.services.loadbalancer import drain as drain_chains
+from hive.services.background import BackgroundWork
 from hive.session.store import SessionStore
-from hive.web.middleware import RequestContextMiddleware
+from hive.web.middleware import (
+    JsonBodyLimitMiddleware,
+    RequestContextMiddleware,
+)
 
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
-
-log = structlog.get_logger("hive.web")
-
-
-def warn_posture(settings: Settings) -> None:
-    """Warn about deployment settings that are only safe in development."""
-    if settings.env != "dev" and not settings.websso_allowed_origins:
-        log.warning(
-            "websso_allowed_origins is empty: the manuka receiver accepts "
-            "a token POST from any Origin",
-            env=settings.env,
-        )
+# The package itself: the only tree the development reloader watches, so
+# it never walks frontend/node_modules and runs out of inotify watches.
+PACKAGE_DIR = Path(__file__).resolve().parents[1]
 
 
 def create_app(
@@ -65,7 +58,6 @@ def create_app(
     settings = settings or Settings()  # pyright: ignore[reportCallIssue]
     configure_logging(settings.log_format, settings.log_level)
     init_sentry(settings, __version__)
-    warn_posture(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -83,41 +75,43 @@ def create_app(
             settings.secret_key.get_secret_value(),
             settings.session_timeout,
         )
-        app.state.keystone = KeystoneClient(
-            app.state.http,
-            settings.keystone_url,
-            settings.upstream_connect_timeout,
-            settings.upstream_read_timeout,
-        )
+        app.state.keystone = KeystoneClient(app.state.http, settings)
         app.state.auth = AuthService(
-            app.state.keystone, app.state.session_store
+            app.state.keystone,
+            app.state.session_store,
+            interface=settings.endpoint_interface,
+            region=settings.region,
         )
         app.state.cache = Cache(app.state.redis)
+        app.state.background = BackgroundWork()
         try:
             yield
         finally:
-            # Background load-balancer chains record their state in Redis;
-            # give them a moment to finish (or be marked interrupted)
-            # before the clients they use are closed.
-            await drain_chains()
+            # Unfinished work records its failure while Redis is still open.
+            await app.state.background.shutdown()
             await app.state.cache.close()
             if http is None:
                 await app.state.http.aclose()
             if redis is None:
                 await app.state.redis.aclose()
 
-    docs = settings.docs_enabled
+    # The OpenAPI document is the API contract the SPA's types are built
+    # from; it holds no data, so it is served to anyone. The interactive
+    # docs page stays a development aid.
     app = FastAPI(
         title="hive",
         version=__version__,
         lifespan=lifespan,
-        docs_url="/api/docs" if docs else None,
+        docs_url="/api/docs" if settings.docs_enabled else None,
         redoc_url=None,
-        openapi_url="/api/openapi.json" if docs else None,
+        openapi_url="/api/openapi.json",
     )
     app.state.settings = settings
-    app.state.redirects = RedirectMap.load()
+    app.state.redirects = RedirectMap.load(horizon_url=settings.horizon_url)
     install_error_handlers(app)
+    # The last middleware added runs first: the request context wraps the
+    # body limit so a 413 still carries the request id and headers.
+    app.add_middleware(JsonBodyLimitMiddleware, settings=settings)
     app.add_middleware(RequestContextMiddleware, settings=settings)
     app.include_router(auth_router)
     app.include_router(api_router, prefix="/api")
@@ -128,7 +122,7 @@ def create_app(
 
 def _static_file(static_dir: Path, full_path: str) -> Path | None:
     """The bundle file for ``full_path``, refusing anything that resolves
-    outside the bundle (path traversal)."""
+    outside the bundle (path traversal). Blocking: run it in a thread."""
     candidate = (static_dir / full_path).resolve()
     if static_dir in candidate.parents and candidate.is_file():
         return candidate
@@ -145,20 +139,18 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
         target = redirects.match("/" + full_path, request.url.query)
         if target is not None:
             status, location = target
-            if status != 410:
-                return RedirectResponse(location, status_code=301)
-            # A retired Horizon page: a browser following a bookmark gets
-            # the SPA, whose catch-all shows the "gone" state.
-            if index is not None and await run_in_threadpool(index.is_file):
-                return FileResponse(
-                    index,
-                    status_code=410,
-                    headers={"Cache-Control": NO_CACHE},
-                )
-            return JSONResponse(
-                {"error": "gone", "message": "this feature has been retired"},
-                status_code=410,
-            )
+            if status == 410:
+                # The SPA shell renders its own "retired" page for the path.
+                if index is not None and await run_in_threadpool(
+                    index.is_file
+                ):
+                    return FileResponse(
+                        index,
+                        status_code=410,
+                        headers={"Cache-Control": NO_CACHE},
+                    )
+                raise Gone("this feature has been retired")
+            return RedirectResponse(location, status_code=301)
         # The API router is registered first and wins; anything reaching
         # here that still looks like an API path is a genuine miss.
         if full_path == "api" or full_path.startswith("api/"):
@@ -183,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hive-web", description="Serve the Hive dashboard."
     )
-    parser.add_argument("--host", default="0.0.0.0")
+    # In the container the app listens on every interface; forwarded
+    # headers are trusted only from HIVE_FORWARDED_ALLOW_IPS.
+    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--static-dir", help="SPA bundle to serve")
     parser.add_argument(
@@ -195,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     # the environment.
     if args.static_dir:
         os.environ[ENV_PREFIX + "WEB_STATIC"] = str(Path(args.static_dir))
+    settings = Settings()  # pyright: ignore[reportCallIssue]
 
     uvicorn.run(
         "hive.web.app:create_app",
@@ -202,8 +197,10 @@ def main(argv: list[str] | None = None) -> int:
         host=args.host,
         port=args.port,
         reload=args.reload,
+        reload_dirs=[str(PACKAGE_DIR)],
+        reload_includes=["*.py", "*.json"],
         proxy_headers=True,
-        forwarded_allow_ips="*",
+        forwarded_allow_ips=settings.forwarded_allow_ips,
         access_log=False,
     )
     return 0

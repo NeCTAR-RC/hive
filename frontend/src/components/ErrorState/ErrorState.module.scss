@@ -1,14 +1,10 @@
-.alert {
-  display: grid;
+/// Stacks the lines inside the library `Alert`, which keeps its own surface
+/// and text style: 8px apart, the design system's step between a control
+/// and the text it belongs to (DERIVED-SPACING, 8px). "Try again" keeps its
+/// own width. Own decision: the alert has no specced multi-line anatomy.
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--hive-space-2);
-}
-
-.title {
-  font-weight: var(--hive-font-weight-semibold);
-}
-
-.reference {
-  font-size: var(--hive-font-size-xs);
-  font-family: var(--hive-font-mono);
-  color: var(--hive-color-text-muted);
 }

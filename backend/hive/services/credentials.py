@@ -5,10 +5,18 @@ Keystone credentials (Horizon ``identity/application_credentials``,
 from datetime import datetime, UTC
 
 from hive.clients.openstack import KeystoneIdentityClient
-from hive.errors import BadRequest, Conflict
+from hive.errors import Conflict
 from hive.nectar import credentials as rules
-from hive.schemas.identity import ApplicationCredentialCreate, CredentialCreate
+from hive.schemas.identity import ApplicationCredentialCreate
+from hive.schemas.responses.identity import (
+    ApplicationCredential,
+    ApplicationCredentialCreated,
+    ApplicationCredentialOptions,
+    Credential,
+    Ec2Response,
+)
 from hive.services.context import Context
+from hive.times import to_utc_iso
 
 
 def _keystone(ctx: Context) -> KeystoneIdentityClient:
@@ -21,7 +29,7 @@ def app_credential_summary(credential: dict) -> dict:
         "name": credential.get("name"),
         "description": credential.get("description"),
         "project_id": credential.get("project_id"),
-        "expires_at": credential.get("expires_at"),
+        "expires_at": to_utc_iso(credential.get("expires_at")),
         "unrestricted": bool(credential.get("unrestricted")),
         "roles": [
             {
@@ -35,51 +43,56 @@ def app_credential_summary(credential: dict) -> dict:
     }
 
 
-async def list_application_credentials(ctx: Context, user_id: str) -> dict:
+async def list_application_credentials(
+    ctx: Context, user_id: str
+) -> list[ApplicationCredential]:
     items = await _keystone(ctx).application_credentials(user_id)
     rows = [app_credential_summary(c) for c in items]
     rows.sort(key=lambda row: (row["name"] or "").lower())
-    return {"items": rows}
+    return [ApplicationCredential.model_validate(row) for row in rows]
 
 
 async def get_application_credential(
     ctx: Context, user_id: str, credential_id: str
-) -> dict:
+) -> ApplicationCredential:
     credential = await _keystone(ctx).application_credential(
         user_id, credential_id
     )
-    return app_credential_summary(credential)
+    return ApplicationCredential.model_validate(
+        app_credential_summary(credential)
+    )
 
 
-def application_credential_options(ctx: Context) -> dict:
+def application_credential_options(
+    ctx: Context,
+) -> ApplicationCredentialOptions:
     """What the create form needs: the token's roles (``forms.py:78-81``),
     the prefilled expiry and the openrc details."""
-    return {
-        "roles": sorted(ctx.scoped.roles),
-        "default_expiration_date": rules.default_expiry(
-            datetime.now(UTC), ctx.settings.app_credential_expiry_months
-        ),
-        "auth_url": ctx.settings.keystone_public,
-        "region": ctx.settings.region,
-    }
+    return ApplicationCredentialOptions.model_validate(
+        {
+            "roles": sorted(ctx.scoped.roles),
+            "default_expiration_date": rules.default_expiry(
+                datetime.now(UTC), ctx.settings.app_credential_expiry_months
+            ),
+            "auth_url": ctx.settings.keystone_public,
+            "region": ctx.settings.region,
+        }
+    )
 
 
 async def create_application_credential(
     ctx: Context, user_id: str, data: ApplicationCredentialCreate
-) -> dict:
-    try:
-        body = rules.application_credential_body(
-            name=data.name,
-            description=data.description,
-            secret=data.secret,
-            expiration_date=data.expiration_date,
-            expiration_time=data.expiration_time,
-            roles=data.roles,
-            access_rules=data.access_rules,
-            unrestricted=data.unrestricted,
-        )
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
+) -> ApplicationCredentialCreated:
+    body = rules.application_credential_body(
+        name=data.name,
+        description=data.description,
+        secret=data.secret,
+        expiration_date=data.expiration_date,
+        expiration_time=data.expiration_time,
+        roles=data.roles,
+        access_rules=data.access_rules,
+        unrestricted=data.unrestricted,
+    )
     try:
         created = await _keystone(ctx).create_application_credential(
             user_id, body
@@ -91,16 +104,13 @@ async def create_application_credential(
         ) from exc
     summary = app_credential_summary(created)
     summary["secret"] = created.get("secret")
-    return summary
+    return ApplicationCredentialCreated.model_validate(summary)
 
 
 async def delete_application_credential(
     ctx: Context, user_id: str, credential_id: str
 ) -> None:
     await _keystone(ctx).delete_application_credential(user_id, credential_id)
-
-
-# --- EC2 credentials (project/api_access/views.py:42-69, forms.py:25-68) --
 
 
 def ec2_summary(credential: dict | None) -> dict | None:
@@ -113,7 +123,9 @@ def ec2_summary(credential: dict | None) -> dict | None:
     }
 
 
-async def ec2_credential(ctx: Context, user_id: str, create: bool) -> dict:
+async def ec2_credential(
+    ctx: Context, user_id: str, create: bool
+) -> Ec2Response:
     keystone = _keystone(ctx)
     existing = rules.ec2_for_project(
         await keystone.ec2_credentials(user_id), ctx.project_id
@@ -124,10 +136,12 @@ async def ec2_credential(ctx: Context, user_id: str, create: bool) -> dict:
             user_id, ctx.project_id
         )
         created = True
-    return {"credential": ec2_summary(existing), "created": created}
+    return Ec2Response.model_validate(
+        {"credential": ec2_summary(existing), "created": created}
+    )
 
 
-async def recreate_ec2_credential(ctx: Context, user_id: str) -> dict:
+async def recreate_ec2_credential(ctx: Context, user_id: str) -> Ec2Response:
     keystone = _keystone(ctx)
     existing = rules.ec2_for_project(
         await keystone.ec2_credentials(user_id), ctx.project_id
@@ -135,16 +149,15 @@ async def recreate_ec2_credential(ctx: Context, user_id: str) -> dict:
     if existing and existing.get("access"):
         await keystone.delete_ec2_credential(user_id, existing["access"])
     created = await keystone.create_ec2_credential(user_id, ctx.project_id)
-    return {"credential": ec2_summary(created), "created": True}
+    return Ec2Response.model_validate(
+        {"credential": ec2_summary(created), "created": True}
+    )
 
 
 async def delete_ec2_credential(
     ctx: Context, user_id: str, access: str
 ) -> None:
     await _keystone(ctx).delete_ec2_credential(user_id, access)
-
-
-# --- generic credentials (identity/credentials) ---------------------------
 
 
 def credential_summary(credential: dict) -> dict:
@@ -156,19 +169,9 @@ def credential_summary(credential: dict) -> dict:
     }
 
 
-async def list_credentials(ctx: Context, user_id: str) -> dict:
+async def list_credentials(ctx: Context, user_id: str) -> list[Credential]:
     items = await _keystone(ctx).credentials(user_id)
-    return {"items": [credential_summary(c) for c in items]}
-
-
-async def create_credential(
-    ctx: Context, user_id: str, data: CredentialCreate
-) -> dict:
-    fields: dict = {"user_id": user_id, "type": data.type, "blob": data.blob}
-    if data.project_id:
-        fields["project_id"] = data.project_id
-    created = await _keystone(ctx).create_credential(fields)
-    return credential_summary(created)
+    return [Credential.model_validate(credential_summary(c)) for c in items]
 
 
 async def delete_credential(ctx: Context, credential_id: str) -> None:

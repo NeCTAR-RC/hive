@@ -1,5 +1,6 @@
 import httpx
 
+from tests import conftest
 from tests.conftest import (
     CLOUDKITTY,
     HORIZON,
@@ -10,18 +11,9 @@ from tests.conftest import (
     token_response,
     VARROA,
 )
+from tests.fixtures.loader import fixture
 
-OUTAGE = {
-    "id": 11,
-    "title": "Storage maintenance",
-    "severity": 2,
-    "scheduled": True,
-    "scheduled_display": "Scheduled",
-    "status_display": "In progress",
-    "start": "2026-10-09T01:00:00Z",
-    "end": None,
-    "planned_end": "2026-10-09T05:00:00Z",
-}
+OUTAGE = fixture("langstroth", "outage")
 
 
 async def test_profile_from_manuka(logged_in, upstream):
@@ -249,3 +241,53 @@ async def test_news_feed_failure_is_an_upstream_error(logged_in, upstream):
     response = await logged_in.get("/api/news/ardc")
     assert response.status_code == 502
     assert response.json()["service"] == "rss"
+
+
+async def test_a_widget_401_does_not_end_the_session(logged_in, upstream):
+    """Varroa refusing Hive is Varroa's failure: the widget reports it and
+    the user stays logged in (only Keystone and the OpenStack services
+    speak for the user's token)."""
+    upstream.get(f"{VARROA}/v1/security-risks/").mock(
+        return_value=httpx.Response(401, json={"detail": "no"})
+    )
+    response = await logged_in.get("/api/security/risks")
+    assert response.status_code == 502
+    body = response.json()
+    assert (body["error"], body["service"]) == ("upstream_error", "varroa")
+    assert "set-cookie" not in response.headers
+    assert (await logged_in.get("/api/me")).status_code == 200
+
+
+async def test_a_filtered_risk_query_skips_the_cache(client, upstream):
+    route = upstream.get(f"{VARROA}/v1/security-risks/").mock(
+        return_value=httpx.Response(200, json={"results": [], "next": None})
+    )
+    assert (await login(client)).status_code == 303
+    response = await client.get(
+        "/api/security/risks",
+        params={"resource_type": "instance", "resource_id": "srv-1"},
+    )
+    assert response.status_code == 200
+    assert response.headers["x-hive-cache"] == "bypass"
+    assert response.json() == {
+        "items": [],
+        "available": True,
+        "fetched_at": None,
+    }
+    assert route.calls.last.request.url.params["resource_id"] == "srv-1"
+
+
+async def test_outages_without_langstroth(client, monkeypatch):
+    trimmed = [
+        service
+        for service in conftest.catalog()
+        if service["type"] != "nectar-ops"
+    ]
+    monkeypatch.setattr(conftest, "catalog", lambda: trimmed)
+    assert (await login(client)).status_code == 303
+    response = await client.get("/api/outages")
+    assert response.json() == {
+        "items": [],
+        "available": False,
+        "fetched_at": None,
+    }

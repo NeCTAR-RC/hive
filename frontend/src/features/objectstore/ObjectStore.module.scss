@@ -1,79 +1,64 @@
 @use "mixins" as *;
 
+/// The account's usage line under the page title: Body/16 in Grey-700, the
+/// content blocks' intro paragraph (content-blocks spec, Frame 519), at
+/// most span 9 wide (gap "Reading measure").
 .usage {
-  margin: 0;
-  color: var(--hive-color-text-muted);
+  max-width: var(--hive-grid-span-9);
+  color: var(--hive-color-gray-700);
 }
 
+/// The "Sidebar right" layout (layouts spec, "Single pages"): the objects
+/// beside a span 4 side column (384px, the sidebar block's width), 24px
+/// apart. The side column joins from 1280px, where the table keeps more
+/// than 500px beside it; stacked below (gap "Breakpoints").
 .layout {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
-  @include up($bp-lg) {
-    grid-template-columns: minmax(0, 1fr) 18rem;
+  @include up($bp-xl) {
+    grid-template-columns: minmax(0, 1fr) var(--hive-grid-span-4);
   }
 }
 
+/// The objects column: a notice above the table 12px from it, the gap the
+/// shared `DataTable` keeps between its notices and the table.
 .main {
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-3);
-}
-
-.side {
   min-width: 0;
 }
 
-.url {
+/// A value made of a control and what belongs to it (the access switch and
+/// its failure, the public URL and its copy button), 8px apart, the step
+/// between a control and its text (DERIVED-SPACING, 8px).
+.valueStack {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-1);
-  overflow-wrap: anywhere;
+  align-items: flex-start;
+  gap: var(--hive-space-2);
 }
 
+/// The upload dialog's parts 12px apart, the library dialog's body gap.
 .uploadBody {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-3);
+  gap: var(--hive-dialog-body-gap);
 }
 
+/// One library `ProgressBar` per file, 16px apart (DERIVED-SPACING:
+/// inter-field row gap). The list scrolls inside the dialog once it is
+/// taller than the shared list height (gap "List cap").
 .uploadList {
-  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-4);
+  max-height: var(--hive-list-max-height);
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-2);
-  max-height: 20rem;
   overflow-y: auto;
-}
-
-.uploadItem {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-1);
-}
-
-.uploadRow {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--hive-space-3);
-  font-size: var(--hive-font-size-sm);
-}
-
-.uploadName {
-  overflow-wrap: anywhere;
-}
-
-.muted {
-  color: var(--hive-color-text-muted);
-  white-space: nowrap;
-}
-
-.loadMore {
-  display: flex;
-  justify-content: center;
+  list-style: none;
 }

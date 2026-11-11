@@ -1,0 +1,23 @@
+[
+  {
+    "id": "ds-mysql",
+    "name": "mysql",
+    "versions": [
+      {
+        "id": "v-80",
+        "name": "8.0",
+        "active": true
+      },
+      {
+        "id": "v-84",
+        "name": "8.4",
+        "active": true
+      }
+    ]
+  },
+  {
+    "id": "ds-pg",
+    "name": "postgresql",
+    "versions": []
+  }
+]

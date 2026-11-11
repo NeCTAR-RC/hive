@@ -71,7 +71,14 @@ const api = (path, init) =>
     },
     [path, init ?? null],
   );
-const post = (path) => api(path, { method: "POST" });
+
+/** A log action: `POST .../logs/{name}/actions` with `{ action }`. */
+const logAction = (instanceId, name, action) =>
+  api(`/api/databases/instances/${instanceId}/logs/${name}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
 
 async function settle() {
   await page.waitForSelector("main h1", { timeout: 30_000 });
@@ -220,18 +227,14 @@ try {
     } else {
       logName = candidate.name;
       if (candidate.status === "Disabled") {
-        const enabled = await post(
-          `/api/databases/instances/${instanceId}/logs/${logName}/actions/enable`,
-        );
+        const enabled = await logAction(instanceId, logName, "enable");
         console.log(
           `  enable ${logName} -> ${enabled.status} ${enabled.body.status}`,
         );
         if (enabled.status !== 200) throw new Error("enable failed");
         enabledByUs = true;
       }
-      const published = await post(
-        `/api/databases/instances/${instanceId}/logs/${logName}/actions/publish`,
-      );
+      const published = await logAction(instanceId, logName, "publish");
       console.log(
         `  publish ${logName} -> ${published.status} ${published.body.status} published=${published.body.published}`,
       );
@@ -274,15 +277,11 @@ try {
 } finally {
   if (instanceId && logName) {
     if (enabledByUs) {
-      const r = await post(
-        `/api/databases/instances/${instanceId}/logs/${logName}/actions/disable`,
-      );
+      const r = await logAction(instanceId, logName, "disable");
       console.log(`  cleanup: disable ${logName} -> ${r.status}`);
     }
     if (publishedByUs) {
-      const r = await post(
-        `/api/databases/instances/${instanceId}/logs/${logName}/actions/discard`,
-      );
+      const r = await logAction(instanceId, logName, "discard");
       console.log(`  cleanup: discard ${logName} -> ${r.status}`);
     }
   }

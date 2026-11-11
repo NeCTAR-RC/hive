@@ -1,17 +1,36 @@
+/// The library text field's anatomy (library forms mixins: the selection
+/// group gaps): 4px from the header to the control, 16px when there is
+/// helper text.
 .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hive-space-1);
+
+  &:has(.description) {
+    gap: var(--hive-space-4);
+  }
+}
+
+/// The label over its helper text, 4px apart (selection-group-header).
+.header {
   display: flex;
   flex-direction: column;
   gap: var(--hive-space-1);
 }
 
+/// The field label (selection-group-label): Body/16/Bold in Grey-700.
 .label {
-  font-weight: var(--hive-font-weight-semibold);
+  font: var(--hive-text-body-16-bold);
+  color: var(--hive-color-gray-700);
 }
 
+/// The required asterisk in the library's field-required colour (Red-500).
 .required {
-  color: var(--hive-color-danger-strong);
+  color: var(--hive-color-danger);
 }
 
+/// The picker row: the library `Button` and the chosen file's name, 8px
+/// apart, wrapping on a phone (gap "File input"). Own decision.
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -19,18 +38,22 @@
   gap: var(--hive-space-2);
 }
 
+/// The chosen file's name as helper text (Body/14 in Grey-500, the
+/// selection-group-helper style); a long name breaks.
 .fileName {
-  font-size: var(--hive-font-size-sm);
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
   overflow-wrap: anywhere;
 }
 
+/// Helper text (selection-group-helper): Body/14 in Grey-500.
 .description {
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-text-muted);
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-gray-500);
 }
 
+/// The error line in the library `FieldError`'s Body/14 Red-500.
 .error {
-  font-size: var(--hive-font-size-sm);
-  color: var(--hive-color-danger-strong);
+  font: var(--hive-text-body-14);
+  color: var(--hive-color-danger);
 }

@@ -27,6 +27,6 @@ trap cleanup EXIT INT TERM
 
 .tox/dev/bin/hive-web --host 127.0.0.1 --port 8000 --reload &
 if [ -f frontend/package.json ]; then
-  (cd frontend && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm dev) &
+  (cd frontend && pnpm dev) &
 fi
 wait

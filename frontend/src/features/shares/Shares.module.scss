@@ -1,42 +1,39 @@
 @use "mixins" as *;
 
+/// Page sections (an alert above the panels, the panels) 32px apart
+/// (library `content-block-stack`, the content blocks' section gap).
 .stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hive-space-4);
+  @include content-block-stack;
 }
 
-.truncated {
-  display: inline-block;
-  max-width: 20rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+/// A page's intro paragraph: Body/16 in Grey-700, the content blocks'
+/// intro paragraph (content-blocks spec, Frame 519), at most span 9 wide
+/// (gap "Reading measure").
+.intro {
+  max-width: var(--hive-grid-span-9);
+  color: var(--hive-color-gray-700);
 }
 
+/// Helper text and notes: Body/14 in Grey-500, the text field's helper
+/// style (text-input spec, "Input Field with Labels").
 .muted {
-  margin: 0;
+  font: var(--hive-text-body-14);
   color: var(--hive-color-text-muted);
-  font-size: var(--hive-font-size-sm);
 }
 
-.mono {
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+/// An identifier in a table cell (an access rule's target or key): the
+/// cell's own Body/14, breaking anywhere rather than widening the table.
+/// No code face (gap "Code face and copyable value").
+.identifier {
   overflow-wrap: anywhere;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--hive-space-2);
-}
-
+/// Two panels side by side from 1024px, span 6 each with the grid's 24px
+/// gap (grids spec, 12 columns); stacked below.
 .grid {
   display: grid;
-  gap: var(--hive-space-4);
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--hive-grid-gap);
   align-items: start;
 
   @include up($bp-lg) {
@@ -44,18 +41,23 @@
   }
 }
 
+/// Quota meters above a list: the library `Meter`s 16px apart, the gap
+/// between labelled fields (DERIVED-SPACING: inter-field row gap), in a span
+/// 4 column (384px, the sidebar block's width; gap "Quota meters above a
+/// list").
 .meters {
   display: flex;
   flex-direction: column;
-  gap: var(--hive-space-2);
-  max-width: 28rem;
+  gap: var(--hive-space-4);
+  max-width: var(--hive-grid-span-4);
 }
 
+/// A list in a panel (export locations, a group's member shares): rows 8px
+/// apart and no bullets, as the Related list - Sidebar block stacks its
+/// rows (sidebar-blocks spec, line 876; library `sidebar-block-list`). Long
+/// paths break rather than widen the panel.
 .list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-family: var(--hive-font-mono);
-  font-size: var(--hive-font-size-xs);
+  @include sidebar-block-list;
+
   overflow-wrap: anywhere;
 }

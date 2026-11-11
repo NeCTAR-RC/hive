@@ -1,0 +1,40 @@
+{
+  "private": [
+    {
+      "id": "img-mine",
+      "name": "mine",
+      "visibility": "private",
+      "owner": "p1",
+      "status": "active"
+    }
+  ],
+  "shared": [],
+  "public": [
+    {
+      "id": "img-ubuntu",
+      "name": "Ubuntu 24.04",
+      "visibility": "public",
+      "owner": "ops",
+      "status": "active",
+      "os_hash_algo": "sha512",
+      "os_distro": "ubuntu"
+    }
+  ],
+  "community": [
+    {
+      "id": "img-comm",
+      "name": "Someone's image",
+      "visibility": "community",
+      "owner": "p9",
+      "status": "active"
+    },
+    {
+      "id": "img-snap",
+      "name": "snap",
+      "visibility": "community",
+      "owner": "p1",
+      "status": "active",
+      "image_type": "snapshot"
+    }
+  ]
+}

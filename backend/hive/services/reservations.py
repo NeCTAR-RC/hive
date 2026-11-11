@@ -6,19 +6,24 @@ from datetime import date, datetime, time, timedelta, UTC
 from hive.clients.nectar import WarreClient
 from hive.errors import BadRequest, Conflict, HiveError
 from hive.nectar import reservations as rules
+from hive.schemas.responses.reservations import (
+    ExtendWindow,
+    Reservation,
+    ReservationDetail,
+    ReservationOptions,
+    ReservationsResponse,
+    SlotsResponse,
+)
 from hive.services import allocation_summary as allocation_service
+from hive.services.concurrency import bounded_gather
 from hive.services.context import Context
+from hive.services.download import Download
+from hive.times import now_utc, to_utc_iso, today_utc
 
 SLOT_WINDOW_DAYS = 90
-# How far ahead the free-slot search may look; well past any flavour's
+# How far ahead the free-slot search may look: well past any flavour's
 # maximum length, and far from ``date.max``.
 SLOT_HORIZON_DAYS = 730
-FAN_OUT = 8
-
-
-def _now() -> datetime:
-    """The clock, in one place so tests can freeze it."""
-    return datetime.now(UTC)
 
 
 def _warre(ctx: Context) -> WarreClient:
@@ -40,9 +45,9 @@ def reservation_summary(
         "status": status,
         "status_help": rules.STATUS_HELP.get(status or "", ""),
         "status_reason": reservation.get("status_reason"),
-        "start": reservation.get("start"),
-        "end": reservation.get("end"),
-        "created_at": reservation.get("created_at"),
+        "start": to_utc_iso(reservation.get("start")),
+        "end": to_utc_iso(reservation.get("end")),
+        "created_at": to_utc_iso(reservation.get("created_at")),
         "instance_count": reservation.get("instance_count"),
         "compute_flavor": reservation.get("compute_flavor"),
         "flavor": rules.flavor_summary(reservation.get("flavor") or {}),
@@ -58,34 +63,36 @@ async def _budget(ctx: Context) -> tuple[float | None, float | None]:
     """SU used and budget for the eligibility check; unknown when the
     allocation summary is unavailable (the check is then skipped)."""
     try:
-        result = await allocation_service.allocation_summary(
-            ctx.http, ctx.settings, ctx.cache, ctx.scoped
-        )
+        result = await allocation_service.allocation_summary(ctx)
     except HiveError:
         return None, None
     value = result.value
     return value.get("su_used"), value.get("su_budget")
 
 
-async def list_reservations(ctx: Context) -> dict:
+async def list_reservations(ctx: Context) -> ReservationsResponse:
     warre = _warre(ctx)
     items, absolute = await asyncio.gather(
         warre.reservations(), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = _now()
+    now = now_utc()
     rows = [reservation_summary(r, limits, now) for r in items]
     rows.sort(key=lambda r: str(r.get("start") or ""), reverse=True)
-    return {"items": rows, "limits": limits}
+    return ReservationsResponse.model_validate(
+        {"items": rows, "limits": limits}
+    )
 
 
-async def get_reservation(ctx: Context, reservation_id: str) -> dict:
+async def get_reservation(
+    ctx: Context, reservation_id: str
+) -> ReservationDetail:
     warre = _warre(ctx)
     reservation, absolute = await asyncio.gather(
         warre.reservation(reservation_id), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = _now()
+    now = now_utc()
     summary = reservation_summary(reservation, limits, now)
     url = detail_url(ctx, reservation_id)
     summary["calendar"] = {
@@ -96,10 +103,10 @@ async def get_reservation(ctx: Context, reservation_id: str) -> dict:
         ),
     }
     summary["detail_url"] = url
-    return summary
+    return ReservationDetail.model_validate(summary)
 
 
-async def options(ctx: Context) -> dict:
+async def options(ctx: Context) -> ReservationOptions:
     warre = _warre(ctx)
     flavors, absolute = await asyncio.gather(warre.flavors(), warre.limits())
     try:
@@ -108,7 +115,7 @@ async def options(ctx: Context) -> dict:
         windows = []
     su_used, su_budget = await _budget(ctx)
     summaries = [rules.flavor_summary(f) for f in flavors]
-    return {
+    reply = {
         "limits": rules.limits_summary(absolute),
         "flavors": summaries,
         "categories": sorted(
@@ -124,8 +131,8 @@ async def options(ctx: Context) -> dict:
         "maintenance_windows": [
             {
                 "id": w.get("id"),
-                "start": w.get("start"),
-                "end": w.get("end"),
+                "start": to_utc_iso(w.get("start")),
+                "end": to_utc_iso(w.get("end")),
                 "note": w.get("note"),
                 "flavors": [
                     {"id": f.get("id"), "name": f.get("name")}
@@ -136,8 +143,9 @@ async def options(ctx: Context) -> dict:
         ],
         "su_used": su_used,
         "su_budget": su_budget,
-        "today": _now().date().isoformat(),
+        "today": today_utc().isoformat(),
     }
+    return ReservationOptions.model_validate(reply)
 
 
 async def slots(
@@ -146,7 +154,7 @@ async def slots(
     availability_zone: str | None,
     start: date | None,
     end: date | None,
-) -> dict:
+) -> SlotsResponse:
     """Free slots per flavour over the window of whole days ``start`` to
     ``end`` inclusive (Horizon's ``/api/warre/flavor-slots/``,
     ``api/rest/reservation.py:23-53``), each reduced to the days it can be
@@ -164,7 +172,7 @@ async def slots(
         params["category"] = category
     if availability_zone:
         params["availability_zone"] = availability_zone
-    now = _now()
+    now = now_utc()
     today = now.date()
     horizon = today + timedelta(days=SLOT_HORIZON_DAYS)
     start = max(start or today, today)
@@ -183,16 +191,12 @@ async def slots(
         datetime.combine(start, time.min, UTC) if sent_start else now
     )
     window_end = datetime.combine(end + timedelta(days=1), time.min, UTC)
-    semaphore = asyncio.Semaphore(FAN_OUT)
 
     async def fetch(flavor: dict) -> list[dict]:
-        async with semaphore:
-            try:
-                free = await warre.free_slots(
-                    flavor["id"], sent_start, sent_end
-                )
-            except HiveError:
-                return []
+        try:
+            free = await warre.free_slots(flavor["id"], sent_start, sent_end)
+        except HiveError:
+            return []
         found = []
         for slot in free:
             days = rules.slot_days(
@@ -205,27 +209,33 @@ async def slots(
             found.append(
                 {
                     "flavor_id": flavor["id"],
-                    "start": slot.get("start"),
-                    "end": slot.get("end"),
+                    "start": to_utc_iso(slot.get("start")),
+                    "end": to_utc_iso(slot.get("end")),
                     "first_day": days[0].isoformat(),
                     "last_day": days[1].isoformat(),
                 }
             )
         return found
 
-    groups = await asyncio.gather(*(fetch(f) for f in flavors if f.get("id")))
-    return {
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "flavors": [rules.flavor_summary(f) for f in flavors],
-        "slots": [slot for group in groups for slot in group],
-    }
+    groups = await bounded_gather(
+        [f for f in flavors if f.get("id")],
+        fetch,
+        ctx.settings.upstream_fan_out,
+    )
+    return SlotsResponse.model_validate(
+        {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "flavors": [rules.flavor_summary(f) for f in flavors],
+            "slots": [slot for group in groups for slot in group],
+        }
+    )
 
 
 async def create_reservation(
     ctx: Context, flavor_id: str, start: date, end: date
-) -> dict:
-    now = _now()
+) -> Reservation:
+    now = now_utc()
     if start < now.date():
         raise BadRequest("The reservation cannot start in the past.")
     if end < start:
@@ -262,7 +272,9 @@ async def create_reservation(
     )
     if not created.get("flavor"):
         created["flavor"] = flavor
-    return reservation_summary(created, limits, now)
+    return Reservation.model_validate(
+        reservation_summary(created, limits, now)
+    )
 
 
 async def _extend_window(
@@ -275,7 +287,7 @@ async def _extend_window(
         warre.reservation(reservation_id), warre.limits()
     )
     limits = rules.limits_summary(absolute)
-    now = _now()
+    now = now_utc()
     closed = {"available": False, "eligible_days": 0, "max_end": None}
     if not rules.can_extend(reservation, limits, now):
         return reservation, limits, now, closed
@@ -294,14 +306,14 @@ async def _extend_window(
     return reservation, limits, now, window
 
 
-async def extend_options(ctx: Context, reservation_id: str) -> dict:
+async def extend_options(ctx: Context, reservation_id: str) -> ExtendWindow:
     _, _, _, window = await _extend_window(ctx, reservation_id)
-    return window
+    return ExtendWindow.model_validate(window)
 
 
 async def extend_reservation(
     ctx: Context, reservation_id: str, end: date
-) -> dict:
+) -> Reservation:
     """Extend to ``end``, which must lie in the window ``extend_options``
     offers (``nectar_reservations.js:605-618``): warre would otherwise
     accept an end past the free slot, the flavour maximum or the
@@ -330,7 +342,9 @@ async def extend_reservation(
     )
     if not updated.get("flavor"):
         updated = {**reservation, **updated}
-    return reservation_summary(updated, limits, now)
+    return Reservation.model_validate(
+        reservation_summary(updated, limits, now)
+    )
 
 
 async def delete_reservation(ctx: Context, reservation_id: str) -> None:
@@ -343,12 +357,18 @@ async def delete_reservation(ctx: Context, reservation_id: str) -> None:
     await warre.delete_reservation(reservation_id)
 
 
-async def calendar(ctx: Context, reservation_id: str, host: str) -> str:
+async def calendar(ctx: Context, reservation_id: str, host: str) -> Download:
+    """An iCalendar entry for an allocated or active reservation."""
     reservation = await _warre(ctx).reservation(reservation_id)
     if reservation.get("status") not in rules.CALENDAR_STATUSES:
         raise Conflict(
             "Only allocated or active reservations have a calendar entry."
         )
-    return rules.ics_text(
-        reservation, detail_url(ctx, reservation_id), host, _now()
+    text = rules.ics_text(
+        reservation, detail_url(ctx, reservation_id), host, now_utc()
+    )
+    return Download(
+        f"nectar-reservation-{reservation_id}.ics",
+        "text/calendar; charset=utf-8",
+        text,
     )

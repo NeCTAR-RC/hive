@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    The login page reproduces the Nectar dashboard's: its welcome text
+    and its sentence on logging in with AAF or Tuakiri, the honeycomb
+    illustration filling the page from the left with the form centred in
+    the right half, and no illustration on phones. The illustration stops
+    moving when the browser asks for reduced motion.

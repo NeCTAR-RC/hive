@@ -1,0 +1,10 @@
+{
+  "name": "general",
+  "type": "USER",
+  "status": "Published",
+  "published": 120,
+  "pending": 0,
+  "container": "database_logs",
+  "prefix": "db-1/mysql-general",
+  "metafile": "db-1/mysql-general_metafile"
+}

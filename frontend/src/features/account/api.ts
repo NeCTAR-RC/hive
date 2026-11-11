@@ -7,7 +7,7 @@ import type {
   PasswordReset,
   Profile,
   ProfileUpdateRequest,
-} from "../../lib/api/types";
+} from "../../lib/api/types/account";
 import { profileQuery } from "../../lib/queries";
 
 export function useUpdateProfile() {

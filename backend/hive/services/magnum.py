@@ -1,16 +1,31 @@
 """Kubernetes clusters (Magnum) with the Nectar workflow."""
 
 import asyncio
+from collections.abc import Awaitable
 
+from hive.cache import policy
 from hive.clients.magnum import MagnumClient
 from hive.errors import BadRequest, Conflict, HiveError, NotFound
 from hive.nectar import magnum as rules
 from hive.schemas.magnum import ClusterCreate, NodeGroupCreate
+from hive.schemas.responses.magnum import (
+    Cluster,
+    ClusterCertificate,
+    ClusterConfig,
+    ClusterCreated,
+    ClusterOptions,
+    ClustersResponse,
+    ClusterTemplate,
+    ClusterUpgrading,
+    NodeGroup,
+    NodeGroupResized,
+    NodeGroupsResponse,
+    UpgradeOptions,
+)
+from hive.services.concurrency import bounded_gather
 from hive.services.context import Context
+from hive.services.download import Download
 
-TEMPLATES_TTL = 300
-TEMPLATES_STALE = 3600
-FAN_OUT = 8
 FALLBACK_QUOTA = 20
 
 
@@ -18,9 +33,9 @@ def _magnum(ctx: Context) -> MagnumClient:
     return MagnumClient(ctx.http, ctx.settings, ctx.scoped)
 
 
-async def templates(ctx: Context) -> list[dict]:
-    """Every template the user can see, cached per project (Magnum hides
-    hidden templates from non-admins itself)."""
+async def _templates(ctx: Context) -> list[dict]:
+    """Every template the user can see, shaped and cached per project
+    (Magnum hides hidden templates from non-admins itself)."""
 
     async def fetch():
         return [
@@ -28,43 +43,50 @@ async def templates(ctx: Context) -> list[dict]:
             for t in await _magnum(ctx).cluster_templates()
         ]
 
-    result = await ctx.cache.get_or_fetch(
-        ctx.cache.project_key(ctx.project_id, "magnum-templates"),
-        fetch,
-        ttl=TEMPLATES_TTL,
-        stale_ttl=TEMPLATES_STALE,
-        name="magnum-templates",
-    )
+    result = await ctx.cached(policy.MAGNUM_TEMPLATES, fetch)
     return result.value
 
 
-async def get_template(ctx: Context, template_id: str) -> dict:
+async def templates(ctx: Context) -> list[ClusterTemplate]:
+    return [ClusterTemplate.model_validate(t) for t in await _templates(ctx)]
+
+
+async def _template(ctx: Context, template_id: str) -> dict:
     return rules.template_summary(
         await _magnum(ctx).cluster_template(template_id)
     )
 
 
+async def get_template(ctx: Context, template_id: str) -> ClusterTemplate:
+    return ClusterTemplate.model_validate(await _template(ctx, template_id))
+
+
 async def _template_map(ctx: Context) -> dict[str, dict]:
     try:
-        return {t["id"]: t for t in await templates(ctx)}
+        return {t["id"]: t for t in await _templates(ctx)}
+    except HiveError:
+        return {}
+
+
+async def _or_empty(call: Awaitable[dict]) -> dict:
+    """The answer, or ``{}`` when Magnum fails: quota figures decorate the
+    page and must not break it."""
+    try:
+        return await call
     except HiveError:
         return {}
 
 
 async def quota(ctx: Context) -> dict:
     magnum = _magnum(ctx)
-    hard_limit = FALLBACK_QUOTA
+    limits, stats = await asyncio.gather(
+        _or_empty(magnum.quota(ctx.project_id)),
+        _or_empty(magnum.stats(ctx.project_id)),
+    )
     try:
-        hard_limit = int(
-            (await magnum.quota(ctx.project_id)).get("hard_limit", hard_limit)
-        )
-    except HiveError:
-        pass
-    stats = {}
-    try:
-        stats = await magnum.stats(ctx.project_id)
-    except HiveError:
-        pass
+        hard_limit = int(limits.get("hard_limit", FALLBACK_QUOTA))
+    except (TypeError, ValueError):
+        hard_limit = FALLBACK_QUOTA
     return {
         "clusters": stats.get("clusters"),
         "nodes": stats.get("nodes"),
@@ -72,7 +94,7 @@ async def quota(ctx: Context) -> dict:
     }
 
 
-async def list_clusters(ctx: Context) -> dict:
+async def list_clusters(ctx: Context) -> ClustersResponse:
     magnum = _magnum(ctx)
     clusters, by_id, usage = await asyncio.gather(
         magnum.clusters(), _template_map(ctx), quota(ctx)
@@ -84,27 +106,27 @@ async def list_clusters(ctx: Context) -> dict:
     items.sort(key=lambda c: (c["name"] or "").lower())
     if usage.get("clusters") is None:
         usage["clusters"] = len(items)
-    return {"items": items, "quota": usage}
+    return ClustersResponse.model_validate({"items": items, "quota": usage})
 
 
-async def get_cluster(ctx: Context, cluster_id: str) -> dict:
+async def get_cluster(ctx: Context, cluster_id: str) -> Cluster:
     magnum = _magnum(ctx)
     cluster = await magnum.cluster(cluster_id)
     template = None
     if cluster.get("cluster_template_id"):
         try:
-            template = await get_template(ctx, cluster["cluster_template_id"])
+            template = await _template(ctx, cluster["cluster_template_id"])
         except HiveError:
             template = None
-    return rules.cluster_summary(cluster, template)
+    return Cluster.model_validate(rules.cluster_summary(cluster, template))
 
 
-async def create_options(ctx: Context) -> dict:
+async def create_options(ctx: Context) -> ClusterOptions:
     """What the create workflow needs: the pickers derived from the
     templates, the template details, and the Nova flavours by name."""
-    items, flavors = await asyncio.gather(templates(ctx), ctx.nova.flavors())
+    items, flavors = await asyncio.gather(_templates(ctx), ctx.nova.flavors())
     usable = rules.selectable_templates(items)
-    return {
+    options = {
         **rules.picker_options(items),
         "templates": usable,
         "flavors": sorted(
@@ -122,20 +144,20 @@ async def create_options(ctx: Context) -> dict:
         "control_plane_sizes": list(rules.CONTROL_PLANE_SIZES),
         "quota": await quota(ctx),
     }
+    return ClusterOptions.model_validate(options)
 
 
-async def create_cluster(ctx: Context, data: ClusterCreate) -> dict:
-    problem = rules.validate_cluster_name(data.name)
-    if problem:
-        raise BadRequest(problem)
-    template = await get_template(ctx, data.cluster_template_id)
+async def create_cluster(ctx: Context, data: ClusterCreate) -> ClusterCreated:
+    template = await _template(ctx, data.cluster_template_id)
     if not template.get("id"):
         raise NotFound("cluster template not found")
-    problem = rules.validate_master_count(
+    rules.validate_master_count(
         data.master_count, bool(template.get("master_lb_enabled"))
     )
-    if problem:
-        raise BadRequest(problem)
+    if data.autoscaling:
+        rules.validate_autoscaling(
+            data.node_count, data.min_node_count, data.max_node_count
+        )
     body = rules.create_body(
         name=data.name,
         template=template,
@@ -145,97 +167,105 @@ async def create_cluster(ctx: Context, data: ClusterCreate) -> dict:
         node_flavor=data.flavor_id,
         etcd_volume_size=data.etcd_volume_size,
         etcd_volume_type=data.etcd_volume_type,
+        keypair=data.keypair,
+        autoscaling=data.autoscaling,
+        min_node_count=data.min_node_count,
+        max_node_count=data.max_node_count,
     )
     created = await _magnum(ctx).create_cluster(body)
-    return {"id": created.get("uuid"), "name": data.name}
+    return ClusterCreated.model_validate(
+        {"id": created.get("uuid"), "name": data.name}
+    )
 
 
 async def delete_cluster(ctx: Context, cluster_id: str) -> None:
     await _magnum(ctx).delete_cluster(cluster_id)
 
 
-async def upgrade_options(ctx: Context, cluster_id: str) -> dict:
+async def upgrade_options(ctx: Context, cluster_id: str) -> UpgradeOptions:
     """The templates the current one names as upgrade targets, newest
     first (``rolling-upgrade/upgrade.service.js:70-138``)."""
     cluster = await get_cluster(ctx, cluster_id)
     current = None
-    if cluster.get("cluster_template_id"):
+    if cluster.cluster_template_id:
         try:
-            current = await get_template(ctx, cluster["cluster_template_id"])
+            current = await get_template(ctx, cluster.cluster_template_id)
         except HiveError:
             current = None
-    target_ids = (
-        (current or {}).get("upgrade_targets")
-        or cluster.get("upgrade_targets")
-        or []
+    target_ids = cluster.upgrade_targets
+    if current and current.upgrade_targets:
+        target_ids = current.upgrade_targets
+
+    async def fetch(template_id: str) -> ClusterTemplate | None:
+        try:
+            return await get_template(ctx, template_id)
+        except HiveError:
+            return None
+
+    templates = await bounded_gather(
+        target_ids, fetch, ctx.settings.upstream_fan_out
     )
-    semaphore = asyncio.Semaphore(FAN_OUT)
-
-    async def fetch(template_id: str):
-        async with semaphore:
-            try:
-                return await get_template(ctx, template_id)
-            except HiveError:
-                return None
-
-    found = [
-        t for t in await asyncio.gather(*(fetch(t) for t in target_ids)) if t
-    ]
+    found = [t for t in templates if t]
     found.sort(
-        key=lambda t: rules.version_key(t.get("kubernetes_version") or "0"),
+        key=lambda t: rules.version_key(t.kubernetes_version or "0"),
         reverse=True,
     )
-    return {
-        "cluster_id": cluster_id,
-        "can_upgrade": rules.can_upgrade(cluster.get("status")),
-        "current_version": cluster.get("kubernetes_version"),
-        "targets": [
-            {
-                "template_id": t["id"],
-                "name": t["name"],
-                "kubernetes_version": t.get("kubernetes_version"),
-            }
-            for t in found
-        ],
-    }
+    return UpgradeOptions.model_validate(
+        {
+            "cluster_id": cluster_id,
+            "can_upgrade": rules.can_upgrade(cluster.status),
+            "current_version": cluster.kubernetes_version,
+            "targets": [
+                {
+                    "template_id": t.id,
+                    "name": t.name,
+                    "kubernetes_version": t.kubernetes_version,
+                }
+                for t in found
+            ],
+        }
+    )
 
 
 async def upgrade_cluster(
     ctx: Context, cluster_id: str, template_id: str, batch: int
-) -> dict:
+) -> ClusterUpgrading:
+    """Upgrade to one of the targets ``upgrade_options`` offers, nothing
+    else."""
     options = await upgrade_options(ctx, cluster_id)
-    if not options["can_upgrade"]:
+    if not options.can_upgrade:
         raise Conflict(
             "The cluster must be in a completed state before it can be upgraded."
         )
-    if template_id not in {t["template_id"] for t in options["targets"]}:
+    if template_id not in {t.template_id for t in options.targets}:
         raise BadRequest(
             "The template is not an upgrade target of the cluster's template."
         )
     await _magnum(ctx).upgrade_cluster(
         cluster_id, {"cluster_template": template_id, "max_batch_size": batch}
     )
-    return {"id": cluster_id, "status": "UPDATE_IN_PROGRESS"}
+    return ClusterUpgrading.model_validate(
+        {"id": cluster_id, "status": "UPDATE_IN_PROGRESS"}
+    )
 
 
-# --- node groups ---------------------------------------------------------------
-
-
-async def list_nodegroups(ctx: Context, cluster_id: str) -> dict:
+async def list_nodegroups(ctx: Context, cluster_id: str) -> NodeGroupsResponse:
     magnum = _magnum(ctx)
     cluster, brief = await asyncio.gather(
         magnum.cluster(cluster_id), magnum.nodegroups(cluster_id)
     )
-    semaphore = asyncio.Semaphore(FAN_OUT)
 
     async def detail(nodegroup: dict) -> dict:
-        async with semaphore:
-            try:
-                return await magnum.nodegroup(cluster_id, nodegroup["uuid"])
-            except HiveError:
-                return nodegroup
+        try:
+            return await magnum.nodegroup(cluster_id, nodegroup["uuid"])
+        except HiveError:
+            return nodegroup
 
-    full = await asyncio.gather(*(detail(n) for n in brief if n.get("uuid")))
+    full = await bounded_gather(
+        [n for n in brief if n.get("uuid")],
+        detail,
+        ctx.settings.upstream_fan_out,
+    )
     items = [rules.nodegroup_summary(n) for n in full]
     items.sort(
         key=lambda n: (
@@ -244,18 +274,22 @@ async def list_nodegroups(ctx: Context, cluster_id: str) -> dict:
             n["name"] or "",
         )
     )
-    return {
-        "items": items,
-        "can_change": rules.can_change_nodegroups(cluster.get("status")),
-        "cluster_status": cluster.get("status"),
-    }
+    return NodeGroupsResponse.model_validate(
+        {
+            "items": items,
+            "can_change": rules.can_change_nodegroups(cluster.get("status")),
+            "cluster_status": cluster.get("status"),
+        }
+    )
 
 
 async def get_nodegroup(
     ctx: Context, cluster_id: str, nodegroup_id: str
-) -> dict:
-    return rules.nodegroup_summary(
-        await _magnum(ctx).nodegroup(cluster_id, nodegroup_id)
+) -> NodeGroup:
+    return NodeGroup.model_validate(
+        rules.nodegroup_summary(
+            await _magnum(ctx).nodegroup(cluster_id, nodegroup_id)
+        )
     )
 
 
@@ -270,54 +304,42 @@ async def _require_changeable(ctx: Context, cluster_id: str) -> dict:
 
 async def create_nodegroup(
     ctx: Context, cluster_id: str, data: NodeGroupCreate
-) -> dict:
+) -> NodeGroup:
     await _require_changeable(ctx, cluster_id)
-    if (
-        data.autoscaling
-        and data.min_node_count is not None
-        and data.max_node_count is not None
-    ):
-        if data.max_node_count < data.min_node_count:
-            raise BadRequest(
-                "The maximum node count must be at least the minimum."
-            )
-        if not data.min_node_count <= data.node_count <= data.max_node_count:
-            raise BadRequest(
-                "The node count must be between the minimum and the maximum."
-            )
-    try:
-        body = rules.nodegroup_body(
-            name=data.name,
-            flavor=data.flavor_id,
-            node_count=data.node_count,
-            autoscaling=data.autoscaling,
-            min_node_count=data.min_node_count,
-            max_node_count=data.max_node_count,
-            boot_volume_size=data.boot_volume_size,
-            boot_volume_type=data.boot_volume_type,
-            node_labels=data.node_labels,
-            node_taints=data.node_taints,
+    if data.autoscaling:
+        rules.validate_autoscaling(
+            data.node_count, data.min_node_count, data.max_node_count
         )
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
+    body = rules.nodegroup_body(
+        name=data.name,
+        flavor=data.flavor_id,
+        node_count=data.node_count,
+        autoscaling=data.autoscaling,
+        min_node_count=data.min_node_count,
+        max_node_count=data.max_node_count,
+        boot_volume_size=data.boot_volume_size,
+        boot_volume_type=data.boot_volume_type,
+        node_labels=data.node_labels,
+        node_taints=data.node_taints,
+    )
     created = await _magnum(ctx).create_nodegroup(cluster_id, body)
-    return rules.nodegroup_summary(created)
+    return NodeGroup.model_validate(rules.nodegroup_summary(created))
 
 
 async def resize_nodegroup(
     ctx: Context, cluster_id: str, nodegroup_id: str, node_count: int
-) -> dict:
+) -> NodeGroupResized:
     await _require_changeable(ctx, cluster_id)
     magnum = _magnum(ctx)
     nodegroup = await magnum.nodegroup(cluster_id, nodegroup_id)
-    problem = rules.validate_resize(nodegroup.get("role"), node_count)
-    if problem:
-        raise BadRequest(problem)
+    rules.validate_resize(nodegroup.get("role"), node_count)
     await magnum.resize_cluster(
         cluster_id,
         {"node_count": node_count, "nodegroup": nodegroup.get("name")},
     )
-    return {"id": nodegroup_id, "node_count": node_count}
+    return NodeGroupResized.model_validate(
+        {"id": nodegroup_id, "node_count": node_count}
+    )
 
 
 async def set_autoscaling(
@@ -326,7 +348,7 @@ async def set_autoscaling(
     nodegroup_id: str,
     minimum: int,
     maximum: int,
-) -> dict:
+) -> NodeGroup:
     await _require_changeable(ctx, cluster_id)
     if maximum < minimum:
         raise BadRequest(
@@ -339,7 +361,7 @@ async def set_autoscaling(
     updated = await _magnum(ctx).patch_nodegroup(
         cluster_id, nodegroup_id, patch
     )
-    return rules.nodegroup_summary(updated)
+    return NodeGroup.model_validate(rules.nodegroup_summary(updated))
 
 
 async def set_labels(
@@ -348,7 +370,7 @@ async def set_labels(
     nodegroup_id: str,
     node_labels: str | None,
     node_taints: str | None,
-) -> dict:
+) -> NodeGroup:
     """Replace the Kubernetes node labels and taints (a rolling
     replacement of the group's nodes)."""
     await _require_changeable(ctx, cluster_id)
@@ -358,12 +380,10 @@ async def set_labels(
         raise BadRequest(
             "Control plane node groups cannot carry labels or taints."
         )
-    try:
-        labels = rules.parse_node_labels(node_labels)
-        taints = rules.parse_node_taints(node_taints)
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
+    labels = rules.parse_node_labels(node_labels)
+    taints = rules.parse_node_taints(node_taints)
     patch = []
+    # A spurious change would PATCH the node group and roll every node.
     if not rules.same_node_labels(labels, nodegroup.get("node_labels")):
         patch.append(
             {"op": "replace", "path": "/node_labels", "value": labels}
@@ -373,9 +393,9 @@ async def set_labels(
             {"op": "replace", "path": "/node_taints", "value": taints}
         )
     if not patch:
-        return rules.nodegroup_summary(nodegroup)
+        return NodeGroup.model_validate(rules.nodegroup_summary(nodegroup))
     updated = await magnum.patch_nodegroup(cluster_id, nodegroup_id, patch)
-    return rules.nodegroup_summary(updated)
+    return NodeGroup.model_validate(rules.nodegroup_summary(updated))
 
 
 async def delete_nodegroup(
@@ -389,20 +409,27 @@ async def delete_nodegroup(
     await magnum.delete_nodegroup(cluster_id, nodegroup_id)
 
 
-# --- certificates and config ---------------------------------------------------
+async def ca_certificate(ctx: Context, cluster_id: str) -> Download:
+    """The cluster's CA certificate as ``<cluster name>_ca.pem``."""
+    magnum = _magnum(ctx)
+    cluster, ca = await asyncio.gather(
+        magnum.cluster(cluster_id), magnum.ca_certificate(cluster_id)
+    )
+    return Download(
+        f"{cluster.get('name') or cluster_id}_ca.pem",
+        "application/x-pem-file",
+        ca.get("pem") or "",
+    )
 
 
-async def ca_certificate(ctx: Context, cluster_id: str) -> str:
-    return (await _magnum(ctx).ca_certificate(cluster_id)).get("pem") or ""
+async def sign_certificate(
+    ctx: Context, cluster_id: str, csr: str
+) -> ClusterCertificate:
+    signed = await _magnum(ctx).sign_certificate(cluster_id, csr)
+    return ClusterCertificate.model_validate({"pem": signed.get("pem") or ""})
 
 
-async def sign_certificate(ctx: Context, cluster_id: str, csr: str) -> str:
-    return (await _magnum(ctx).sign_certificate(cluster_id, csr)).get(
-        "pem"
-    ) or ""
-
-
-async def cluster_config(ctx: Context, cluster_id: str) -> dict:
+async def cluster_config(ctx: Context, cluster_id: str) -> ClusterConfig:
     """A kubeconfig with embedded admin credentials, plus the key, CA and
     certificate as separate files (``api/magnum.py:260-283``)."""
     magnum = _magnum(ctx)
@@ -427,13 +454,15 @@ async def cluster_config(ctx: Context, cluster_id: str) -> dict:
         )
         ca = ca_pem.get("pem")
         cert = signed.get("pem")
-    return {
-        "name": cluster.get("name"),
-        "api_address": api_address,
-        "kubeconfig": rules.kubeconfig(
-            cluster.get("name") or "cluster", api_address, ca, cert, key
-        ),
-        "key": key,
-        "ca": ca,
-        "cert": cert,
-    }
+    return ClusterConfig.model_validate(
+        {
+            "name": cluster.get("name"),
+            "api_address": api_address,
+            "kubeconfig": rules.kubeconfig(
+                cluster.get("name") or "cluster", api_address, ca, cert, key
+            ),
+            "key": key,
+            "ca": ca,
+            "cert": cert,
+        }
+    )
