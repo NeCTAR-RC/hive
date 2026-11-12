@@ -134,9 +134,10 @@ when CI would fail it. Skip it with `ARDC_HOOKS=0` or `git push
 --no-verify`; set `ARDC_HOOKS=0` during `pnpm install` to not install it.
 pre-commit also runs `pnpm lint` on commits that touch `frontend/`.
 
-`tox -e e2e` sets `CI=1`: one worker, two retries, and a test that passes
-only on a retry still fails the run. The HTML report lands in
-`playwright-report/` and traces in `test-results/`.
+`tox -e e2e` sets `CI=1`: two retries, and a test that passes only on a
+retry still fails the run; the workers are half the cores, as locally.
+The HTML report lands in `playwright-report/` and traces in
+`test-results/`.
 
 CI runs these through the nectar-ci `{name}-resolute-tox-{environment}`
 job template on the `resolute` agents (node 26 and a global pnpm; the e2e

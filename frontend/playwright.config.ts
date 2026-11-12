@@ -67,7 +67,11 @@ export default defineConfig<HiveOptions>({
   retries: CI ? 2 : 0,
   // A test that passes only on a retry still fails the CI run.
   failOnFlakyTests: CI,
-  workers: CI ? 1 : undefined,
+  // Half the cores on CI as well (Playwright's local default): the
+  // scaffold's single worker on CI made the 810-test run take 36 minutes
+  // on the Jenkins agents. A race that a parallel run exposes is a test
+  // bug to fix, never a reason to go back to one worker.
+  workers: "50%",
   reporter: CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: LIVE_URL ?? `http://localhost:${PORT}`,
