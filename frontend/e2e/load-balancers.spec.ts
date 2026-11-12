@@ -353,7 +353,9 @@ test.describe("listeners", () => {
     await expect(row(policies, "block-admin")).toBeVisible();
     await page.getByRole("button", { name: "Create policy" }).click();
     const create = dialog(page, "Create L7 policy");
-    await create.getByRole("textbox", { name: "Name" }).fill("to-docs");
+    // The dialog opens under the pointer the toolbar click left behind;
+    // fillField settles the hover that would otherwise swallow the text.
+    await fillField(create.getByRole("textbox", { name: "Name" }), "to-docs");
     await create.getByRole("button", { name: /Action/ }).click();
     await page.getByRole("option", { name: "Redirect to URL" }).click();
     // The closing listbox hands focus back to the select once its exit
