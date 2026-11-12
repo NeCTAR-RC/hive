@@ -82,6 +82,25 @@ export function dialog(page: Page, name: string | RegExp): Locator {
 }
 
 /**
+ * Types into a text field of a dialog that has just opened. Every click is
+ * a mouse click, on the phone projects too, so the pointer stays where the
+ * click that opened the dialog landed, over the new content, and Chrome
+ * reports the hover for whatever is now under it in a task of its own.
+ * When that task falls between the fill's focus and its text insertion,
+ * React commits the hover state in the middle of the input event; a
+ * controlled input is then put back to the value React last rendered, and
+ * React's change handler sees nothing to report, so the text is lost. The
+ * hover goes first, and is waited for, so nothing is pending when the text
+ * arrives.
+ */
+export async function fillField(field: Locator, text: string) {
+  await field.hover();
+  await expect(field).toHaveAttribute("data-hovered", "true");
+  await field.fill(text);
+  await expect(field).toHaveValue(text);
+}
+
+/**
  * A dialog's own "Close" button. The corner X shares the accessible name
  * but shows no text, so the visible label tells them apart.
  */

@@ -11,6 +11,7 @@ import {
   expectPage,
   expectSearchSurvivesBack,
   expectToast,
+  fillField,
   main,
   openSection,
   row,
@@ -297,11 +298,11 @@ test.describe("listener and rule dialogs", () => {
     const rules = dialog(page, "Rules of block-admin");
     await rowAction(row(rules, "Path"), "Edit rule");
     const edit = dialog(page, "Edit rule of block-admin");
-    // The value first: text typed straight after a pick in a select is
-    // sometimes lost (the known flake of the L7 policy test below).
+    // On a phone the field renders under the pointer the menu click left
+    // behind; fillField settles the hover that would otherwise swallow the
+    // text.
     const value = edit.getByRole("textbox", { name: "Value" });
-    await value.fill("php");
-    await expect(value).toHaveValue("php");
+    await fillField(value, "php");
     await edit.getByRole("button", { name: /Type$/ }).click();
     await page.getByRole("option", { name: "File type" }).click();
     await edit.getByRole("button", { name: /Comparison$/ }).click();
