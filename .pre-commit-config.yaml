@@ -30,7 +30,7 @@ repos:
         files: .*\.(yaml|yml)$
         exclude: *frontend
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.9
+    rev: v0.17.4
     hooks:
       - id: ruff
         args: ['--fix', '--unsafe-fixes']
@@ -45,7 +45,7 @@ repos:
           - flake8-import-order~=0.19.2
         exclude: '^(frontend|releasenotes|scripts)/.*$'
   - repo: https://github.com/crate-ci/typos
-    rev: v1.50.3
+    rev: v1.52.0
     hooks:
       - id: typos
         exclude: *frontend
