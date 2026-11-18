@@ -45,7 +45,7 @@ repos:
           - flake8-import-order~=0.19.2
         exclude: '^(frontend|releasenotes|scripts)/.*$'
   - repo: https://github.com/crate-ci/typos
-    rev: v1.52.0
+    rev: v1.52.2
     hooks:
       - id: typos
         exclude: *frontend
